@@ -3,9 +3,9 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=20";
-import { drawMask } from "./masks.js?v=20";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=20";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=21";
+import { drawMask } from "./masks.js?v=21";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=21";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -24,6 +24,8 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=20";
   autoLastNose: null,
   autoArmed: false,
   portraitMode: false,   // capture double + GIF à chaque prise
+  burstMode: false,      // rafale Flash+ : flash fort + meilleure prise automatique
+  lensDeviceId: null,    // objectif choisi (deviceId) — null = auto
   flashMode: "on",       // on | auto | off — ON par défaut : flash à chaque photo
   qualityMax: true,
   trackEnabled: true,
@@ -40,7 +42,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=20";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "20"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=20 du SW
+const APP_VERSION = "21"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=21 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -290,8 +292,74 @@ function fillLightOff() {
 }
 
 /* =========================================================
-   CAMÉRA
+   CAMÉRA + OBJECTIF (grand angle)
+   ⚠️ Limite iOS : Safari n'expose QU'UNE caméra par face au web
+   (pas d'ultra-wide via getUserMedia — comme la LED). Le sélecteur
+   énumère les caméras RÉELLES : sur Android/Chrome plusieurs
+   objectifs apparaissent et basculent réellement ; sur iPhone il
+   montre l'unique objectif dispo (honnête).
    ========================================================= */
+let _lensDevices = [];
+
+/* Énumère les caméras réelles (peuvent être plusieurs sur Android) */
+async function listLenses() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    _lensDevices = devices.filter((d) => d.kind === "videoinput" && d.deviceId);
+  } catch { _lensDevices = []; }
+}
+
+function lensLabel(device) {
+  const label = device.label || "";
+  if (!label) return "Objectif";
+  // Court + lisible : "Camera 0 (back)" → "Arrière"; contient wide/ultra → "Grand angle"
+  const l = label.toLowerCase();
+  if (l.includes("ultra")) return "Grand angle";
+  if (l.includes("wide")) return "Grand angle";
+  if (l.includes("front") || l.includes("selfie")) return "Selfie";
+  if (l.includes("back") || l.includes("rear")) return "Arrière";
+  return label.replace(/[\w\s]*camera[\w\s]*/gi, "Objectif").trim().slice(0, 16) || "Objectif";
+}
+
+/* Construit le sélecteur d'objectif dans les paramètres */
+function buildLensOptions() {
+  const box = $("lens-options");
+  if (!box) return;
+  box.innerHTML = "";
+  const mk = (label, deviceId) => {
+    const btn = document.createElement("button");
+    btn.className = `lens-chip${state.lensDeviceId === deviceId ? " active" : ""}`;
+    btn.textContent = label;
+    btn.addEventListener("click", async () => {
+      state.lensDeviceId = deviceId; // null = auto (facingMode)
+      buildLensOptions();
+      toast(deviceId ? `Objectif : ${label}` : "Objectif auto");
+      if (state.stream) {
+        try { state.stream.getTracks().forEach((t) => t.stop()); } catch {}
+        state.stream = null;
+        await startCamera();
+      }
+    });
+    box.appendChild(btn);
+  };
+  mk("Auto", null);
+  let backCount = 0;
+  _lensDevices.forEach((d) => {
+    // N'affiche que les arrières + l'objectif déjà choisi (le front se gère par flip)
+    const isFront = /front|selfie/i.test(d.label || "");
+    if (isFront && state.lensDeviceId !== d.deviceId) return;
+    if (!isFront) backCount++;
+    mk(lensLabel(d), d.deviceId);
+  });
+  // Hint honnête : pas de multi-objectif arrière → impossible au web sur ce device
+  if (backCount <= 1) {
+    const hint = document.createElement("span");
+    hint.className = "lens-hint";
+    hint.textContent = "Un seul objectif arrière exposé (iPhone : Safari n'expose pas l'ultra-wide au web)";
+    box.appendChild(hint);
+  }
+}
+
 async function startCamera() {
   console.log("[MomentoBooth] startCamera appelé");
   const errorEl = $("camera-error");
@@ -299,11 +367,15 @@ async function startCamera() {
     const facing = state.facing === "user" ? "user" : "environment";
     // Essai progressif : 2560 → 1920 → 1280 → sans contrainte.
     // iPhone 11 (front ≤ ~1920×1080) échoue parfois sur les grosses contraintes.
+    // Si un objectif précis est choisi → deviceId exact (Android multi-objectifs).
+    const base = state.lensDeviceId
+      ? { deviceId: { exact: state.lensDeviceId } }
+      : { facingMode: facing };
     const attempts = [
-      { facingMode: facing, width: { ideal: 2560 }, height: { ideal: 1920 } },
-      { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1440 } },
-      { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
-      { facingMode: facing },
+      { ...base, width: { ideal: 2560 }, height: { ideal: 1920 } },
+      { ...base, width: { ideal: 1920 }, height: { ideal: 1440 } },
+      { ...base, width: { ideal: 1280 }, height: { ideal: 720 } },
+      base,
     ];
     let stream = null, lastError = null;
     for (const video of attempts) {
@@ -324,6 +396,8 @@ async function startCamera() {
     console.log("[MomentoBooth] caméra OK", camera.videoWidth, "x", camera.videoHeight);
     // Contour lumineux : analyse la luminosité de la scène en continu
     startLightMonitor();
+    // Objectifs : liste les caméras réelles (Android) et met à jour le sélecteur
+    listLenses().then(() => { try { buildLensOptions(); } catch {} });
     // ⚠️ Watchdog : si la vidéo reste NOIRE (aucune dimension après 2,5 s),
     // on ré-attache le flux (bug iOS connu) puis on affiche un diagnostic.
     setTimeout(() => {
@@ -359,6 +433,10 @@ async function flipCamera() {
   if (!state.stream) return;
   state.stream.getTracks().forEach((t) => t.stop());
   state.facing = state.facing === "user" ? "environment" : "user";
+  // ⚠️ Le retournement repasse à l'objectif auto (sinon deviceId exact
+  // bloquerait la bascule avant/arrière)
+  state.lensDeviceId = null;
+  try { buildLensOptions(); } catch {}
   await startCamera();
 }
 
@@ -582,7 +660,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=19");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=21");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
@@ -744,6 +822,10 @@ function ratioOf(video) {
 }
 
 async function capture() {
+  if (state.burstMode) {
+    await captureBurst();
+    return;
+  }
   if (state.portraitMode || state.autoMode) {
     await capturePortrait();
     return;
@@ -758,6 +840,117 @@ async function capture() {
   state.latestPhoto = blob;
   playBeep(1200, 0.2, 0.3);
   showResult([{ blob, label: "Photo" }]);
+}
+
+/* ════════════════════════════════════════════════════════════
+   RAFALE FLASH+ : flash hyper fort (écran blanc + contour
+   lumineux techno qui explose) + plusieurs frames capturées
+   pendant la lumière → on garde automatiquement la MEILLEURE
+   (netteté × bonne exposition × visage présent), puis on livre
+   la floutée + le GIF comme d'habitude.
+   ════════════════════════════════════════════════════════════ */
+
+/* Score d'une frame : netteté (variance du Laplacien sur gris)
+   × exposition (pénalise trop sombre / brûlée) × bonus visage. */
+function frameScore(canvas) {
+  try {
+    const S = 64;
+    const small = document.createElement("canvas");
+    small.width = S; small.height = S;
+    const sctx = small.getContext("2d", { willReadFrequently: true });
+    sctx.drawImage(canvas, 0, 0, S, S);
+    const d = sctx.getImageData(0, 0, S, S).data;
+    // gris
+    const g = new Float32Array(S * S);
+    let lumSum = 0;
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      g[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      lumSum += g[p];
+    }
+    const avg = lumSum / (S * S);
+    // Laplacien : netteté (contours) — variance élevée = net
+    let lapSum = 0, lapCount = 0;
+    for (let y = 1; y < S - 1; y++) {
+      for (let x = 1; x < S - 1; x++) {
+        const p = y * S + x;
+        const lap = g[p - 1] + g[p + 1] + g[p - S] + g[p + S] - 4 * g[p];
+        lapSum += lap * lap;
+        lapCount++;
+      }
+    }
+    const sharpness = lapSum / Math.max(1, lapCount);
+    // Exposition : idéal ~120 ; trop sombre (<45) ou brûlé (>215) → pénalité
+    let exposure = 1;
+    if (avg < 45) exposure = Math.max(0.25, avg / 45);
+    else if (avg > 215) exposure = Math.max(0.25, (255 - avg) / 40);
+    return sharpness * exposure;
+  } catch { return 0; }
+}
+
+async function captureBurst() {
+  if (state.counting) return;
+  state.counting = true;
+  sfxShutter();
+  try {
+    // ⚡ FLASH HYPER FORT : écran blanc + contour lumineux techno (accéléré)
+    fillLightOn();
+    lightFrameBurst();
+    tryTorch();
+    await new Promise((resolve) => setTimeout(resolve, 160)); // laisse la lumière se poser
+    // Le GIF démarre AVANT la rafale (buffer continu → GIF riche)
+    gifStartPre();
+
+    // Rafale : 7 frames pendant la lumière (~120 ms d'écart)
+    const FRAMES = 7;
+    const shots = [];
+    for (let i = 0; i < FRAMES; i++) {
+      const canvas = await grabFrameCanvas();
+      if (canvas) shots.push({ canvas, score: 0, face: !!state.face });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    fillLightOff();
+    flash();
+
+    if (!shots.length) { toast("Capture impossible"); return; }
+
+    // Sélection de la MEILLEURE frame : netteté × exposition (+ bonus visage)
+    let best = shots[0], bestScore = -1;
+    shots.forEach((shot) => {
+      shot.score = frameScore(shot.canvas) * (shot.face ? 1.35 : 1);
+      if (shot.score > bestScore) { bestScore = shot.score; best = shot; }
+    });
+    console.log("[MomentoBooth] rafale scores:", shots.map((s) => Math.round(s.score)), "→ meilleure:", shots.indexOf(best) + 1);
+
+    const W = best.canvas.width, H = best.canvas.height;
+    // ⚠️ La floutée d'abord, sur une COPIE propre de la meilleure frame
+    // (avec cadre + logo dessinés, comme le mode portrait classique).
+    // On ne touche PAS best.canvas avant finalizeCanvas (mutation partagée).
+    const copy = document.createElement("canvas");
+    copy.width = W; copy.height = H;
+    copy.getContext("2d").drawImage(best.canvas, 0, 0);
+    const cctx = copy.getContext("2d");
+    drawFrame(cctx, W, H, state.frameId, state.frameText);
+    drawLogo(cctx, W, H);
+    const portrait = await portraitBlur(copy, W, H);
+    // La meilleure photo livrée (cadre + logo) — depuis best.canvas, non muté
+    const normal = await finalizeCanvas(best.canvas, W, H);
+    // Le GIF : buffer pré (démarré avant la rafale) + post
+    const gif = await grabGif(6);
+    if (state.autoMode) state.autoArmed = false;
+
+    state.latestPhoto = normal;
+    state.latestGif = gif;
+    const items = [
+      { blob: normal, label: "Meilleure prise" },
+      { blob: portrait ? portrait.blob : normal, label: "Portrait" },
+    ];
+    if (gif) items.push({ blob: gif, label: "GIF", gif: true });
+    playBeep(1200, 0.2, 0.3);
+    showResult(items);
+  } finally {
+    gifStopPre();
+    state.counting = false;
+  }
 }
 
 /* Portrait : photo normale + flou + GIF animé (pré + post) */
@@ -857,7 +1050,9 @@ function drawLogo(ctx, W, H) {
   // Pas de liseré : le logo est rogné proprement, sans contour
 }
 
-function grabFrame() {
+/* Canvas brut haute qualité : vidéo + filtre + masque + fond (SANS cadre/logo)
+   → réutilisé par grabFrame (une photo) et par la RAFALE (plusieurs frames). */
+function grabFrameCanvas() {
   return new Promise((resolve) => {
     const video = camera;
     const canvas = document.createElement("canvas");
@@ -868,21 +1063,6 @@ function grabFrame() {
     const scale = Math.min(1, cap / Math.max(vw, vh));
     const W = Math.round(vw * scale), H = Math.round(vh * scale);
     canvas.width = W; canvas.height = H;
-
-    /* Finalise : copie brute (sans cadre, pour re-personnaliser à l'export)
-       puis cadre + logo par-dessus pour la photo livrée */
-    const finalize = () => {
-      try {
-        const rawCanvas = document.createElement("canvas");
-        rawCanvas.width = W; rawCanvas.height = H;
-        rawCanvas.getContext("2d").drawImage(canvas, 0, 0);
-        rawCanvas.toBlob((raw) => { state.latestRaw = raw ?? null; }, "image/jpeg", 0.97);
-      } catch { state.latestRaw = null; }
-      drawFrame(ctx, W, H, state.frameId, state.frameText);
-      drawLogo(ctx, W, H);
-      canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.97);
-    };
-
     if (state.backdrop) {
       if (state.backdrop.type === "gradient") {
         const grad = ctx.createLinearGradient(0, 0, W, H);
@@ -894,16 +1074,43 @@ function grabFrame() {
         const img = new Image();
         img.onload = () => {
           ctx.drawImage(img, 0, 0, W, H);
-          drawVideoFrame(ctx, video, W, H, true); // sans cadre → finalize l'ajoute
-          finalize();
+          drawVideoFrame(ctx, video, W, H, true);
+          resolve(canvas);
+        };
+        img.onerror = () => { // image en échec → vidéo seule (jamais bloquer)
+          drawVideoFrame(ctx, video, W, H, true);
+          resolve(canvas);
         };
         img.src = state.backdrop.url;
         return;
       }
     }
+    drawVideoFrame(ctx, video, W, H, true);
+    resolve(canvas);
+  });
+}
 
-    drawVideoFrame(ctx, video, W, H, true); // contenu brut (vidéo + filtre + masque)
-    finalize();
+/* Finalise un canvas brut : copie brute (ré-export) + cadre + logo → blob JPEG */
+function finalizeCanvas(canvas, W, H) {
+  return new Promise((resolve) => {
+    const ctx = canvas.getContext("2d");
+    try {
+      const rawCanvas = document.createElement("canvas");
+      rawCanvas.width = W; rawCanvas.height = H;
+      rawCanvas.getContext("2d").drawImage(canvas, 0, 0);
+      rawCanvas.toBlob((raw) => { state.latestRaw = raw ?? null; }, "image/jpeg", 0.97);
+    } catch { state.latestRaw = null; }
+    drawFrame(ctx, W, H, state.frameId, state.frameText);
+    drawLogo(ctx, W, H);
+    canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.97);
+  });
+}
+
+function grabFrame() {
+  return new Promise(async (resolve) => {
+    const canvas = await grabFrameCanvas();
+    if (!canvas) return resolve(null);
+    resolve(await finalizeCanvas(canvas, canvas.width, canvas.height));
   });
 }
 
@@ -933,20 +1140,25 @@ function makeBlur(src, W, H) {
   return canvas;
 }
 
-/* Capture avec blur portrait */
+/* Capture avec blur portrait : dessine la vidéo live puis applique le flou.
+   ⚠️ Restaure le comportement d'origine : le cadre + logo sont dessinés sur
+   le canvas AVANT le flou (ils apparaissent floutés dans le fond). */
 function grabFramePortrait() {
+  return new Promise(async (resolve) => {
+    const net = await grabFrameCanvas();
+    if (!net) return resolve(null);
+    const ctx = net.getContext("2d");
+    drawFrame(ctx, net.width, net.height, state.frameId, state.frameText);
+    drawLogo(ctx, net.width, net.height);
+    resolve(await portraitBlur(net, net.width, net.height));
+  });
+}
+
+/* Flou portrait à partir d'un CANVAS (pas de la vidéo live) — réutilisé par
+   la RAFALE pour flouter la meilleure frame (au lieu d'une autre capture). */
+function portraitBlur(net, W, H) {
   return new Promise((resolve) => {
-    const video = camera;
-    const vw = video.videoWidth || 1280, vh = video.videoHeight || 960;
-    const cap = state.qualityMax ? 2160 : 1440;
-    const scale = Math.min(1, cap / Math.max(vw, vh));
-    const W = Math.round(vw * scale), H = Math.round(vh * scale);
-
-    const net = document.createElement("canvas");
-    net.width = W; net.height = H;
     const nctx = net.getContext("2d", { willReadFrequently: true });
-    drawVideoFrame(nctx, video, W, H);
-
     const blurBase = makeBlur(net, W, H);
 
     const mask = state.faceMask;
@@ -1551,6 +1763,13 @@ function bindSettings() {
     state.portraitMode = e.target.checked;
     toast(state.portraitMode ? "Mode portrait : photo + flou + GIF" : "Mode portrait off");
   });
+  // Rafale Flash+ : flash hyper fort + meilleure prise automatique + flou + GIF
+  on("set-burst", "change", (e) => {
+    state.burstMode = e.target.checked;
+    toast(state.burstMode
+      ? "Rafale Flash+ : flash fort + meilleure prise parmi 7 photos"
+      : "Rafale désactivée");
+  });
   // Flash : Auto / On / Off
   document.querySelectorAll("#flash-modes button").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1694,7 +1913,7 @@ async function init() {
   // Logo MomentoBooth (icône envoyée par l'utilisateur, rognée en rond)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
-  logoImg.src = "/icons/logo.png?v=19";
+  logoImg.src = "/icons/logo.png?v=21";
 
   /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {

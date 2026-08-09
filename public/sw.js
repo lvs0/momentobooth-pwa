@@ -1,19 +1,19 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v20";
-/* ⚠️ Les URLs versionnées (?v=20) doivent MATCHER celles de index.html ET les imports de app.js :
+const CACHE = "momentobooth-v21";
+/* ⚠️ Les URLs versionnées (?v=21) doivent MATCHER celles de index.html ET les imports de app.js :
    sinon l'iPhone peut servir un mélange de versions (HTML neuf + JS vieux)
    → crash de init() → plus de caméra. */
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/styles.css?v=20",
-  "/js/app.js?v=20",
-  "/js/filters.js?v=20",
-  "/js/masks.js?v=20",
-  "/js/frames.js?v=20",
-  "/js/vendor/gif.js?v=20",
+  "/css/styles.css?v=21",
+  "/js/app.js?v=21",
+  "/js/filters.js?v=21",
+  "/js/masks.js?v=21",
+  "/js/frames.js?v=21",
+  "/js/vendor/gif.js?v=21",
   "/js/vendor/gif.worker.js",
-  "/js/vendor/jszip.min.js?v=20",
+  "/js/vendor/jszip.min.js?v=21",
   "/js/mediapipe/vision_bundle.mjs",
   "/js/mediapipe/wasm/vision_wasm_internal.js",
   "/js/mediapipe/wasm/vision_wasm_internal.wasm",
@@ -24,7 +24,7 @@ const ASSETS = [
   "/icons/icon-192.png?v=14",
   "/icons/icon-512.png?v=14",
   "/icons/apple-touch-icon-180.png?v=14",
-  "/icons/logo.png?v=20",
+  "/icons/logo.png?v=21",
 ];
 
 /* Préchargement de la navigation (réseau) — iOS 15.4+ / Safari */

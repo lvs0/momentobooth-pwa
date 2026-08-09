@@ -22,9 +22,9 @@
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=20">
+<link rel="stylesheet" href="/css/styles.css?v=21">
 </head>
-<body data-app-version="20"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
+<body data-app-version="21"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
 
 <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
 <main id="screen-capture" class="screen active">
@@ -108,6 +108,8 @@
   <div id="sheet-settings" class="sheet">
     <div class="sheet-head">⚙️ Paramètres<span class="sheet-close">✕</span></div>
     <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox"><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Rafale Flash+<small class="row-sub">flash fort + meilleure prise auto</small></span><label class="switch"><input id="set-burst" type="checkbox"><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Objectif</span><div id="lens-options" class="lens-options"></div></div>
     <div class="settings-row"><span>Logo MomentoBooth</span><label class="switch"><input id="set-logo" type="checkbox" checked><span class="slider"></span></label></div>
     <div class="settings-row"><span>Flash</span><div id="flash-modes" class="segmented"><button data-flash="on" class="active">On</button><button data-flash="auto">Auto</button><button data-flash="off">Off</button></div></div>
     <div class="settings-row"><span>Qualité max</span><label class="switch"><input id="set-quality" type="checkbox" checked><span class="slider"></span></label></div>
@@ -166,10 +168,10 @@
   <div id="gallery-grid" class="gallery-grid"></div>
 </section>
 
-<script src="/js/vendor/gif.js?v=20"></script>
-<script src="/js/vendor/jszip.min.js?v=20"></script>
-<script type="module" src="/js/filters.js?v=20"></script>
-<script type="module" src="/js/masks.js?v=20"></script>
-<script type="module" src="/js/app.js?v=20"></script>
+<script src="/js/vendor/gif.js?v=21"></script>
+<script src="/js/vendor/jszip.min.js?v=21"></script>
+<script type="module" src="/js/filters.js?v=21"></script>
+<script type="module" src="/js/masks.js?v=21"></script>
+<script type="module" src="/js/app.js?v=21"></script>
 </body>
 </html>
