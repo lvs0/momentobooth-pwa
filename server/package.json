@@ -1,0 +1,16 @@
+{
+  "name": "momentobooth-pwa",
+  "version": "1.0.0",
+  "description": "MomentoBooth PWA — photobooth mobile avec filtres temps réel, minuteur, fonds, stickers, partage (QR/WhatsApp/SMS/email).",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "qrcode": "^1.5.3"
+  }
+}

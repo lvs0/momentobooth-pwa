@@ -1,0 +1,19 @@
+# Render Blueprint — option B : hébergement cloud (si pas de domaine Cloudflare)
+# ⚠️ Dans ce mode, les photos sont stockées sur le disque Render, PAS sur le PC.
+# Pour la passerelle "photos sur PC + URL fixe" → préférer le named tunnel Cloudflare
+# (momentobooth.zoe.dev). Render ne peut pas joindre une machine locale en direct.
+services:
+  - type: web
+    name: momentobooth-pwa
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install --production
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PUBLIC_BASE_URL
+        sync: false
+        value: https://momentobooth-pwa.onrender.com
+    healthCheckPath: /

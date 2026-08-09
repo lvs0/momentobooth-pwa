@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MomentoBooth">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<title>MomentoBooth · Photobooth</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+<!-- ============ ÉCRAN CAPTURE (plein écran) ============ -->
+<main id="screen-capture" class="screen active">
+  <!-- Bandeau supérieur : miniatures live + filtres, swipe -->
+  <div id="filter-strip" class="filter-strip">
+    <div id="filter-strip-track" class="filter-strip-track"></div>
+  </div>
+
+  <!-- Zone caméra (tap = minuteur) -->
+  <div id="camera-zone" class="camera-zone">
+    <video id="camera" autoplay playsinline muted></video>
+    <canvas id="camera-canvas" class="hidden"></canvas>
+
+    <!-- Overlay stickers (dessinés) -->
+    <canvas id="sticker-canvas" class="sticker-canvas"></canvas>
+
+    <!-- Compte à rebours -->
+    <div id="countdown" class="countdown hidden">
+      <div class="countdown-ring"><div class="countdown-number">3</div></div>
+    </div>
+
+    <!-- Fond décoratif (remplacé si chroma) -->
+    <div id="backdrop" class="backdrop hidden"></div>
+
+    <!-- Hint : taper pour minuteur -->
+    <div id="tap-hint" class="tap-hint">Touchez l'écran pour lancer le minuteur</div>
+  </div>
+
+  <!-- Barre outils bas -->
+  <div class="bottom-bar">
+    <button id="btn-auto" class="tool-btn auto-btn" aria-label="Capture automatique"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>
+    <button id="btn-backdrop" class="tool-btn" aria-label="Fond"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="9" r="2" fill="currentColor"/><path d="M4 17l5-5 3 3 3-3 5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+    <button id="btn-flip" class="tool-btn" aria-label="Retourner"><svg viewBox="0 0 24 24"><path d="M4 7h10a4 4 0 0 1 0 8H4M8 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    <button id="btn-shutter" class="shutter" aria-label="Capturer"><span class="shutter-inner"></span></button>
+    <button id="btn-stickers" class="tool-btn" aria-label="Stickers">✨</button>
+    <button id="btn-gallery" class="tool-btn" aria-label="Galerie"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-4 3 3 4-4 4 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+  </div>
+
+  <!-- Indicateur mode AUTO -->
+  <div id="auto-status" class="auto-status hidden"><span class="auto-dot"></span><span id="auto-status-text">Détection en cours…</span></div>
+
+  <!-- Panneau fond (bottom sheet) -->
+  <div id="sheet-backdrop" class="sheet hidden">
+    <div class="sheet-head"><strong>Fond de la photo</strong><button class="sheet-close" data-close="sheet-backdrop">✕</button></div>
+    <div id="backdrop-options" class="backdrop-options"></div>
+    <label class="upload-fond">
+      <input type="file" id="backdrop-upload" accept="image/*">
+      <span>📁 Importer une image</span>
+    </label>
+    <label class="chroma-toggle"><input type="checkbox" id="chroma-enable"> 🪄 Retirer l'arrière-plan vert (chroma)</label>
+  </div>
+
+  <!-- Panneau stickers (bottom sheet) -->
+  <div id="sheet-stickers" class="sheet hidden">
+    <div class="sheet-head"><strong>Stickers visage</strong><button class="sheet-close" data-close="sheet-stickers">✕</button></div>
+    <div id="sticker-options" class="sticker-options"></div>
+  </div>
+
+  <!-- Sélecteur minuteur -->
+  <div id="sheet-timer" class="sheet sheet-center hidden">
+    <div class="sheet-head"><strong>Minuteur</strong><button class="sheet-close" data-close="sheet-timer">✕</button></div>
+    <div id="timer-options" class="timer-options"></div>
+    <p class="sheet-sub">Tap une durée → compte à rebours → flash → capture</p>
+  </div>
+</main>
+
+<!-- ============ ÉCRAN RÉSULTAT ============ -->
+<main id="screen-result" class="screen hidden">
+  <img id="result-image" class="result-image" alt="Photo">
+  <div class="result-actions">
+    <button id="btn-retake" class="result-btn ghost">Refaire</button>
+    <button id="btn-save" class="result-btn primary">💾 Sauvegarder</button>
+    <button id="btn-share" class="result-btn primary">📤 Partager</button>
+  </div>
+  <!-- Partage -->
+  <div id="share-box" class="share-box hidden">
+    <p class="share-title">Envoyez la photo</p>
+    <div class="share-row">
+      <button class="share-chip" data-share="whatsapp">WhatsApp</button>
+      <button class="share-chip" data-share="sms">SMS</button>
+      <button class="share-chip" data-share="email">Email</button>
+      <button class="share-chip" data-share="qrcode">QR Code</button>
+      <button class="share-chip" data-share="native">Partage iPhone</button>
+    </div>
+    <div id="share-status" class="share-status"></div>
+    <div id="share-qr-box" class="share-qr-box hidden"><img id="share-qr" alt="QR code"></div>
+  </div>
+</main>
+
+<!-- ============ ÉCRAN GALERIE ============ -->
+<main id="screen-gallery" class="screen hidden">
+  <header class="gallery-head">
+    <button id="btn-back" class="tool-btn">←</button>
+    <strong>Galerie</strong>
+    <span id="gallery-count" class="gallery-count"></span>
+  </header>
+  <div id="gallery-grid" class="gallery-grid"></div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="/js/app.js" type="module"></script>
+</body>
+</html>

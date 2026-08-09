@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Builds
+dist/
+build/
+
+# Photos / données locales
+photos/
+.data/
+
+# Secrets
+.env
+.env.local
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+*.swp
