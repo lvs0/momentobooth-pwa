@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MomentoBooth — Réinitialisation</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #06060e; color: #f7f7fb; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  .card { text-align: center; padding: 40px 28px; max-width: 360px; }
+  .icon { font-size: 64px; }
+  h1 { font-size: 24px; margin: 14px 0 8px; }
+  p { color: rgba(255,255,255,.6); line-height: 1.5; font-size: 16px; }
+  #status { margin-top: 18px; font-weight: 800; color: #7dd3fc; font-size: 17px; }
+  a { display: inline-block; margin-top: 22px; padding: 16px 30px; border-radius: 999px;
+      background: linear-gradient(135deg,#7dd3fc,#c084fc); color: #081018; text-decoration: none;
+      font-weight: 900; font-size: 17px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">🗑️</div>
+  <h1>Réinitialisation MomentoBooth</h1>
+  <p>Cette page supprime l'ancien cache et le service worker de votre iPhone, puis vous ramène à l'accueil avec la dernière version.</p>
+  <div id="status">Suppression en cours…</div>
+  <a id="go" href="/">→ Ouvrir MomentoBooth</a>
+</div>
+<script>
+  (async () => {
+    const status = document.getElementById("status");
+    let done = 0;
+    try {
+      if (navigator.serviceWorker) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((r) => r.unregister()));
+        done += registrations.length;
+      }
+    } catch {}
+    try {
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+        done += keys.length;
+      }
+    } catch {}
+    try { sessionStorage.removeItem("mb-force-reload"); } catch {}
+    status.textContent = done > 0
+      ? "✅ " + done + " élément(s) supprimé(s) — redirection…"
+      : "✅ Rien d'ancien trouvé — redirection…";
+    setTimeout(() => { window.location.href = "/"; }, 1200);
+  })();
+</script>
+</body>
+</html>
