@@ -3,9 +3,9 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=17";
-import { drawMask } from "./masks.js?v=17";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=17";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=18";
+import { drawMask } from "./masks.js?v=18";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=18";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=17";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "17"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=17 du SW
+const APP_VERSION = "18"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=18 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -502,7 +502,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=17");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=18");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
@@ -766,16 +766,7 @@ function drawLogo(ctx, W, H) {
   ctx.clip();
   ctx.drawImage(state.logoImage, x, y, size, size);
   ctx.restore();
-  // Liseré blanc élégant
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x + size / 2, y + size / 2, size / 2 - 1, 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(255,255,255,.85)";
-  ctx.lineWidth = Math.max(2, size * 0.045);
-  ctx.shadowColor = "rgba(0,0,0,.45)";
-  ctx.shadowBlur = 10;
-  ctx.stroke();
-  ctx.restore();
+  // Pas de liseré : le logo est rogné proprement, sans contour
 }
 
 function grabFrame() {
@@ -1615,7 +1606,7 @@ async function init() {
   // Logo MomentoBooth (icône envoyée par l'utilisateur, rognée en rond)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
-  logoImg.src = "/icons/logo.png";
+  logoImg.src = "/icons/logo.png?v=18";
 
   /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {
