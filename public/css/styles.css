@@ -41,7 +41,6 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
 /* ⚠️ CRITIQUE : masque l'interface pendant le compte à rebours (classe ajoutée en JS) */
 body.ui-hidden .bottom-bar,
 body.ui-hidden .filter-strip,
-body.ui-hidden .tap-hint,
 body.ui-hidden .auto-status,
 body.ui-hidden .sheet {
   opacity: 0 !important;
@@ -51,7 +50,6 @@ body.ui-hidden .sheet {
 }
 body.ui-hidden .bottom-bar,
 body.ui-hidden .filter-strip,
-body.ui-hidden .tap-hint,
 body.ui-hidden .auto-status { transform: none !important; }
 
 /* Swipe iOS : ne laisse PAS le navigateur voler le geste */
@@ -108,23 +106,6 @@ body { touch-action: manipulation; }
 .camera-error-title { font-size: 26px; font-weight: 900; letter-spacing: var(--letter-tight); font-family: var(--font-display); }
 .camera-error-text { color: var(--muted); font-size: 16px; font-weight: 600; line-height: 1.5; max-width: 300px; }
 .camera-error .result-btn.primary { width: 100%; max-width: 300px; margin-top: 8px; }
-
-/* Hint permanent : touchez l'écran */
-.tap-hint {
-  position: absolute; bottom: calc(96px + var(--safe-bottom)); left: 50%;
-  transform: translateX(-50%); z-index: 20;
-  display: flex; align-items: center; gap: 8px;
-  font-size: 16px; font-weight: 700; color: #fff;
-  background: rgba(10,10,20,.5);
-  border: 1.5px solid var(--stroke-bright);
-  padding: 13px 24px; border-radius: 999px;
-  backdrop-filter: blur(22px) saturate(170%); -webkit-backdrop-filter: blur(22px) saturate(170%);
-  box-shadow: 0 10px 40px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.25);
-  pointer-events: none; white-space: nowrap;
-  animation: hint-bob 2.6s ease-in-out infinite;
-}
-.tap-hint .hint-icon { font-size: 21px; }
-@keyframes hint-bob { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-6px); } }
 
 /* Compte à rebours : occupe l'écran vers le haut, gros chiffre, pause au tap */
 .countdown {
@@ -324,9 +305,6 @@ body { touch-action: manipulation; }
 }
 .gallery-grid img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; border-radius: 16px; transition: transform .15s ease; }
 .gallery-grid img:active { transform: scale(.96); }
-
-/* Pendant le compte à rebours : le hint « touchez l'écran » est masqué */
-body.counting-mode .tap-hint { display: none !important; }
 
 /* ============ TOAST ============ */
 .toast {

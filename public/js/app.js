@@ -39,6 +39,9 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
   faceMask: null,
 };
 
+/* ---------- Version (anti-cache) ---------- */
+const APP_VERSION = "11"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=11 du SW
+
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
 const screens = { capture: $("screen-capture"), result: $("screen-result"), gallery: $("screen-gallery") };
@@ -198,7 +201,14 @@ async function startCamera() {
   } catch (error) {
     // ⚠️ Affiche un écran clair + bouton réessayer au lieu d'un écran noir
     if (errorEl) errorEl.classList.remove("hidden");
-    toast("Caméra indisponible : autorisez l'accès");
+    const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
+    const textEl = errorEl?.querySelector(".camera-error-text");
+    if (textEl) {
+      textEl.textContent = denied
+        ? "Caméra bloquée sur cet iPhone. Réglages → Safari → Caméra → autoriser ce site, puis rechargez. (Si l'app est sur l'écran d'accueil : Réglages → Confidentialité → Caméra.)"
+        : "Autorisez l'accès à la caméra dans Safari : Réglages → Safari → Caméra, puis rechargez.";
+    }
+    toast(denied ? "Caméra bloquée (Réglages → Safari → Caméra)" : "Caméra indisponible : autorisez l'accès");
   }
 }
 
@@ -1490,6 +1500,24 @@ function openSheet(id) {
    INIT
    ========================================================= */
 async function init() {
+  /* ⚠️ Porte de sortie anti-cache : si le HTML servi par le service worker ne
+     correspond pas à la version du JS (vieux cache), on désinstalle le SW et
+     on recharge une fois — impossible de rester bloqué sur une vieille version. */
+  try {
+    const htmlVersion = document.body.dataset.appVersion;
+    const forced = sessionStorage.getItem("mb-force-reload");
+    if ((!htmlVersion || htmlVersion !== APP_VERSION) && forced !== "1") {
+      if (navigator.onLine === false) return; // hors-ligne : ne pas recharger (page blanche)
+      sessionStorage.setItem("mb-force-reload", "1");
+      if (navigator.serviceWorker) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      window.location.reload();
+      return;
+    }
+    sessionStorage.removeItem("mb-force-reload");
+  } catch { /* on continue normalement */ }
   function sizeStickerCanvas() {
     stickerCanvas.width = window.innerWidth;
     stickerCanvas.height = window.innerHeight;
