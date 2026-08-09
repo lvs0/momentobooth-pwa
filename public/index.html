@@ -22,7 +22,7 @@
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css">
+<link rel="stylesheet" href="/css/styles.css?v=9">
 </head>
 <body>
 
@@ -41,6 +41,14 @@
   <div id="camera-zone" class="camera-zone">
     <video id="camera" autoplay playsinline muted></video>
     <canvas id="sticker-canvas" class="sticker-canvas"></canvas>
+  </div>
+
+  <!-- Écran erreur caméra (au lieu d'un écran noir silencieux) -->
+  <div id="camera-error" class="camera-error hidden">
+    <div class="camera-error-icon">📷</div>
+    <div class="camera-error-title">Caméra indisponible</div>
+    <div class="camera-error-text">Autorisez l'accès à la caméra dans Safari : Réglages &gt; Safari &gt; Caméra, puis rechargez.</div>
+    <button id="btn-retry-camera" class="result-btn primary">🔄 Réessayer</button>
   </div>
 
   <!-- Flash -->
@@ -167,10 +175,10 @@
   <button id="install-banner-close" class="install-banner-close">✕</button>
 </div>
 
-<script src="/js/vendor/gif.js"></script>
-<script src="/js/vendor/jszip.min.js"></script>
-<script type="module" src="/js/filters.js"></script>
-<script type="module" src="/js/masks.js"></script>
-<script type="module" src="/js/app.js"></script>
+<script src="/js/vendor/gif.js?v=9"></script>
+<script src="/js/vendor/jszip.min.js?v=9"></script>
+<script type="module" src="/js/filters.js?v=9"></script>
+<script type="module" src="/js/masks.js?v=9"></script>
+<script type="module" src="/js/app.js?v=9"></script>
 </body>
 </html>

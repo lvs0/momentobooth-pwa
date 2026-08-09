@@ -149,15 +149,17 @@ function isStandalone() {
 
 /* Banner d'installation iOS (pas de beforeinstallprompt sur iOS → guide manuel) */
 function setupInstallBanner() {
-  if (isStandalone()) return;
-  if (localStorage.getItem("mb-install-dismissed")) return;
+  try {
+    if (isStandalone()) return;
+    if (localStorage.getItem("mb-install-dismissed")) return;
+  } catch { return; } // localStorage peut être indisponible (mode privé)
   const banner = $("install-banner");
   if (!banner) return;
   banner.classList.remove("hidden");
   const close = $("install-banner-close");
   if (close) close.addEventListener("click", () => {
     banner.classList.add("hidden");
-    localStorage.setItem("mb-install-dismissed", "1");
+    try { localStorage.setItem("mb-install-dismissed", "1"); } catch {}
   });
 }
 
@@ -190,6 +192,7 @@ function flash() {
    CAMÉRA
    ========================================================= */
 async function startCamera() {
+  const errorEl = $("camera-error");
   try {
     const facing = state.facing === "user" ? "user" : "environment";
     // Essai progressif : 2560 → 1920 → 1280 → sans contrainte.
@@ -214,7 +217,11 @@ async function startCamera() {
     // On re-synchronise les miniatures avec le vrai flux
     filterThumbs.forEach((item) => { if (item.video && item.hydrated) { item.video.srcObject = state.stream; } });
     buildFilterStrip();
+    // Caméra OK → masque l'écran d'erreur s'il était visible
+    if (errorEl) errorEl.classList.add("hidden");
   } catch (error) {
+    // ⚠️ Affiche un écran clair + bouton réessayer au lieu d'un écran noir
+    if (errorEl) errorEl.classList.remove("hidden");
     toast("Caméra indisponible : autorisez l'accès");
   }
 }
@@ -358,6 +365,7 @@ document.addEventListener("pointercancel", () => { swipeActive = false; });
    ========================================================= */
 function buildTimerOptions() {
   const box = $("timer-options");
+  if (!box) return;
   box.innerHTML = "";
   const durations = [
     { s: 5, label: "5", sub: "secondes", big: "5s" },
@@ -1335,6 +1343,7 @@ async function reframeLatest() {
 
 function buildFrameOptions() {
   const box = $("frame-options");
+  if (!box) return;
   box.innerHTML = "";
   FRAMES.forEach((frame) => {
     const chip = document.createElement("button");
@@ -1364,6 +1373,7 @@ function buildFrameOptions() {
    ========================================================= */
 function buildBackdropOptions() {
   const box = $("backdrop-options");
+  if (!box) return;
   box.innerHTML = "";
   const gradients = [
     { id: null, name: "Aucun", css: "" },
@@ -1398,9 +1408,16 @@ function buildBackdropOptions() {
 /* =========================================================
    PARAMÈTRES
    ========================================================= */
+/* bindDefensif : attache un listener uniquement si l'élément existe.
+   ⚠️ CRITIQUE : si l'iPhone sert un mélange de versions (cache SW),
+   un élément manquant ne doit JAMAIS faire crasher init() avant la caméra. */
+function on(id, event, fn) {
+  const el = $(id);
+  if (el) el.addEventListener(event, fn);
+}
+
 function bindSettings() {
-  $("set-portrait").checked = state.portraitMode;
-  $("set-portrait").addEventListener("change", (e) => {
+  on("set-portrait", "change", (e) => {
     state.portraitMode = e.target.checked;
     toast(state.portraitMode ? "Mode portrait : photo + flou + GIF" : "Mode portrait off");
   });
@@ -1413,25 +1430,21 @@ function bindSettings() {
       toast(btn.dataset.flash === "auto" ? "Flash auto (si sombre)" : btn.dataset.flash === "on" ? "Flash toujours" : "Flash désactivé");
     });
   });
-  $("set-quality").checked = state.qualityMax;
-  $("set-quality").addEventListener("change", (e) => {
+  on("set-quality", "change", (e) => {
     state.qualityMax = e.target.checked;
     toast(state.qualityMax ? "Qualité maximale (4K)" : "Qualité standard");
   });
-  $("set-track").checked = state.trackEnabled;
-  $("set-track").addEventListener("change", (e) => { state.trackEnabled = e.target.checked; });
+  on("set-track", "change", (e) => { state.trackEnabled = e.target.checked; });
   // Logo sur la photo
-  $("set-logo").checked = state.logoEnabled;
-  $("set-logo").addEventListener("change", (e) => {
+  on("set-logo", "change", (e) => {
     state.logoEnabled = e.target.checked;
     toast(state.logoEnabled ? "Logo MomentoBooth affiché sur la photo" : "Logo retiré");
   });
-  $("set-delete").checked = state.deleteEnabled;
-  $("set-delete").addEventListener("change", (e) => {
+  on("set-delete", "change", (e) => {
     state.deleteEnabled = e.target.checked;
     toast(state.deleteEnabled ? "Suppression des photos activée" : "Suppression désactivée");
   });
-  $("btn-clear-backdrop").addEventListener("click", () => {
+  on("btn-clear-backdrop", "click", () => {
     state.backdrop = null;
     document.querySelectorAll(".backdrop-swatch").forEach((s) => s.classList.remove("active"));
     toast("Fond désactivé");
@@ -1441,45 +1454,54 @@ function bindSettings() {
 /* =========================================================
    EVENTS
    ========================================================= */
-$("btn-auto").addEventListener("click", toggleAutoMode);
-$("btn-flip").addEventListener("click", flipCamera);
-$("btn-backdrop").addEventListener("click", () => openSheet("sheet-backdrop"));
-$("btn-settings").addEventListener("click", () => openSheet("sheet-settings"));
-$("btn-gallery").addEventListener("click", async () => {
+on("btn-auto", "click", toggleAutoMode);
+on("btn-flip", "click", flipCamera);
+on("btn-retry-camera", "click", async () => {
+  const errorEl = $("camera-error");
+  if (errorEl) errorEl.classList.add("hidden");
+  // Relance propre : coupe l'ancien flux puis redémarre
+  if (state.stream) { try { state.stream.getTracks().forEach((t) => t.stop()); } catch {} }
+  state.stream = null;
+  await startCamera();
+});
+on("btn-backdrop", "click", () => openSheet("sheet-backdrop"));
+on("btn-settings", "click", () => openSheet("sheet-settings"));
+on("btn-gallery", "click", async () => {
   screens.capture.classList.remove("active");
   screens.gallery.classList.add("active");
   await renderGallery();
 });
-$("btn-back-capture").addEventListener("click", showCapture);
-$("btn-back-result").addEventListener("click", showCapture);
-$("btn-retake").addEventListener("click", showCapture);
-$("btn-save").addEventListener("click", async () => {
+on("btn-back-capture", "click", showCapture);
+on("btn-back-result", "click", showCapture);
+on("btn-retake", "click", showCapture);
+on("btn-save", "click", async () => {
   if (!state.latestPhoto) return;
   await uploadPhoto(state.latestPhoto);
   toast("Photo sauvegardée ✓");
-  $("share-box").style.display = "block";
+  const box = $("share-box");
+  if (box) box.style.display = "block";
 });
-$("btn-export-zip").addEventListener("click", exportZip);
-$("btn-save-all").addEventListener("click", saveAllToPhotos);
-$("btn-save-comment").addEventListener("click", saveComment);
-$("photo-comment").addEventListener("keydown", (e) => { if (e.key === "Enter") saveComment(); });
-$("btn-frames").addEventListener("click", () => openSheet("sheet-frames"));
-$("btn-reframe").addEventListener("click", () => openSheet("sheet-frames"));
-$("timer-close").addEventListener("click", () => sheetMap["sheet-timer"].classList.remove("open"));
+on("btn-export-zip", "click", exportZip);
+on("btn-save-all", "click", saveAllToPhotos);
+on("btn-save-comment", "click", saveComment);
+on("photo-comment", "keydown", (e) => { if (e.key === "Enter") saveComment(); });
+on("btn-frames", "click", () => openSheet("sheet-frames"));
+on("btn-reframe", "click", () => openSheet("sheet-frames"));
+on("timer-close", "click", () => sheetMap["sheet-timer"]?.classList.remove("open"));
 document.querySelectorAll(".sheet-close").forEach((btn) => {
   btn.addEventListener("click", () => btn.closest(".sheet")?.classList.remove("open"));
 });
 document.querySelectorAll(".share-chip:not(.no-method)").forEach((btn) => {
   btn.addEventListener("click", () => shareMethod(btn.dataset.method));
 });
-$("backdrop-file").addEventListener("change", (event) => {
+on("backdrop-file", "change", (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
   const url = URL.createObjectURL(file);
   state.backdrop = { type: "image", url };
   toast("Fond image chargé 🖼️");
 });
-$("chroma-check").addEventListener("change", (event) => {
+on("chroma-check", "change", (event) => {
   state.chromaEnabled = event.target.checked;
   toast(state.chromaEnabled ? "Chroma activé" : "Chroma désactivé");
 });

@@ -1,16 +1,19 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v8";
+const CACHE = "momentobooth-v9";
+/* ⚠️ Les URLs versionnées (?v=9) doivent MATCHER celles de index.html :
+   sinon l'iPhone peut servir un mélange de versions (HTML neuf + JS vieux)
+   → crash de init() → plus de caméra. */
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/styles.css",
-  "/js/app.js",
-  "/js/filters.js",
-  "/js/masks.js",
-  "/js/frames.js",
-  "/js/vendor/gif.js",
+  "/css/styles.css?v=9",
+  "/js/app.js?v=9",
+  "/js/filters.js?v=9",
+  "/js/masks.js?v=9",
+  "/js/frames.js?v=9",
+  "/js/vendor/gif.js?v=9",
   "/js/vendor/gif.worker.js",
-  "/js/vendor/jszip.min.js",
+  "/js/vendor/jszip.min.js?v=9",
   "/js/mediapipe/vision_bundle.mjs",
   "/js/mediapipe/wasm/vision_wasm_internal.js",
   "/js/mediapipe/wasm/vision_wasm_internal.wasm",
@@ -30,7 +33,6 @@ self.addEventListener("install", (event) => {
       .then((cache) => cache.addAll(ASSETS))
       .then(() => self.skipWaiting()),
   );
-  // active le préchargement dès que possible
   if (self.registration?.navigationPreload) {
     event.waitUntil(self.registration.navigationPreload.enable().catch(() => {}));
   }
@@ -55,42 +57,47 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          // 1) Réponse préchargée (navigationPreload) — mise en cache pour l'offline
           const preloadResponse = await event.preloadResponse;
           if (preloadResponse) {
             const cache = await caches.open(CACHE);
             cache.put(request, preloadResponse.clone());
             return preloadResponse;
           }
-          // 2) Réseau direct
           const networkResponse = await fetch(request);
           const cache = await caches.open(CACHE);
           cache.put(request, networkResponse.clone());
           return networkResponse;
         } catch {
-          const cached = await caches.match(request);
-          return cached || caches.match("/index.html");
+          const cached = await caches.match(request, { cacheName: CACHE });
+          return cached || caches.match("/index.html", { cacheName: CACHE });
         }
       })(),
     );
     return;
   }
 
-  /* Assets statiques : stale-while-revalidate — cache instantané + MAJ en fond.
-     Évite le problème « l'iPhone sert l'ancienne version pendant des heures ». */
+  /* Assets : cache d'abord (cache COURANT uniquement) puis réseau en fond.
+     ⚠️ cacheName: CACHE → on ne sert JAMAIS une vieille version depuis un
+     ancien cache (le bug « l'iPhone affiche l'ancienne version »). */
   event.respondWith(
     (async () => {
-      const cached = await caches.match(request);
-      const network = fetch(request)
-        .then((response) => {
+      const cached = await caches.match(request, { cacheName: CACHE });
+      if (cached) {
+        // Revalidation en arrière-plan (stale-while-revalidate)
+        fetch(request).then((response) => {
           if (response.ok && url.origin === self.location.origin) {
             const clone = response.clone();
             caches.open(CACHE).then((cache) => cache.put(request, clone));
           }
-          return response;
-        })
-        .catch(() => null);
-      return cached || network || caches.match("/index.html");
+        }).catch(() => {});
+        return cached;
+      }
+      const network = await fetch(request).catch(() => null);
+      if (network && network.ok && url.origin === self.location.origin) {
+        const clone = network.clone();
+        caches.open(CACHE).then((cache) => cache.put(request, clone));
+      }
+      return network || caches.match("/index.html", { cacheName: CACHE });
     })(),
   );
 });
