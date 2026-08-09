@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "12"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=12 du SW
+const APP_VERSION = "13"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=13 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
