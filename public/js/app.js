@@ -139,30 +139,6 @@ async function requestPersistentStorage() {
   } catch { /* non supporté */ }
 }
 
-/* Détecte si l'app tourne en mode standalone (installée sur l'écran d'accueil) */
-function isStandalone() {
-  return (
-    window.matchMedia?.("(display-mode: standalone)").matches ||
-    window.navigator.standalone === true // iOS Safari legacy
-  );
-}
-
-/* Banner d'installation iOS (pas de beforeinstallprompt sur iOS → guide manuel) */
-function setupInstallBanner() {
-  try {
-    if (isStandalone()) return;
-    if (localStorage.getItem("mb-install-dismissed")) return;
-  } catch { return; } // localStorage peut être indisponible (mode privé)
-  const banner = $("install-banner");
-  if (!banner) return;
-  banner.classList.remove("hidden");
-  const close = $("install-banner-close");
-  if (close) close.addEventListener("click", () => {
-    banner.classList.add("hidden");
-    try { localStorage.setItem("mb-install-dismissed", "1"); } catch {}
-  });
-}
-
 /* Flash plein écran — mode auto : flash seulement si scène sombre */
 function isSceneDark() {
   try {
@@ -1558,7 +1534,6 @@ async function init() {
     } catch { /* offline ok */ }
   }
   await requestPersistentStorage();
-  setupInstallBanner();
   await startCamera();
   await initFaceLandmarker();
   setInterval(detectFace, 120);
