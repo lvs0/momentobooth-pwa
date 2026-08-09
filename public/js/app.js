@@ -111,6 +111,56 @@ function sfxShutter() {
 function sfxOpen() { playBeep(560, 0.07, 0.32, "sine"); playBeep(840, 0.08, 0.28, "sine"); }
 function sfxClose() { playBeep(700, 0.06, 0.25, "sine"); }
 
+/* =========================================================
+   CAPACITÉS PWA iOS
+   ========================================================= */
+
+/* Wake Lock : garde l'écran allumé pendant la capture (iOS 16.4+) */
+let _wakeLock = null;
+async function requestWakeLock() {
+  try {
+    if (!("wakeLock" in navigator) || _wakeLock) return;
+    _wakeLock = await navigator.wakeLock.request("screen");
+    _wakeLock.addEventListener("release", () => { _wakeLock = null; });
+  } catch { _wakeLock = null; }
+}
+function releaseWakeLock() {
+  try { _wakeLock?.release(); } catch {}
+  _wakeLock = null;
+}
+
+/* Stockage persistant : évite que iOS purge les photos IndexedDB */
+async function requestPersistentStorage() {
+  try {
+    if (navigator.storage?.persist) {
+      const persisted = await navigator.storage.persist();
+      if (!persisted) console.warn("[MomentoBooth] Stockage persistant refusé");
+    }
+  } catch { /* non supporté */ }
+}
+
+/* Détecte si l'app tourne en mode standalone (installée sur l'écran d'accueil) */
+function isStandalone() {
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true // iOS Safari legacy
+  );
+}
+
+/* Banner d'installation iOS (pas de beforeinstallprompt sur iOS → guide manuel) */
+function setupInstallBanner() {
+  if (isStandalone()) return;
+  if (localStorage.getItem("mb-install-dismissed")) return;
+  const banner = $("install-banner");
+  if (!banner) return;
+  banner.classList.remove("hidden");
+  const close = $("install-banner-close");
+  if (close) close.addEventListener("click", () => {
+    banner.classList.add("hidden");
+    localStorage.setItem("mb-install-dismissed", "1");
+  });
+}
+
 /* Flash plein écran — mode auto : flash seulement si scène sombre */
 function isSceneDark() {
   try {
@@ -354,6 +404,8 @@ async function startCountdown() {
   if (pauseBadge) pauseBadge.classList.add("hidden");
   countdownEl.classList.remove("paused");
   document.body.classList.add("ui-hidden"); // masque l'interface pendant le compte à rebours
+  document.body.classList.add("counting-mode");
+  requestWakeLock(); // l'écran ne s'éteint pas pendant le compte à rebours
   countdownEl.classList.remove("hidden");
   let remaining = state.timerSeconds;
   countdownNumber.textContent = String(remaining);
@@ -378,6 +430,8 @@ async function startCountdown() {
       // ⚠️ Toujours réafficher l'interface même si la capture échoue,
       // sinon l'app reste verrouillée ("plus rien ne marche")
       document.body.classList.remove("ui-hidden");
+      document.body.classList.remove("counting-mode");
+      releaseWakeLock();
       state.counting = false;
       state._resumeCountdown = null;
     }
@@ -535,10 +589,12 @@ function toggleAutoMode() {
   if (!state.autoMode) {
     state.autoArmed = false;
     $("auto-status").classList.add("hidden");
+    releaseWakeLock();
     toast("Mode manuel");
   } else {
     state.autoStableSince = 0;
     state.autoLastNose = null;
+    requestWakeLock(); // le mode AUTO attend le visage : écran toujours allumé
     toast("Mode AUTO — placez-vous face caméra");
   }
 }
@@ -1442,6 +1498,12 @@ async function init() {
   }
   sizeStickerCanvas();
   window.addEventListener("resize", sizeStickerCanvas);
+  // L'écran peut s'éteindre pendant la capture → on relance le Wake Lock
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      if (state.counting || state.autoMode) requestWakeLock();
+    }
+  });
 
   buildBackdropOptions();
   buildTimerOptions();
@@ -1454,10 +1516,27 @@ async function init() {
   logoImg.src = "/icons/logo.png";
   if (navigator.serviceWorker) {
     try {
-      const reg = await navigator.serviceWorker.register("/sw.js");
+      // Un contrôleur existait-il avant ? Si non, c'est la première installation
+      // (clients.claim() déclencherait controllerchange → pas de reload inutile).
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
       await reg.update();
+      // Nouvelle version active → recharger, mais JAMAIS pendant une capture
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (refreshing || !hadController) return;
+        if (state.counting || state.autoMode) { // différé si capture en cours
+          toast("Mise à jour prête — après la photo");
+          return;
+        }
+        refreshing = true;
+        toast("Mise à jour — rechargement…");
+        setTimeout(() => window.location.reload(), 800);
+      });
     } catch { /* offline ok */ }
   }
+  await requestPersistentStorage();
+  setupInstallBanner();
   await startCamera();
   await initFaceLandmarker();
   setInterval(detectFace, 120);

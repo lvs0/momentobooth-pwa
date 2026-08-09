@@ -1,5 +1,5 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v7";
+const CACHE = "momentobooth-v8";
 const ASSETS = [
   "/",
   "/index.html",
@@ -23,10 +23,17 @@ const ASSETS = [
   "/icons/logo.png",
 ];
 
+/* Préchargement de la navigation (réseau) — iOS 15.4+ / Safari */
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()),
+    caches.open(CACHE)
+      .then((cache) => cache.addAll(ASSETS))
+      .then(() => self.skipWaiting()),
   );
+  // active le préchargement dès que possible
+  if (self.registration?.navigationPreload) {
+    event.waitUntil(self.registration.navigationPreload.enable().catch(() => {}));
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -42,16 +49,48 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/")) return; // réseau uniquement
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        if (response.ok && url.origin === self.location.origin) {
-          const clone = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, clone));
+
+  /* Navigation (pages) : réseau d'abord, fallback cache → jamais d'écran blanc */
+  if (request.mode === "navigate") {
+    event.respondWith(
+      (async () => {
+        try {
+          // 1) Réponse préchargée (navigationPreload) — mise en cache pour l'offline
+          const preloadResponse = await event.preloadResponse;
+          if (preloadResponse) {
+            const cache = await caches.open(CACHE);
+            cache.put(request, preloadResponse.clone());
+            return preloadResponse;
+          }
+          // 2) Réseau direct
+          const networkResponse = await fetch(request);
+          const cache = await caches.open(CACHE);
+          cache.put(request, networkResponse.clone());
+          return networkResponse;
+        } catch {
+          const cached = await caches.match(request);
+          return cached || caches.match("/index.html");
         }
-        return response;
-      }).catch(() => caches.match("/index.html"));
-    }),
+      })(),
+    );
+    return;
+  }
+
+  /* Assets statiques : stale-while-revalidate — cache instantané + MAJ en fond.
+     Évite le problème « l'iPhone sert l'ancienne version pendant des heures ». */
+  event.respondWith(
+    (async () => {
+      const cached = await caches.match(request);
+      const network = fetch(request)
+        .then((response) => {
+          if (response.ok && url.origin === self.location.origin) {
+            const clone = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => null);
+      return cached || network || caches.match("/index.html");
+    })(),
   );
 });
