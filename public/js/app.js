@@ -3,9 +3,9 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=18";
-import { drawMask } from "./masks.js?v=18";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=18";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=19";
+import { drawMask } from "./masks.js?v=19";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=19";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=18";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "18"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=18 du SW
+const APP_VERSION = "19"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=19 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -202,7 +202,8 @@ function flash() {
 }
 
 /* Torche physique : dispo sur Android/Chrome (torch:true), inopérant sur iOS
-   Safari (limitation Apple) — tenté sans erreur. */
+   Safari (limitation Apple : aucune API web ne contrôle la LED iPhone).
+   Tentée sans erreur — si elle réussit, c'est le VRAI flash LED. */
 async function tryTorch() {
   try {
     const track = state.stream?.getVideoTracks?.()[0];
@@ -210,6 +211,26 @@ async function tryTorch() {
       await track.applyConstraints({ advanced: [{ torch: state.flashMode === "on" }] });
     }
   } catch { /* non supporté (iOS Safari) */ }
+}
+
+/* ⚠️ Éclair « fill light » : sur iPhone, le seul vrai éclairage possible est
+   l'ÉCRAN lui-même (pas de LED accessible). En caméra frontale, un écran
+   blanc plein pendant ~220 ms éclaire RÉELLEMENT le visage (la photo est
+   prise pendant la lumière). En caméra arrière, l'effet est visuel. */
+function fillLightOn() {
+  if (state.flashMode === "off") return;
+  const overlay = $("flash-overlay");
+  if (overlay) {
+    overlay.style.transition = "none";
+    overlay.style.opacity = "1";
+  }
+}
+function fillLightOff() {
+  const overlay = $("flash-overlay");
+  if (overlay) {
+    overlay.style.transition = "opacity .5s ease-out";
+    overlay.style.opacity = "0";
+  }
 }
 
 /* =========================================================
@@ -502,7 +523,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=18");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=19");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
@@ -668,9 +689,13 @@ async function capture() {
     await capturePortrait();
     return;
   }
-  flash(); // ⚠️ flash AVANT la capture (sinon masqué par l'écran résultat)
-  tryTorch();
+  // Éclair réel : lumière d'écran soutenue → photo prise PENDANT la lumière
+  fillLightOn();
+  tryTorch(); // vraie torche si le navigateur la supporte (Android)
+  await new Promise((resolve) => setTimeout(resolve, 220));
   const blob = await grabFrame();
+  fillLightOff();
+  flash(); // retour visuel rapide
   state.latestPhoto = blob;
   playBeep(1200, 0.2, 0.3);
   showResult([{ blob, label: "Photo" }]);
@@ -682,12 +707,16 @@ async function capturePortrait() {
   state.counting = true;
   sfxShutter();
   try {
-    flash(); // flash AVANT la capture
+    // Éclair réel : lumière d'écran soutenue pendant la photo principale
+    fillLightOn();
     tryTorch();
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    const normal = await grabFrame();
+    fillLightOff();
+    flash();
     // Le GIF démarre AVANT la capture (buffer continu) — la photo est capturée
     // pendant que le buffer tourne, puis le GIF se termine un peu APRÈS.
     gifStartPre();
-    const normal = await grabFrame();
     const portrait = await grabFramePortrait();
     const gif = await grabGif(6);
     if (state.autoMode) state.autoArmed = false;
@@ -1606,7 +1635,7 @@ async function init() {
   // Logo MomentoBooth (icône envoyée par l'utilisateur, rognée en rond)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
-  logoImg.src = "/icons/logo.png?v=18";
+  logoImg.src = "/icons/logo.png?v=19";
 
   /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {
