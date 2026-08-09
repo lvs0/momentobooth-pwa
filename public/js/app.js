@@ -1,9 +1,9 @@
 /* =========================================================
-   MomentoBooth PWA — Application principale (v3 photobooth)
-   Tap écran = minuteur (5s/10s) · swipe = filtre en direct ·
-   masques visage (MediaPipe) · mode AUTO · capture double
+   MomentoBooth PWA — Application principale (v4)
+   Tap = minuteur · swipe = filtre en direct · masques visage
+   · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter } from "./filters.js";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js";
 import { drawMask } from "./masks.js";
 
 /* ---------- État ---------- */
@@ -11,7 +11,7 @@ const state = {
   stream: null,
   facing: "user",
   filterId: "original",
-  backdrop: null,        // { type, css?, url? } ou null
+  backdrop: null,
   chromaEnabled: false,
   timerSeconds: 5,
   counting: false,
@@ -19,7 +19,12 @@ const state = {
   autoStableSince: 0,
   autoLastNose: null,
   autoArmed: false,
+  portraitMode: false,   // capture double + GIF à chaque prise
+  flashEnabled: true,
+  qualityMax: true,
+  trackEnabled: true,
   latestPhoto: null,
+  latestGif: null,
   publicUrl: "",
   landmarker: null,
   face: null,
@@ -36,7 +41,11 @@ const filterTrack = $("filter-track");
 const countdownEl = $("countdown");
 const countdownNumber = $("countdown-number");
 const toastEl = $("toast");
-const sheetMap = { "sheet-timer": $("sheet-timer"), "sheet-backdrop": $("sheet-backdrop") };
+const sheetMap = {
+  "sheet-timer": $("sheet-timer"),
+  "sheet-backdrop": $("sheet-backdrop"),
+  "sheet-settings": $("sheet-settings"),
+};
 
 /* ---------- Helpers ---------- */
 function toast(message) {
@@ -58,6 +67,15 @@ function playBeep(freq = 880, duration = 0.12, gain = 0.15) {
     osc.start();
     osc.stop(ctx.currentTime + duration + 0.02);
   } catch { /* no audio */ }
+}
+
+/* Flash plein écran */
+function flash() {
+  if (!state.flashEnabled) return;
+  const overlay = $("flash-overlay");
+  overlay.classList.remove("go");
+  void overlay.offsetWidth; // relance l'animation
+  overlay.classList.add("go");
 }
 
 /* =========================================================
@@ -86,7 +104,8 @@ async function flipCamera() {
 }
 
 /* =========================================================
-   FILTRES (miniatures live + masques)
+   FILTRES : miniatures — vidéo live pour couleurs,
+   icône SVG travaillée pour les masques
    ========================================================= */
 let filterThumbs = [];
 function buildFilterStrip() {
@@ -96,30 +115,38 @@ function buildFilterStrip() {
     thumb.className = `filter-thumb${index === 0 ? " active" : ""}`;
     thumb.dataset.filter = filter.id;
 
-    const video = document.createElement("video");
-    video.autoplay = true;
-    video.playsInline = true;
-    video.muted = true;
-    video.style.filter = filter.css;
-    video.setAttribute("aria-hidden", "true");
+    if (filter.color) {
+      const video = document.createElement("video");
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      video.style.filter = filter.css;
+      video.setAttribute("aria-hidden", "true");
+      thumb.appendChild(video);
+      thumb._video = video;
+    } else {
+      // Masque : icône SVG travaillée
+      const iconWrap = document.createElement("div");
+      iconWrap.className = "filter-icon";
+      iconWrap.innerHTML = filter.icon || MASK_ICONS[filter.mask] || "";
+      thumb.appendChild(iconWrap);
+    }
 
     const name = document.createElement("span");
     name.className = "filter-name";
     name.textContent = filter.name;
-
-    thumb.appendChild(video);
     thumb.appendChild(name);
+
     thumb.addEventListener("click", () => selectFilter(filter.id, thumb));
     filterTrack.appendChild(thumb);
-    return { thumb, video, hydrated: false };
+    return { thumb, video: thumb._video, hydrated: false };
   });
 
-  // Lazy hydrate : seules les vignettes visibles reçoivent le stream (perf iPhone)
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       const index = Array.from(filterTrack.children).indexOf(entry.target);
       const item = filterThumbs[index];
-      if (!item) continue;
+      if (!item || !item.video) continue;
       if (entry.isIntersecting && !item.hydrated) {
         item.video.srcObject = state.stream;
         item.hydrated = true;
@@ -129,14 +156,13 @@ function buildFilterStrip() {
       }
     }
   }, { root: filterTrack, threshold: 0.15 });
-  filterThumbs.forEach((item) => observer.observe(item.thumb));
+  filterThumbs.forEach((item) => item.video && observer.observe(item.thumb));
 }
 
 function selectFilter(id, thumbEl) {
   state.filterId = id;
   filterThumbs.forEach((item) => item.thumb.classList.toggle("active", item.thumb === thumbEl));
   if (thumbEl) thumbEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-  // Vibreur léger
   try { navigator.vibrate?.(10); } catch {}
 }
 
@@ -144,7 +170,7 @@ function selectFilter(id, thumbEl) {
    GESTES : tap = minuteur · swipe = filtre en direct
    ========================================================= */
 let swipeRefX = 0, swipeStartX = 0, swipeStartY = 0, isSwiping = false;
-const SWIPE_STEP = 72; // px pour changer de filtre (geste continu)
+const SWIPE_STEP = 64;
 
 cameraZone.addEventListener("touchstart", (event) => {
   swipeStartX = event.touches[0].clientX;
@@ -158,7 +184,7 @@ cameraZone.addEventListener("touchmove", (event) => {
   const dx = event.touches[0].clientX - swipeRefX;
   const dy = Math.abs(event.touches[0].clientY - swipeStartY);
   if (Math.abs(dx) < SWIPE_STEP) return;
-  if (dy > Math.abs(dx) * 1.4) return; // geste vertical → pas un swipe
+  if (dy > Math.abs(dx) * 1.4) return;
   isSwiping = true;
   const steps = Math.round(dx / SWIPE_STEP);
   if (steps !== 0) {
@@ -166,7 +192,7 @@ cameraZone.addEventListener("touchmove", (event) => {
     const next = Math.max(0, Math.min(FILTERS.length - 1, index + steps));
     const thumb = document.querySelector(`.filter-thumb[data-filter="${FILTERS[next].id}"]`);
     selectFilter(FILTERS[next].id, thumb);
-    swipeRefX += steps * SWIPE_STEP; // continue le geste pour enchaîner
+    swipeRefX += steps * SWIPE_STEP;
   }
 }, { passive: true });
 
@@ -176,14 +202,13 @@ cameraZone.addEventListener("touchend", () => {
   openSheet("sheet-timer");
 }, { passive: true });
 
-// Fallback souris (desktop)
 cameraZone.addEventListener("click", () => {
   if (state.counting) return;
   openSheet("sheet-timer");
 });
 
 /* =========================================================
-   MINUTEUR : 5s / 10s (grands boutons)
+   MINUTEUR
    ========================================================= */
 function buildTimerOptions() {
   const box = $("timer-options");
@@ -231,7 +256,7 @@ async function startCountdown() {
 }
 
 /* =========================================================
-   DÉTECTION VISAGE + MASQUES + MODE AUTO
+   DÉTECTION VISAGE + TRACK + MODE AUTO
    ========================================================= */
 async function initFaceLandmarker() {
   try {
@@ -240,7 +265,7 @@ async function initFaceLandmarker() {
     state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
       runningMode: "VIDEO",
-      numFaces: 1,
+      numFaces: 2,
       outputFaceSegmentationMasks: true,
     });
   } catch { state.landmarker = null; }
@@ -257,44 +282,74 @@ function detectFace() {
   } catch { state.face = null; state.faceMask = null; }
 }
 
-/* Overlay live : masque + tracker sur stickerCanvas */
+/* Overlay live : masque + tracker */
 function drawLiveOverlay() {
   const ctx = stickerCanvas.getContext("2d");
   ctx.clearRect(0, 0, stickerCanvas.width, stickerCanvas.height);
   const filter = filterById(state.filterId);
 
-  // Masque photobooth en live
   if (filter.mask !== "none" && state.face && state.face.length > 30) {
     drawMask(ctx, stickerCanvas.width, stickerCanvas.height, state.face, filter.mask);
   }
 
-  // Tracker AUTO (cadre doré)
-  if (state.autoMode && !state.autoArmed && state.face && state.face.length > 30) {
-    const l = state.face;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of l) {
-      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
-    }
-    const cw = stickerCanvas.width, ch = stickerCanvas.height;
-    const vw = camera.videoWidth || 1280, vh = camera.videoHeight || 960;
-    const scale = Math.max(cw / vw, ch / vh);
-    const ox = (cw - vw * scale) / 2, oy = (ch - vh * scale) / 2;
-    const x = minX * vw * scale + ox, y = minY * vh * scale + oy;
-    const w = (maxX - minX) * vw * scale, h = (maxY - minY) * vh * scale;
-    ctx.save();
-    ctx.strokeStyle = "rgba(240,201,106,.95)";
-    ctx.lineWidth = 4;
-    ctx.shadowColor = "rgba(240,201,106,.6)";
-    ctx.shadowBlur = 14;
-    ctx.beginPath();
-    ctx.roundRect(x - 8, y - 8, w + 16, h + 16, 20);
-    ctx.stroke();
-    ctx.restore();
+  // Tracker visage : cadre doré sur les visages, disparaît après délai
+  if (state.trackEnabled || state.autoMode) {
+    drawHeadTracker(ctx);
   }
 }
 
-/* Mode AUTO : visage stable 2s → capture double */
+function faceBox(face, cw, ch, vw, vh) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of face) {
+    if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+  }
+  const scale = Math.max(cw / vw, ch / vh);
+  const ox = (cw - vw * scale) / 2, oy = (ch - vh * scale) / 2;
+  return {
+    x: minX * vw * scale + ox,
+    y: minY * vh * scale + oy,
+    w: (maxX - minX) * vw * scale,
+    h: (maxY - minY) * vh * scale,
+  };
+}
+
+function drawHeadTracker(ctx) {
+  if (!state.face || state.face.length < 30) return;
+  const cw = stickerCanvas.width, ch = stickerCanvas.height;
+  const vw = camera.videoWidth || 1280, vh = camera.videoHeight || 960;
+  const box = faceBox(state.face, cw, ch, vw, vh);
+  const now = performance.now();
+  // Disparaît après 2,5 s de suivi (même si le visage reste)
+  if (!state._trackUntil || now > state._trackUntil) {
+    if (!state._trackStart) state._trackStart = now;
+    if (now - state._trackStart > 2500) {
+      state._trackStart = null;
+      return;
+    }
+  }
+  ctx.save();
+  ctx.strokeStyle = state.autoMode ? "rgba(240,201,106,.95)" : "rgba(125,211,252,.9)";
+  ctx.lineWidth = 4;
+  ctx.shadowColor = ctx.strokeStyle;
+  ctx.shadowBlur = 16;
+  ctx.beginPath();
+  ctx.roundRect(box.x - 8, box.y - 8, box.w + 16, box.h + 16, 22);
+  ctx.stroke();
+  // Coins accentués (curseur)
+  const k = 18;
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  const X = box.x - 10, Y = box.y - 10, W = box.w + 20, H = box.h + 20;
+  ctx.moveTo(X, Y + k); ctx.lineTo(X, Y); ctx.lineTo(X + k, Y);
+  ctx.moveTo(X + W - k, Y); ctx.lineTo(X + W, Y); ctx.lineTo(X + W, Y + k);
+  ctx.moveTo(X + W, Y + H - k); ctx.lineTo(X + W, Y + H); ctx.lineTo(X + W - k, Y + H);
+  ctx.moveTo(X + k, Y + H); ctx.lineTo(X, Y + H); ctx.lineTo(X, Y + H - k);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* Mode AUTO */
 function updateAutoMode() {
   const statusEl = $("auto-status");
   const statusText = $("auto-status-text");
@@ -336,7 +391,7 @@ function updateAutoMode() {
     state.autoArmed = true;
     statusText.textContent = "Capture !";
     statusEl.classList.add("armed");
-    void captureDouble();
+    void capture();
   }
 }
 
@@ -356,59 +411,48 @@ function toggleAutoMode() {
 }
 
 /* =========================================================
-   CAPTURE
+   CAPTURE : simple ou portrait (double + GIF)
    ========================================================= */
 function ratioOf(video) {
   return (video.videoWidth || 1280) / (video.videoHeight || 960);
 }
 
 async function capture() {
+  if (state.portraitMode || state.autoMode) {
+    await capturePortrait();
+    return;
+  }
   const blob = await grabFrame();
   state.latestPhoto = blob;
+  flash();
   playBeep(1200, 0.2, 0.3);
-  showResult(blob);
+  showResult([{ blob, label: "Photo" }]);
 }
 
-async function captureDouble() {
+/* Portrait : photo normale + flou + GIF animé */
+async function capturePortrait() {
   if (state.counting) return;
   state.counting = true;
   playBeep(1200, 0.25, 0.35);
   const normal = await grabFrame();
   const portrait = await grabFramePortrait();
+  const gif = await grabGif();
   state.counting = false;
-  state.autoArmed = false;
-  if (!portrait) {
-    state.latestPhoto = normal;
-    showResult(normal);
-    return;
-  }
-  // Collage 2-up : normale | blur portrait
-  const canvas = document.createElement("canvas");
-  canvas.width = 2400;
-  canvas.height = Math.round(2400 * (portrait.height / portrait.width) / 2) * 2;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#0a0a14";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const halfW = canvas.width / 2;
-  const drawScaled = (blob, x) => new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const ratio = img.width / img.height;
-      const w = halfW, h = w / ratio;
-      ctx.drawImage(img, x, (canvas.height - h) / 2, w, h);
-      resolve();
-    };
-    img.src = URL.createObjectURL(blob);
-  });
-  await drawScaled(normal, 0);
-  await drawScaled(portrait, halfW);
-  canvas.toBlob((blob) => {
-    if (!blob) { state.latestPhoto = normal; showResult(normal); return; }
-    state.latestPhoto = blob;
-    showResult(blob);
-  }, "image/jpeg", 0.95);
+  if (state.autoMode) state.autoArmed = false;
+  flash();
+  state.latestPhoto = normal;
+  state.latestGif = gif;
+  const items = [
+    { blob: normal, label: "Normal" },
+    { blob: portrait ? portrait.blob : normal, label: "Portrait" },
+  ];
+  if (gif) items.push({ blob: gif, label: "GIF", gif: true });
+  showResult(items);
 }
 
+/* =========================================================
+   GRAFFRAME : capture haute qualité avec filtre + masque
+   ========================================================= */
 function drawVideoFrame(ctx, video, W, H) {
   const sourceRatio = video.videoWidth / video.videoHeight;
   const targetRatio = W / H;
@@ -428,7 +472,6 @@ function drawVideoFrame(ctx, video, W, H) {
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
   ctx.restore();
 
-  // Filtre couleur pixel
   const filter = filterById(state.filterId);
   if (filter.ops.length) {
     const imageData = ctx.getImageData(0, 0, W, H);
@@ -436,7 +479,6 @@ function drawVideoFrame(ctx, video, W, H) {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  // Masque photobooth (sur le visage)
   if (filter.mask !== "none") {
     ctx.save();
     if (state.facing === "user") {
@@ -455,11 +497,11 @@ function grabFrame() {
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const vw = video.videoWidth || 1280;
     const vh = video.videoHeight || 960;
-    const scale = Math.min(1, 2160 / Math.max(vw, vh));
+    const cap = state.qualityMax ? 2160 : 1440;
+    const scale = Math.min(1, cap / Math.max(vw, vh));
     const W = Math.round(vw * scale), H = Math.round(vh * scale);
     canvas.width = W; canvas.height = H;
 
-    // Fond décoratif
     if (state.backdrop) {
       if (state.backdrop.type === "gradient") {
         const grad = ctx.createLinearGradient(0, 0, W, H);
@@ -484,12 +526,39 @@ function grabFrame() {
   });
 }
 
-/* Capture blur portrait (masque segmentation) */
+/* Vrai flou : downscale progressif puis upscale (lisse, pas de crénelage) */
+function makeBlur(src, W, H) {
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  // 1) downscale agressif en 3 étapes
+  let w = W, h = H;
+  let from = src;
+  for (let i = 0; i < 3; i++) {
+    w = Math.max(40, Math.round(w / 3));
+    h = Math.max(30, Math.round(h / 3));
+    const step = document.createElement("canvas");
+    step.width = w; step.height = h;
+    const sctx = step.getContext("2d");
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = "high";
+    sctx.drawImage(from, 0, 0, w, h);
+    from = step;
+  }
+  // 2) upscale vers la taille finale
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(from, 0, 0, W, H);
+  return canvas;
+}
+
+/* Capture avec blur portrait */
 function grabFramePortrait() {
   return new Promise((resolve) => {
     const video = camera;
     const vw = video.videoWidth || 1280, vh = video.videoHeight || 960;
-    const scale = Math.min(1, 2160 / Math.max(vw, vh));
+    const cap = state.qualityMax ? 2160 : 1440;
+    const scale = Math.min(1, cap / Math.max(vw, vh));
     const W = Math.round(vw * scale), H = Math.round(vh * scale);
 
     const net = document.createElement("canvas");
@@ -497,19 +566,7 @@ function grabFramePortrait() {
     const nctx = net.getContext("2d", { willReadFrequently: true });
     drawVideoFrame(nctx, video, W, H);
 
-    const blurBase = document.createElement("canvas");
-    blurBase.width = W; blurBase.height = H;
-    const bctx = blurBase.getContext("2d");
-    const small = document.createElement("canvas");
-    small.width = Math.max(64, W >> 5); small.height = Math.max(48, H >> 5);
-    const sctx = small.getContext("2d");
-    if (state.facing === "user") {
-      sctx.translate(small.width, 0); sctx.scale(-1, 1);
-    }
-    sctx.drawImage(video, 0, 0, small.width, small.height);
-    bctx.imageSmoothingEnabled = true;
-    bctx.imageSmoothingQuality = "high";
-    bctx.drawImage(small, 0, 0, W, H);
+    const blurBase = makeBlur(net, W, H);
 
     const mask = state.faceMask;
     if (mask && typeof mask.getAsFloat32Array === "function") {
@@ -536,6 +593,7 @@ function grabFramePortrait() {
         mctx.drawImage(net, 0, 0);
         mctx.globalCompositeOperation = "destination-in";
         mctx.drawImage(maskCanvas, 0, 0, W, H);
+
         const out = document.createElement("canvas");
         out.width = W; out.height = H;
         const octx = out.getContext("2d");
@@ -546,6 +604,7 @@ function grabFramePortrait() {
       } catch { /* fallback */ }
     }
 
+    // Fallback : ovale de visage net sur fond flou
     if (state.face && state.face.length > 30) {
       const l = state.face;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -554,26 +613,80 @@ function grabFramePortrait() {
         if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
       }
       const cx = (minX + maxX) / 2 * W, cy = (minY + maxY) / 2 * H;
-      const rw = (maxX - minX) * W * 1.6, rh = (maxY - minY) * H * 1.8;
-      const bctx3 = blurBase.getContext("2d");
-      bctx3.save();
-      bctx3.beginPath();
-      bctx3.ellipse(cx, cy, rw / 2, rh / 2, 0, 0, Math.PI * 2);
-      bctx3.clip();
-      bctx3.drawImage(net, 0, 0);
-      bctx3.restore();
+      const rw = (maxX - minX) * W * 1.7, rh = (maxY - minY) * H * 1.9;
+      const bctx = blurBase.getContext("2d");
+      bctx.save();
+      bctx.beginPath();
+      bctx.ellipse(cx, cy, rw / 2, rh / 2, 0, 0, Math.PI * 2);
+      bctx.clip();
+      bctx.drawImage(net, 0, 0);
+      bctx.restore();
     }
     blurBase.toBlob((blob) => resolve(blob ? { blob, width: W, height: H } : null), "image/jpeg", 0.95);
   });
 }
 
+/* GIF animé : 8 frames de la vidéo avec filtre + masque */
+function grabGif() {
+  return new Promise((resolve) => {
+    try {
+      const GifWriter = window.GIF;
+      if (!GifWriter) return resolve(null);
+      const video = camera;
+      const vw = video.videoWidth || 1280, vh = video.videoHeight || 960;
+      const W = 480, H = Math.round(480 / (vw / vh));
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      const gif = new GifWriter({
+        workers: 1,
+        quality: 8,
+        width: W,
+        height: H,
+        workerScript: "/js/vendor/gif.worker.js",
+      });
+      let frame = 0;
+      const total = 8;
+      const interval = 130;
+      const tick = () => {
+        if (frame >= total) {
+          gif.render();
+          gif.on("finished", (blob) => resolve(blob));
+          return;
+        }
+        drawVideoFrame(ctx, video, W, H);
+        gif.addFrame(ctx, { copy: true, delay: interval });
+        frame += 1;
+        setTimeout(tick, interval);
+      };
+      tick();
+    } catch { resolve(null); }
+  });
+}
+
 /* =========================================================
-   RÉSULTAT + PARTAGE
+   RÉSULTAT (grille : normal + portrait + gif)
    ========================================================= */
-function showResult(blob) {
-  if (!blob) { toast("Capture impossible"); return; }
-  state.latestPhoto = blob;
-  $("result-image").src = URL.createObjectURL(blob);
+function showResult(items) {
+  if (!items || !items.length) { toast("Capture impossible"); return; }
+  const grid = $("result-grid");
+  grid.innerHTML = "";
+  grid.classList.toggle("multi", items.length >= 3);
+  items.forEach((item, index) => {
+    const wrap = document.createElement("div");
+    wrap.className = "result-item";
+    const img = document.createElement(item.gif ? "img" : "img");
+    img.src = URL.createObjectURL(item.blob);
+    img.className = item.gif ? "result-image gif" : "result-image";
+    img.dataset.index = index;
+    if (!item.gif) img.addEventListener("click", () => { state.latestPhoto = item.blob; });
+    const label = document.createElement("span");
+    label.className = "result-label";
+    label.textContent = item.label;
+    wrap.appendChild(img);
+    wrap.appendChild(label);
+    grid.appendChild(wrap);
+  });
   $("share-status").textContent = "";
   $("share-qr-box").classList.add("hidden");
   $("share-box").style.display = "none";
@@ -613,8 +726,7 @@ function shareMethod(method) {
         status.textContent = "Partage natif indisponible";
       }
     } else if (method === "qrcode") {
-      const qrBox = $("share-qr-box");
-      qrBox.classList.remove("hidden");
+      $("share-qr-box").classList.remove("hidden");
       $("share-qr").src = `/api/qr?url=${encodeURIComponent(publicUrl)}`;
       status.textContent = "QR affiché — scannez pour la photo";
     } else if (method === "download") {
@@ -623,12 +735,22 @@ function shareMethod(method) {
       a.download = `momentobooth-${Date.now()}.jpg`;
       a.click();
       status.textContent = "Téléchargé ✓";
+    } else if (method === "download-gif") {
+      if (state.latestGif) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(state.latestGif);
+        a.download = `momentobooth-${Date.now()}.gif`;
+        a.click();
+        status.textContent = "GIF téléchargé ✓";
+      } else {
+        status.textContent = "Pas de GIF (mode photo simple)";
+      }
     }
   } catch { status.textContent = "Erreur partage"; }
 }
 
 /* =========================================================
-   GALERIE (locale IndexedDB + serveur)
+   GALERIE
    ========================================================= */
 function db() {
   return new Promise((resolve, reject) => {
@@ -687,7 +809,7 @@ async function renderGallery() {
   const all = [...unique.values()];
   $("gallery-count").textContent = `${all.length} photo${all.length > 1 ? "s" : ""}`;
   if (!all.length) {
-    grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px">Aucune photo — touchez l\'écran pour commencer !</p>';
+    grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l\'écran pour commencer !</p>';
     return;
   }
   all.forEach((photo) => {
@@ -699,7 +821,18 @@ async function renderGallery() {
       else fetch(serverById.get(photo.id).url).then((r) => r.blob()).then((blob) => { state.latestPhoto = blob; });
       screens.gallery.classList.remove("active");
       screens.result.classList.add("active");
-      $("result-image").src = img.src;
+      $("result-grid").innerHTML = "";
+      $("result-grid").classList.remove("multi");
+      const wrap = document.createElement("div");
+      wrap.className = "result-item";
+      const rimg = document.createElement("img");
+      rimg.src = img.src;
+      rimg.className = "result-image";
+      wrap.appendChild(rimg);
+      $("result-grid").appendChild(wrap);
+      $("share-box").style.display = "none";
+      $("share-status").textContent = "";
+      $("share-qr-box").classList.add("hidden");
     });
     grid.appendChild(img);
   });
@@ -735,9 +868,34 @@ function buildBackdropOptions() {
       state.backdrop = g.id ? { type: "gradient", css: g.css } : null;
       document.querySelectorAll(".backdrop-swatch").forEach((s) => s.classList.remove("active"));
       swatch.classList.add("active");
-      toast(`Fond : ${g.name}`);
+      toast(g.id ? `Fond : ${g.name}` : "Fond retiré");
     });
     box.appendChild(swatch);
+  });
+}
+
+/* =========================================================
+   PARAMÈTRES
+   ========================================================= */
+function bindSettings() {
+  $("set-portrait").checked = state.portraitMode;
+  $("set-portrait").addEventListener("change", (e) => {
+    state.portraitMode = e.target.checked;
+    toast(state.portraitMode ? "Mode portrait : photo + flou + GIF" : "Mode portrait off");
+  });
+  $("set-flash").checked = state.flashEnabled;
+  $("set-flash").addEventListener("change", (e) => { state.flashEnabled = e.target.checked; });
+  $("set-quality").checked = state.qualityMax;
+  $("set-quality").addEventListener("change", (e) => {
+    state.qualityMax = e.target.checked;
+    toast(state.qualityMax ? "Qualité maximale (4K)" : "Qualité standard");
+  });
+  $("set-track").checked = state.trackEnabled;
+  $("set-track").addEventListener("change", (e) => { state.trackEnabled = e.target.checked; });
+  $("btn-clear-backdrop").addEventListener("click", () => {
+    state.backdrop = null;
+    document.querySelectorAll(".backdrop-swatch").forEach((s) => s.classList.remove("active"));
+    toast("Fond désactivé");
   });
 }
 
@@ -747,6 +905,7 @@ function buildBackdropOptions() {
 $("btn-auto").addEventListener("click", toggleAutoMode);
 $("btn-flip").addEventListener("click", flipCamera);
 $("btn-backdrop").addEventListener("click", () => openSheet("sheet-backdrop"));
+$("btn-settings").addEventListener("click", () => openSheet("sheet-settings"));
 $("btn-gallery").addEventListener("click", async () => {
   screens.capture.classList.remove("active");
   screens.gallery.classList.add("active");
@@ -796,6 +955,7 @@ async function init() {
 
   buildBackdropOptions();
   buildTimerOptions();
+  bindSettings();
   if (navigator.serviceWorker) {
     try { await navigator.serviceWorker.register("/sw.js"); } catch { /* offline ok */ }
   }

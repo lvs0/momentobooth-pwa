@@ -19,7 +19,7 @@
 <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
 <main id="screen-capture" class="screen active">
 
-  <!-- Bandeau filtres (miniatures live + masques) -->
+  <!-- Bandeau filtres -->
   <div id="filter-strip" class="filter-strip">
     <div id="filter-track" class="filter-strip-track"></div>
   </div>
@@ -33,7 +33,10 @@
     <canvas id="sticker-canvas" class="sticker-canvas"></canvas>
   </div>
 
-  <!-- Hint : touchez l'écran -->
+  <!-- Flash -->
+  <div id="flash-overlay" class="flash-overlay"></div>
+
+  <!-- Hint -->
   <div id="tap-hint" class="tap-hint show"><span class="hint-icon">📸</span> Touchez l'écran pour la photo</div>
 
   <!-- Compte à rebours -->
@@ -41,15 +44,16 @@
     <div class="countdown-ring"><span id="countdown-number" class="countdown-number">5</span></div>
   </div>
 
-  <!-- Barre outils bas (simplifiée, sans shutter) -->
+  <!-- Barre outils bas -->
   <div class="bottom-bar">
-    <button id="btn-auto" class="tool-btn auto-btn" aria-label="Capture automatique"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>
+    <button id="btn-auto" class="tool-btn auto-btn" aria-label="Capture automatique"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>
     <button id="btn-backdrop" class="tool-btn" aria-label="Fond"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M3 5h18v14H3z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="9" r="2" fill="currentColor"/><path d="M4 17l5-5 3 3 3-3 5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
     <button id="btn-flip" class="tool-btn" aria-label="Retourner"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M4 7h10a4 4 0 0 1 0 8H4M8 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button id="btn-settings" class="tool-btn" aria-label="Paramètres"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M12 2.8l1.2 2.4 2.6-.7 1.2 2.4 2.6.5-.4 2.6 2 1.8-1.5 2.2 1 2.4-2.5 1-.3 2.6-2.6-.3-1.7 2-2-1.2-2.4 1-1.3-2.3-2.5.2-.6-2.6-2.3-.9 1.2-2.3-1.9-1.7 1.8-1.9-.3-2.6 2.5-.6.4-2.6 2.4.5 1.5-2.2z" fill="none" stroke="currentColor" stroke-width="1.4" transform="rotate(0 12 12)"/></svg></button>
     <button id="btn-gallery" class="tool-btn" aria-label="Galerie"><svg viewBox="0 0 24 24" width="26" height="26"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-4 3 3 4-4 4 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
   </div>
 
-  <!-- Sheet minuteur (tap écran → choix 5s / 10s) -->
+  <!-- Sheet minuteur -->
   <div id="sheet-timer" class="sheet sheet-timer">
     <div class="sheet-head">⏱️ Minuteur<span id="timer-close" class="sheet-close">✕</span></div>
     <div id="timer-options" class="timer-options big"></div>
@@ -64,11 +68,22 @@
     <div class="chroma-toggle"><input id="chroma-check" type="checkbox"><label for="chroma-check">Fond vert magique (chroma)</label></div>
   </div>
 
+  <!-- Sheet paramètres avancés -->
+  <div id="sheet-settings" class="sheet">
+    <div class="sheet-head">⚙️ Paramètres<span class="sheet-close">✕</span></div>
+    <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox"><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Flash</span><label class="switch"><input id="set-flash" type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Qualité max</span><label class="switch"><input id="set-quality" type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Track visage (cadre)</span><label class="switch"><input id="set-track" type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Désactiver le fond</span><button id="btn-clear-backdrop" class="mini-btn">Retirer</button></div>
+    <div class="sheet-sub">Le mode portrait prend une photo normale + une photo floutée + un GIF animé</div>
+  </div>
+
 </main>
 
 <!-- ═════════ ÉCRAN RÉSULTAT ═════════ -->
 <section id="screen-result" class="screen">
-  <img id="result-image" class="result-image" alt="Photo">
+  <div id="result-grid" class="result-grid"></div>
   <div class="result-actions">
     <button id="btn-retake" class="result-btn ghost">↩ Refaire</button>
     <button id="btn-save" class="result-btn primary">💾 Sauvegarder & partager</button>
@@ -82,6 +97,7 @@
       <button class="share-chip" data-method="native">Partager</button>
       <button class="share-chip" data-method="qrcode">QR code</button>
       <button class="share-chip" data-method="download">📥 Télécharger</button>
+      <button class="share-chip" data-method="download-gif">📥 GIF</button>
     </div>
     <div id="share-status" class="share-status"></div>
     <div id="share-qr-box" class="share-qr-box hidden"><img id="share-qr" alt="QR code"></div>
@@ -101,6 +117,7 @@
 <!-- Toast -->
 <div id="toast" class="toast"></div>
 
+<script src="/js/vendor/gif.js"></script>
 <script type="module" src="/js/filters.js"></script>
 <script type="module" src="/js/masks.js"></script>
 <script type="module" src="/js/app.js"></script>
