@@ -1,19 +1,19 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v16";
-/* ⚠️ Les URLs versionnées (?v=16) doivent MATCHER celles de index.html ET les imports de app.js :
+const CACHE = "momentobooth-v17";
+/* ⚠️ Les URLs versionnées (?v=17) doivent MATCHER celles de index.html ET les imports de app.js :
    sinon l'iPhone peut servir un mélange de versions (HTML neuf + JS vieux)
    → crash de init() → plus de caméra. */
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/styles.css?v=16",
-  "/js/app.js?v=16",
-  "/js/filters.js?v=16",
-  "/js/masks.js?v=16",
-  "/js/frames.js?v=16",
-  "/js/vendor/gif.js?v=16",
+  "/css/styles.css?v=17",
+  "/js/app.js?v=17",
+  "/js/filters.js?v=17",
+  "/js/masks.js?v=17",
+  "/js/frames.js?v=17",
+  "/js/vendor/gif.js?v=17",
   "/js/vendor/gif.worker.js",
-  "/js/vendor/jszip.min.js?v=16",
+  "/js/vendor/jszip.min.js?v=17",
   "/js/mediapipe/vision_bundle.mjs",
   "/js/mediapipe/wasm/vision_wasm_internal.js",
   "/js/mediapipe/wasm/vision_wasm_internal.wasm",

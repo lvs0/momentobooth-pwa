@@ -340,8 +340,8 @@ body { touch-action: manipulation; }
   position: absolute; inset: 0; z-index: 90; pointer-events: none;
   background: #fff; opacity: 0;
 }
-.flash-overlay.go { animation: flash-go .5s ease-out; }
-@keyframes flash-go { 0% { opacity: 0; } 12% { opacity: .95; } 100% { opacity: 0; } }
+.flash-overlay.go { animation: flash-go .65s ease-out; }
+@keyframes flash-go { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
 
 /* ============ FILTRES MASQUES : icônes SVG ============ */
 .filter-icon {

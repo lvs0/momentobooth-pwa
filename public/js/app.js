@@ -3,9 +3,9 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=16";
-import { drawMask } from "./masks.js?v=16";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=16";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=17";
+import { drawMask } from "./masks.js?v=17";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=17";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -24,7 +24,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=16";
   autoLastNose: null,
   autoArmed: false,
   portraitMode: false,   // capture double + GIF à chaque prise
-  flashMode: "auto",     // auto | on | off
+  flashMode: "on",       // on | auto | off — ON par défaut : flash à chaque photo
   qualityMax: true,
   trackEnabled: true,
   latestPhoto: null,
@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=16";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "16"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=16 du SW
+const APP_VERSION = "17"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=17 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -183,24 +183,33 @@ function isSceneDark() {
   } catch { return false; }
 }
 
+/* Flash visuel plein écran (le vrai LED n'est pas accessible sur iPhone Safari).
+   ⚠️ Fallback JS : fonctionne MÊME avec « Réduire les animations » activé. */
 function flash() {
   if (state.flashMode === "off") return;
-  if (state.flashMode === "auto" && !isSceneDark()) return;
   const overlay = $("flash-overlay");
   if (!overlay) return;
-  /* ⚠️ Fallback JS : fonctionne MÊME avec « Réduire les animations » activé
-     sur iPhone (ce réglage désactive les animations CSS → le flash ne
-     s'affichait jamais). */
   overlay.style.transition = "none";
-  overlay.style.opacity = "0.95";
+  overlay.style.opacity = "1";
   setTimeout(() => {
-    overlay.style.transition = "opacity .55s ease-out";
+    overlay.style.transition = "opacity .6s ease-out";
     overlay.style.opacity = "0";
-  }, 70);
+  }, 110);
   /* En plus, l'animation CSS quand elle est autorisée */
   overlay.classList.remove("go");
   void overlay.offsetWidth;
   overlay.classList.add("go");
+}
+
+/* Torche physique : dispo sur Android/Chrome (torch:true), inopérant sur iOS
+   Safari (limitation Apple) — tenté sans erreur. */
+async function tryTorch() {
+  try {
+    const track = state.stream?.getVideoTracks?.()[0];
+    if (track && typeof track.applyConstraints === "function") {
+      await track.applyConstraints({ advanced: [{ torch: state.flashMode === "on" }] });
+    }
+  } catch { /* non supporté (iOS Safari) */ }
 }
 
 /* =========================================================
@@ -493,7 +502,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=16");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=17");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
@@ -659,9 +668,10 @@ async function capture() {
     await capturePortrait();
     return;
   }
+  flash(); // ⚠️ flash AVANT la capture (sinon masqué par l'écran résultat)
+  tryTorch();
   const blob = await grabFrame();
   state.latestPhoto = blob;
-  flash();
   playBeep(1200, 0.2, 0.3);
   showResult([{ blob, label: "Photo" }]);
 }
@@ -672,6 +682,8 @@ async function capturePortrait() {
   state.counting = true;
   sfxShutter();
   try {
+    flash(); // flash AVANT la capture
+    tryTorch();
     // Le GIF démarre AVANT la capture (buffer continu) — la photo est capturée
     // pendant que le buffer tourne, puis le GIF se termine un peu APRÈS.
     gifStartPre();
@@ -679,7 +691,6 @@ async function capturePortrait() {
     const portrait = await grabFramePortrait();
     const gif = await grabGif(6);
     if (state.autoMode) state.autoArmed = false;
-    flash();
     state.latestPhoto = normal;
     state.latestGif = gif;
     const items = [
@@ -1467,9 +1478,10 @@ function bindSettings() {
       state.flashMode = btn.dataset.flash;
       document.querySelectorAll("#flash-modes button").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      toast(btn.dataset.flash === "auto" ? "Flash auto (si sombre)" : btn.dataset.flash === "on" ? "Flash toujours ✓" : "Flash désactivé");
+      toast(btn.dataset.flash === "on" ? "Flash toujours ✓" : btn.dataset.flash === "auto" ? "Flash auto (si sombre)" : "Flash désactivé");
       // Aperçu : l'écran flashe immédiatement pour confirmer l'activation
-      if (btn.dataset.flash === "on") flash();
+      if (btn.dataset.flash === "on") { flash(); tryTorch(); }
+      else tryTorch();
     });
   });
   on("set-quality", "change", (e) => {
