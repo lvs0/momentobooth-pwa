@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "13"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=13 du SW
+const APP_VERSION = "14"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=14 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -170,8 +170,19 @@ function flash() {
   if (state.flashMode === "off") return;
   if (state.flashMode === "auto" && !isSceneDark()) return;
   const overlay = $("flash-overlay");
+  if (!overlay) return;
+  /* ⚠️ Fallback JS : fonctionne MÊME avec « Réduire les animations » activé
+     sur iPhone (ce réglage désactive les animations CSS → le flash ne
+     s'affichait jamais). */
+  overlay.style.transition = "none";
+  overlay.style.opacity = "0.95";
+  setTimeout(() => {
+    overlay.style.transition = "opacity .55s ease-out";
+    overlay.style.opacity = "0";
+  }, 70);
+  /* En plus, l'animation CSS quand elle est autorisée */
   overlay.classList.remove("go");
-  void overlay.offsetWidth; // relance l'animation
+  void overlay.offsetWidth;
   overlay.classList.add("go");
 }
 
@@ -208,13 +219,14 @@ async function startCamera() {
     if (errorEl) errorEl.classList.add("hidden");
   } catch (error) {
     // ⚠️ Affiche un écran clair + bouton réessayer au lieu d'un écran noir
+    console.error("[MomentoBooth] getUserMedia échec:", error?.name, error?.message);
     if (errorEl) errorEl.classList.remove("hidden");
     const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
     const textEl = errorEl?.querySelector(".camera-error-text");
     if (textEl) {
       textEl.textContent = denied
         ? "Caméra bloquée sur cet iPhone. Réglages → Safari → Caméra → autoriser ce site, puis rechargez. (Si l'app est sur l'écran d'accueil : Réglages → Confidentialité → Caméra.)"
-        : "Autorisez l'accès à la caméra dans Safari : Réglages → Safari → Caméra, puis rechargez.";
+        : `Impossible d'ouvrir la caméra (${error?.name || "erreur inconnue"}). Autorisez l'accès : Réglages → Safari → Caméra, puis rechargez.`;
     }
     toast(denied ? "Caméra bloquée (Réglages → Safari → Caméra)" : "Caméra indisponible : autorisez l'accès");
   }
@@ -1421,7 +1433,9 @@ function bindSettings() {
       state.flashMode = btn.dataset.flash;
       document.querySelectorAll("#flash-modes button").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      toast(btn.dataset.flash === "auto" ? "Flash auto (si sombre)" : btn.dataset.flash === "on" ? "Flash toujours" : "Flash désactivé");
+      toast(btn.dataset.flash === "auto" ? "Flash auto (si sombre)" : btn.dataset.flash === "on" ? "Flash toujours ✓" : "Flash désactivé");
+      // Aperçu : l'écran flashe immédiatement pour confirmer l'activation
+      if (btn.dataset.flash === "on") flash();
     });
   });
   on("set-quality", "change", (e) => {

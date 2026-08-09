@@ -1,19 +1,19 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v13";
-/* ⚠️ Les URLs versionnées (?v=13) doivent MATCHER celles de index.html :
+const CACHE = "momentobooth-v14";
+/* ⚠️ Les URLs versionnées (?v=14) doivent MATCHER celles de index.html :
    sinon l'iPhone peut servir un mélange de versions (HTML neuf + JS vieux)
    → crash de init() → plus de caméra. */
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/styles.css?v=13",
-  "/js/app.js?v=13",
-  "/js/filters.js?v=13",
-  "/js/masks.js?v=13",
-  "/js/frames.js?v=13",
-  "/js/vendor/gif.js?v=13",
+  "/css/styles.css?v=14",
+  "/js/app.js?v=14",
+  "/js/filters.js?v=14",
+  "/js/masks.js?v=14",
+  "/js/frames.js?v=14",
+  "/js/vendor/gif.js?v=14",
   "/js/vendor/gif.worker.js",
-  "/js/vendor/jszip.min.js?v=13",
+  "/js/vendor/jszip.min.js?v=14",
   "/js/mediapipe/vision_bundle.mjs",
   "/js/mediapipe/wasm/vision_wasm_internal.js",
   "/js/mediapipe/wasm/vision_wasm_internal.wasm",
@@ -21,8 +21,9 @@ const ASSETS = [
   "/js/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
   "/js/mediapipe/face_landmarker.task",
   "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
+  "/icons/icon-192.png?v=14",
+  "/icons/icon-512.png?v=14",
+  "/icons/apple-touch-icon-180.png?v=14",
   "/icons/logo.png",
 ];
 
