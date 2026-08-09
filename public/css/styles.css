@@ -16,7 +16,9 @@
   --radius-md: 24px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Avenir Next", "Segoe UI", Roboto, sans-serif;
+  --font-display: "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Avenir Next", system-ui, sans-serif;
+  --letter-tight: -.02em;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -35,6 +37,26 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
 .screen { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .3s ease, transform .3s ease; }
 .screen.active { opacity: 1; pointer-events: auto; transform: none; }
 .hidden { display: none !important; }
+
+/* ⚠️ CRITIQUE : masque l'interface pendant le compte à rebours (classe ajoutée en JS) */
+body.ui-hidden .bottom-bar,
+body.ui-hidden .filter-strip,
+body.ui-hidden .tap-hint,
+body.ui-hidden .auto-status,
+body.ui-hidden .sheet {
+  opacity: 0 !important;
+  transform: translateY(16px) !important;
+  pointer-events: none !important;
+  transition: opacity .22s ease, transform .22s ease;
+}
+body.ui-hidden .bottom-bar,
+body.ui-hidden .filter-strip,
+body.ui-hidden .tap-hint,
+body.ui-hidden .auto-status { transform: none !important; }
+
+/* Swipe iOS : ne laisse PAS le navigateur voler le geste */
+#camera-zone { touch-action: none; }
+body { touch-action: manipulation; }
 
 /* ============ ÉCRAN CAPTURE ============ */
 #screen-capture { background: transparent; }
@@ -66,6 +88,7 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
   position: absolute; left: 4px; right: 4px; bottom: 4px;
   font-size: 9.5px; font-weight: 800; text-align: center; padding: 2px 0;
   background: rgba(6,6,14,.55); color: #fff; border-radius: 7px; letter-spacing: .02em;
+  font-family: var(--font-display);
 }
 
 /* --- Zone caméra --- */
@@ -90,18 +113,44 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
 .tap-hint .hint-icon { font-size: 21px; }
 @keyframes hint-bob { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-6px); } }
 
-/* Compte à rebours */
-.countdown { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.12); }
+/* Compte à rebours : occupe l'écran vers le haut, gros chiffre, pause au tap */
+.countdown {
+  position: absolute; inset: 0; z-index: 40;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  padding-top: calc(30vh);
+  background: rgba(0,0,0,.18);
+}
 .countdown-ring {
-  width: 190px; height: 190px; border-radius: 50%;
+  position: relative;
+  width: 210px; height: 210px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  border: 3px solid rgba(125,211,252,.7);
-  background: rgba(255,255,255,.08);
-  backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%);
-  box-shadow: 0 0 80px rgba(125,211,252,.4), inset 0 1px 0 rgba(255,255,255,.3);
+  border: 4px solid rgba(125,211,252,.8);
+  background: rgba(255,255,255,.09);
+  backdrop-filter: blur(26px) saturate(160%); -webkit-backdrop-filter: blur(26px) saturate(160%);
+  box-shadow: 0 0 90px rgba(125,211,252,.45), inset 0 1px 0 rgba(255,255,255,.35);
   animation: ring-pulse 1s ease infinite;
 }
-.countdown-number { font-size: 88px; font-weight: 800; color: #fff; text-shadow: 0 0 40px rgba(125,211,252,.9); font-variant-numeric: tabular-nums; }
+.countdown.paused .countdown-ring {
+  border-color: var(--gold);
+  box-shadow: 0 0 90px rgba(240,201,106,.5), inset 0 1px 0 rgba(255,255,255,.35);
+  animation: none;
+}
+.countdown-number { font-size: 108px; font-weight: 900; color: #fff; text-shadow: 0 0 50px rgba(125,211,252,.95); font-variant-numeric: tabular-nums; letter-spacing: -.03em; font-family: var(--font-display); }
+.countdown-pause {
+  position: absolute; top: -6px; right: -6px;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold), #b26500);
+  color: #fff; font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 26px rgba(240,201,106,.5);
+}
+.countdown-hint {
+  margin-top: 26px; font-size: 15px; font-weight: 800; color: rgba(255,255,255,.85);
+  background: rgba(10,10,20,.55); border: 1px solid var(--stroke-bright);
+  padding: 10px 22px; border-radius: 999px;
+  backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 8px 30px rgba(0,0,0,.4);
+}
 @keyframes ring-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 
 /* --- Barre bas (simplifiée) --- */
@@ -173,21 +222,21 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
   max-height: 70vh; overflow-y: auto;
 }
 .sheet.open { transform: translateY(0); }
-.sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 22px; font-weight: 900; letter-spacing: -.01em; }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 22px; font-weight: 900; letter-spacing: var(--letter-tight); font-family: var(--font-display); }
 .sheet-close { background: rgba(255,255,255,.1); border: 1px solid var(--stroke); color: var(--text); width: 38px; height: 38px; border-radius: 50%; font-size: 16px; font-weight: 800; }
 .sheet-sub { color: var(--muted); font-size: 15px; margin-top: 16px; text-align: center; font-weight: 600; }
 
-/* Timer : 2 gros boutons 5s / 10s */
-.timer-options.big { display: flex; gap: 14px; }
+/* Timer : 4 durées 5 / 10 / 15 / 20 s */
+.timer-options.big { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .timer-chip.big {
-  flex: 1; padding: 30px 10px; text-align: center;
-  border-radius: 28px; background: rgba(255,255,255,.09); border: 2px solid var(--stroke);
-  font-size: 52px; font-weight: 800; line-height: 1.1;
+  flex: 1; padding: 24px 8px; text-align: center;
+  border-radius: 26px; background: rgba(255,255,255,.09); border: 2px solid var(--stroke);
+  font-size: 46px; font-weight: 800; line-height: 1.1;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
   transition: transform .15s ease, background .15s ease;
 }
 .timer-chip.big.active { border-color: var(--gold); background: rgba(240,201,106,.18); transform: translateY(-3px); box-shadow: 0 8px 30px rgba(240,201,106,.25); }
-.timer-chip.big small { display: block; font-size: 15px; color: var(--muted); font-weight: 600; margin-top: 6px; }
+.timer-chip.big small { display: block; font-size: 14px; color: var(--muted); font-weight: 600; margin-top: 5px; }
 
 .backdrop-options { display: flex; flex-wrap: wrap; gap: 12px; }
 .backdrop-swatch {
@@ -400,6 +449,17 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
 .frame-options {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
 }
+.frame-text-edit { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.frame-text-edit input {
+  background: rgba(255,255,255,.09); border: 1px solid var(--stroke);
+  color: var(--text); border-radius: 14px;
+  padding: 13px 16px; font-size: 16px; font-weight: 700;
+  outline: none; width: 100%;
+}
+.frame-text-edit input:focus { border-color: var(--accent); }
+.frame-text-edit input::placeholder { color: var(--muted); font-weight: 600; }
+.frame-text-edit .mini-btn { align-self: center; padding: 13px 26px; font-size: 16px; }
+.result-image.playing { border-color: var(--gold) !important; box-shadow: 0 0 40px rgba(240,201,106,.35) !important; }
 .frame-chip {
   border-radius: 18px; overflow: hidden;
   background: rgba(255,255,255,.07);

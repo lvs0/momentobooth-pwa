@@ -7,8 +7,7 @@ import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js"
 import { drawMask } from "./masks.js";
 import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
 
-/* ---------- État ---------- */
-const state = {
+/* ---------- État ---------- */  const state = {
   stream: null,
   facing: "user",
   filterId: "original",
@@ -16,6 +15,10 @@ const state = {
   chromaEnabled: false,
   timerSeconds: 5,
   counting: false,
+  countingPaused: false,
+  _resumeCountdown: null,
+  logoEnabled: true,      // logo MomentoBooth rogné sur la photo
+  logoImage: null,
   autoMode: false,
   autoStableSince: 0,
   autoLastNose: null,
@@ -29,7 +32,7 @@ const state = {
   publicUrl: "",
   lastLocalId: null,     // id IndexedDB de la dernière photo
   frameId: "none",       // cadre anniversaire
-  frameText: FRAME_TEXTS.default,
+  frameText: { ...FRAME_TEXTS.default },   // titres éditables
   deleteEnabled: false,  // autoriser la suppression des photos
   landmarker: null,
   face: null,
@@ -60,20 +63,53 @@ function toast(message) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => toastEl.classList.remove("show"), 2600);
 }
-function playBeep(freq = 880, duration = 0.12, gain = 0.15) {
+
+/* --- Audio : contexte partagé + sons d'interface forts --- */
+let _audioCtx = null;
+function audioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch { return null; }
+  }
+  if (_audioCtx.state === "suspended") { try { _audioCtx.resume(); } catch {} }
+  return _audioCtx;
+}
+
+/* Son simple : oscillo + enveloppe. gain 0..1 (fort par défaut) */
+function playBeep(freq = 880, duration = 0.14, gain = 0.5, type = "sine") {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = audioCtx();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
     osc.frequency.value = freq;
-    osc.type = "sine";
-    g.gain.setValueAtTime(gain, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.type = type;
+    const now = ctx.currentTime;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.01, gain), now + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     osc.connect(g).connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + duration + 0.02);
+    osc.start(now);
+    osc.stop(now + duration + 0.05);
   } catch { /* no audio */ }
 }
+
+/* Sons d'interface dédiés (plus forts, plus riches) */
+function sfxTick() {
+  playBeep(720, 0.09, 0.45, "square");
+  playBeep(1080, 0.06, 0.18, "sine");
+}
+function sfxFinal() {
+  playBeep(660, 0.12, 0.5, "triangle");
+  setTimeout(() => playBeep(880, 0.14, 0.55, "triangle"), 130);
+  setTimeout(() => playBeep(1320, 0.28, 0.6, "triangle"), 260);
+}
+function sfxShutter() {
+  playBeep(220, 0.12, 0.55, "sawtooth");
+  playBeep(1800, 0.06, 0.25, "sine");
+}
+function sfxOpen() { playBeep(560, 0.07, 0.32, "sine"); playBeep(840, 0.08, 0.28, "sine"); }
+function sfxClose() { playBeep(700, 0.06, 0.25, "sine"); }
 
 /* Flash plein écran — mode auto : flash seulement si scène sombre */
 function isSceneDark() {
@@ -106,12 +142,27 @@ function flash() {
 async function startCamera() {
   try {
     const facing = state.facing === "user" ? "user" : "environment";
-    state.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 2560 }, height: { ideal: 1920 } },
-      audio: false,
-    });
+    // Essai progressif : 2560 → 1920 → 1280 → sans contrainte.
+    // iPhone 11 (front ≤ ~1920×1080) échoue parfois sur les grosses contraintes.
+    const attempts = [
+      { facingMode: facing, width: { ideal: 2560 }, height: { ideal: 1920 } },
+      { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1440 } },
+      { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+      { facingMode: facing },
+    ];
+    let stream = null, lastError = null;
+    for (const video of attempts) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+        break;
+      } catch (error) { lastError = error; }
+    }
+    if (!stream) throw lastError || new Error("getUserMedia failed");
+    state.stream = stream;
     camera.srcObject = state.stream;
     await camera.play().catch(() => {});
+    // On re-synchronise les miniatures avec le vrai flux
+    filterThumbs.forEach((item) => { if (item.video && item.hydrated) { item.video.srcObject = state.stream; } });
     buildFilterStrip();
   } catch (error) {
     toast("Caméra indisponible : autorisez l'accès");
@@ -210,7 +261,11 @@ function gestureTarget(event) {
 }
 
 document.addEventListener("pointerdown", (event) => {
-  if (state.counting) return;
+  // Pendant le compte à rebours : un tap = pause / reprise
+  if (state.counting) {
+    toggleCountdownPause();
+    return;
+  }
   if (gestureTarget(event) !== "cam") return;
   if (screens.result.classList.contains("active") || screens.gallery.classList.contains("active")) return;
   swipeActive = true;
@@ -257,6 +312,8 @@ function buildTimerOptions() {
   const durations = [
     { s: 5, label: "5", sub: "secondes", big: "5s" },
     { s: 10, label: "10", sub: "secondes", big: "10s" },
+    { s: 15, label: "15", sub: "secondes", big: "15s" },
+    { s: 20, label: "20", sub: "secondes", big: "20s" },
   ];
   durations.forEach((d, index) => {
     const chip = document.createElement("button");
@@ -267,32 +324,63 @@ function buildTimerOptions() {
       document.querySelectorAll(".timer-chip").forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       sheetMap["sheet-timer"].classList.remove("open");
+      sfxOpen();
       startCountdown();
     });
     box.appendChild(chip);
   });
 }
 
+/* Pause / reprise au tap pendant le compte à rebours */
+function toggleCountdownPause() {
+  if (!state.counting) return;
+  state.countingPaused = !state.countingPaused;
+  const pauseBadge = $("countdown-pause");
+  if (pauseBadge) pauseBadge.classList.toggle("hidden", !state.countingPaused);
+  countdownEl.classList.toggle("paused", state.countingPaused);
+  sfxOpen();
+  if (!state.countingPaused && state._resumeCountdown) {
+    const resume = state._resumeCountdown;
+    state._resumeCountdown = null;
+    resume();
+  }
+}
+
 async function startCountdown() {
   if (state.counting) return;
   state.counting = true;
+  state.countingPaused = false;
+  const pauseBadge = $("countdown-pause");
+  if (pauseBadge) pauseBadge.classList.add("hidden");
+  countdownEl.classList.remove("paused");
   document.body.classList.add("ui-hidden"); // masque l'interface pendant le compte à rebours
   countdownEl.classList.remove("hidden");
   let remaining = state.timerSeconds;
   countdownNumber.textContent = String(remaining);
 
   const tick = async () => {
-    playBeep(880, 0.1, 0.2);
+    // Si l'utilisateur a mis en pause, on attend la reprise
+    if (state.countingPaused) {
+      await new Promise((resolve) => { state._resumeCountdown = resolve; });
+    }
+    sfxTick();
     await new Promise((resolve) => setTimeout(resolve, 1000));
     remaining -= 1;
     if (remaining > 0) {
       countdownNumber.textContent = String(remaining);
       return tick();
     }
+    sfxFinal();
     countdownEl.classList.add("hidden");
-    await capture();
-    document.body.classList.remove("ui-hidden"); // l'interface revient après la capture
-    state.counting = false;
+    try {
+      await capture();
+    } finally {
+      // ⚠️ Toujours réafficher l'interface même si la capture échoue,
+      // sinon l'app reste verrouillée ("plus rien ne marche")
+      document.body.classList.remove("ui-hidden");
+      state.counting = false;
+      state._resumeCountdown = null;
+    }
     return null;
   };
   await tick();
@@ -474,31 +562,39 @@ async function capture() {
   showResult([{ blob, label: "Photo" }]);
 }
 
-/* Portrait : photo normale + flou + GIF animé */
+/* Portrait : photo normale + flou + GIF animé (pré + post) */
 async function capturePortrait() {
   if (state.counting) return;
   state.counting = true;
-  playBeep(1200, 0.25, 0.35);
-  const normal = await grabFrame();
-  const portrait = await grabFramePortrait();
-  const gif = await grabGif();
-  state.counting = false;
-  if (state.autoMode) state.autoArmed = false;
-  flash();
-  state.latestPhoto = normal;
-  state.latestGif = gif;
-  const items = [
-    { blob: normal, label: "Normal" },
-    { blob: portrait ? portrait.blob : normal, label: "Portrait" },
-  ];
-  if (gif) items.push({ blob: gif, label: "GIF", gif: true });
-  showResult(items);
+  sfxShutter();
+  try {
+    // Le GIF démarre AVANT la capture (buffer continu) — la photo est capturée
+    // pendant que le buffer tourne, puis le GIF se termine un peu APRÈS.
+    gifStartPre();
+    const normal = await grabFrame();
+    const portrait = await grabFramePortrait();
+    const gif = await grabGif(6);
+    if (state.autoMode) state.autoArmed = false;
+    flash();
+    state.latestPhoto = normal;
+    state.latestGif = gif;
+    const items = [
+      { blob: normal, label: "Normal" },
+      { blob: portrait ? portrait.blob : normal, label: "Portrait" },
+    ];
+    if (gif) items.push({ blob: gif, label: "GIF", gif: true });
+    showResult(items);
+  } finally {
+    // ⚠️ Stoppe toujours le buffer GIF (sinon fuite : intervalle à 140 ms)
+    gifStopPre();
+    state.counting = false;
+  }
 }
 
 /* =========================================================
    GRAFFRAME : capture haute qualité avec filtre + masque
    ========================================================= */
-function drawVideoFrame(ctx, video, W, H) {
+function drawVideoFrame(ctx, video, W, H, skipFrame = false) {
   const sourceRatio = video.videoWidth / video.videoHeight;
   const targetRatio = W / H;
   let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
@@ -535,7 +631,36 @@ function drawVideoFrame(ctx, video, W, H) {
   }
 
   // Cadre anniversaire (par-dessus tout, pas de miroir)
-  drawFrame(ctx, W, H, state.frameId, state.frameText);
+  if (!skipFrame) drawFrame(ctx, W, H, state.frameId, state.frameText);
+  // Logo MomentoBooth rogné (déjà dessiné à plat, pas de miroir)
+  if (!skipFrame) drawLogo(ctx, W, H);
+}
+
+/* Logo MomentoBooth : rogné en rond, en bas à droite de la photo */
+function drawLogo(ctx, W, H) {
+  if (!state.logoEnabled || !state.logoImage) return;
+  const size = Math.max(44, Math.min(W, H) * 0.15);
+  const margin = Math.max(12, Math.min(W, H) * 0.03);
+  const x = W - size - margin;
+  const y = H - size - margin;
+  ctx.save();
+  // Rognage circulaire du logo
+  ctx.beginPath();
+  ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(state.logoImage, x, y, size, size);
+  ctx.restore();
+  // Liseré blanc élégant
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x + size / 2, y + size / 2, size / 2 - 1, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(255,255,255,.85)";
+  ctx.lineWidth = Math.max(2, size * 0.045);
+  ctx.shadowColor = "rgba(0,0,0,.45)";
+  ctx.shadowBlur = 10;
+  ctx.stroke();
+  ctx.restore();
 }
 
 function grabFrame() {
@@ -550,6 +675,20 @@ function grabFrame() {
     const W = Math.round(vw * scale), H = Math.round(vh * scale);
     canvas.width = W; canvas.height = H;
 
+    /* Finalise : copie brute (sans cadre, pour re-personnaliser à l'export)
+       puis cadre + logo par-dessus pour la photo livrée */
+    const finalize = () => {
+      try {
+        const rawCanvas = document.createElement("canvas");
+        rawCanvas.width = W; rawCanvas.height = H;
+        rawCanvas.getContext("2d").drawImage(canvas, 0, 0);
+        rawCanvas.toBlob((raw) => { state.latestRaw = raw ?? null; }, "image/jpeg", 0.97);
+      } catch { state.latestRaw = null; }
+      drawFrame(ctx, W, H, state.frameId, state.frameText);
+      drawLogo(ctx, W, H);
+      canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.97);
+    };
+
     if (state.backdrop) {
       if (state.backdrop.type === "gradient") {
         const grad = ctx.createLinearGradient(0, 0, W, H);
@@ -561,16 +700,16 @@ function grabFrame() {
         const img = new Image();
         img.onload = () => {
           ctx.drawImage(img, 0, 0, W, H);
-          drawVideoFrame(ctx, video, W, H);
-          canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.97);
+          drawVideoFrame(ctx, video, W, H, true); // sans cadre → finalize l'ajoute
+          finalize();
         };
         img.src = state.backdrop.url;
         return;
       }
     }
 
-    drawVideoFrame(ctx, video, W, H);
-    canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.97);
+    drawVideoFrame(ctx, video, W, H, true); // contenu brut (vidéo + filtre + masque)
+    finalize();
   });
 }
 
@@ -674,18 +813,52 @@ function grabFramePortrait() {
   });
 }
 
-/* GIF animé : 8 frames de la vidéo avec filtre + masque */
-function grabGif() {
+/* GIF animé : pré-enregistrement en continu + post-frames.
+   Le GIF démarre UN PEU AVANT la photo (buffer) et se finit
+   UN PEU APRÈS (frames supplémentaires) — comme demandé. */
+const gifRec = { frames: [], running: false, W: 480, H: 0, timer: null, canvas: null, ctx: null };
+
+function gifStartPre() {
+  if (gifRec.running) return;
+  const video = camera;
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 960;
+  gifRec.W = 480;
+  gifRec.H = Math.max(320, Math.round(480 / (vw / vh)));
+  if (!gifRec.canvas) {
+    gifRec.canvas = document.createElement("canvas");
+    gifRec.ctx = gifRec.canvas.getContext("2d");
+  }
+  gifRec.canvas.width = gifRec.W;
+  gifRec.canvas.height = gifRec.H;
+  gifRec.frames = [];
+  gifRec.running = true;
+  const tick = () => {
+    if (!gifRec.running) return;
+    drawVideoFrame(gifRec.ctx, camera, gifRec.W, gifRec.H);
+    // Clone de la frame (copie pixel par pixel pour que chaque frame reste figée)
+    const clone = document.createElement("canvas");
+    clone.width = gifRec.W; clone.height = gifRec.H;
+    clone.getContext("2d").drawImage(gifRec.canvas, 0, 0);
+    gifRec.frames.push(clone);
+    if (gifRec.frames.length > 14) gifRec.frames.shift(); // garde ~2s de buffer
+  };
+  tick();
+  gifRec.timer = setInterval(tick, 140);
+}
+
+function gifStopPre() {
+  gifRec.running = false;
+  if (gifRec.timer) { clearInterval(gifRec.timer); gifRec.timer = null; }
+}
+
+/* Rend le GIF : frames pré (déjà capturées) + N frames post (capturées maintenant) */
+function grabGif(postFrames = 6) {
   return new Promise((resolve) => {
     try {
       const GifWriter = window.GIF;
-      if (!GifWriter) return resolve(null);
-      const video = camera;
-      const vw = video.videoWidth || 1280, vh = video.videoHeight || 960;
-      const W = 480, H = Math.round(480 / (vw / vh));
-      const canvas = document.createElement("canvas");
-      canvas.width = W; canvas.height = H;
-      const ctx = canvas.getContext("2d");
+      if (!GifWriter) { gifStopPre(); return resolve(null); }
+      gifStopPre();
+      const W = gifRec.W, H = gifRec.H;
       const gif = new GifWriter({
         workers: 1,
         quality: 8,
@@ -693,22 +866,25 @@ function grabGif() {
         height: H,
         workerScript: "/js/vendor/gif.worker.js",
       });
-      let frame = 0;
-      const total = 8;
-      const interval = 130;
-      const tick = () => {
-        if (frame >= total) {
+      let sent = 0;
+      // 1) pré : tout le buffer (le plus ancien d'abord)
+      gifRec.frames.forEach((c) => { gif.addFrame(c.getContext("2d"), { copy: true, delay: 140 }); });
+      const takePost = () => {
+        if (sent >= postFrames) {
           gif.render();
           gif.on("finished", (blob) => resolve(blob));
           return;
         }
-        drawVideoFrame(ctx, video, W, H);
-        gif.addFrame(ctx, { copy: true, delay: interval });
-        frame += 1;
-        setTimeout(tick, interval);
+        drawVideoFrame(gifRec.ctx, camera, W, H);
+        const clone = document.createElement("canvas");
+        clone.width = W; clone.height = H;
+        clone.getContext("2d").drawImage(gifRec.canvas, 0, 0);
+        gif.addFrame(clone.getContext("2d"), { copy: true, delay: 140 });
+        sent += 1;
+        setTimeout(takePost, 140);
       };
-      tick();
-    } catch { resolve(null); }
+      takePost();
+    } catch { gifStopPre(); resolve(null); }
   });
 }
 
@@ -723,11 +899,25 @@ function showResult(items) {
   items.forEach((item, index) => {
     const wrap = document.createElement("div");
     wrap.className = "result-item";
-    const img = document.createElement(item.gif ? "img" : "img");
-    img.src = URL.createObjectURL(item.blob);
+    const img = document.createElement("img");
     img.className = item.gif ? "result-image gif" : "result-image";
     img.dataset.index = index;
     if (!item.gif) img.addEventListener("click", () => { state.latestPhoto = item.blob; });
+    if (item.gif) {
+      // Séquence : on voit d'abord la photo, puis après un petit temps le GIF se lance
+      const photoItem = items.find((i) => !i.gif) ?? items[0];
+      const photoUrl = URL.createObjectURL(photoItem.blob);
+      const gifUrl = URL.createObjectURL(item.blob);
+      img.src = photoUrl;
+      setTimeout(() => {
+        URL.revokeObjectURL(photoUrl); // libère la photo temporaire
+        img.src = gifUrl;
+        img.classList.add("playing");
+      }, 1400);
+      img.addEventListener("click", () => { if (state.latestGif) state.latestGif = item.blob; });
+    } else {
+      img.src = URL.createObjectURL(item.blob);
+    }
     const label = document.createElement("span");
     label.className = "result-label";
     label.textContent = item.label;
@@ -751,7 +941,7 @@ function showCapture() {
   $("share-status").textContent = "";
 }
 
-function shareMethod(method) {
+async function shareMethod(method) {
   const status = $("share-status");
   const publicUrl = state.publicUrl || window.location.href;
   const text = "Ma photo MomentoBooth 📸";
@@ -870,8 +1060,8 @@ async function renderGallery() {
     img.src = photo.blob ? URL.createObjectURL(photo.blob) : (serverById.get(photo.id)?.url ?? "");
     img.loading = "lazy";
     img.addEventListener("click", () => {
-      if (photo.blob) state.latestPhoto = photo.blob;
-      else fetch(serverById.get(photo.id).url).then((r) => r.blob()).then((blob) => { state.latestPhoto = blob; });
+      if (photo.blob) { state.latestPhoto = photo.blob; state.latestRaw = photo.blob; }
+      else fetch(serverById.get(photo.id).url).then((r) => r.blob()).then((blob) => { state.latestPhoto = blob; state.latestRaw = blob; });
       if (photo.blob) state.lastLocalId = photo.id; // commentaire sur cette photo locale
       screens.gallery.classList.remove("active");
       screens.result.classList.add("active");
@@ -1035,6 +1225,58 @@ async function saveComment() {
 /* =========================================================
    CADRES ANNIVERSAIRE
    ========================================================= */
+function bindFrameTextEdit() {
+  const input1 = $("frame-text-1");
+  const input2 = $("frame-text-2");
+  if (!input1 || !input2) return;
+  // Pré-remplir avec le titre actuel
+  input1.value = state.frameText.line1 || "";
+  input2.value = state.frameText.line2 || "";
+  const apply = () => {
+    const line1 = input1.value.trim() || "18 ANS";
+    const line2 = input2.value.trim() || "Lilou & Kenza";
+    state.frameText = { line1, line2 };
+    toast("Titre du cadre : « " + line1 + " / " + line2 + " » ✓");
+    // Si on est sur l'écran résultat, ré-appliquer le cadre sur la photo brute
+    if (screens.result.classList.contains("active")) reframeLatest();
+  };
+  $("btn-apply-frame-text")?.addEventListener("click", apply);
+  [input1, input2].forEach((input) => {
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") apply(); });
+  });
+}
+
+/* Re-génère la photo courante avec le cadre + le titre choisis (depuis la photo brute) */
+async function reframeLatest() {
+  const raw = state.latestRaw;
+  if (!raw) { toast("Prenez d'abord une photo"); return; }
+  if (state.frameId === "none") { toast("Choisissez d'abord un cadre"); return; }
+  toast("Application du cadre…");
+  const img = new Image();
+  img.onload = () => {
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    drawFrame(ctx, W, H, state.frameId, state.frameText);
+    drawLogo(ctx, W, H);
+    canvas.toBlob((blob) => {
+      if (!blob) { toast("Erreur de rendu"); return; }
+      state.latestPhoto = blob;
+      // Met à jour la première image du résultat (la photo)
+      const firstImg = document.querySelector("#result-grid .result-image:not(.gif)");
+      if (firstImg) {
+        const url = URL.createObjectURL(blob);
+        firstImg.onload = () => URL.revokeObjectURL(url);
+        firstImg.src = url;
+      }
+      toast("Cadre appliqué ✓");
+    }, "image/jpeg", 0.97);
+  };
+  img.src = URL.createObjectURL(raw);
+}
+
 function buildFrameOptions() {
   const box = $("frame-options");
   box.innerHTML = "";
@@ -1054,6 +1296,8 @@ function buildFrameOptions() {
       document.querySelectorAll(".frame-chip").forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       toast(frame.id === "none" ? "Cadre retiré" : `Cadre : ${frame.name}`);
+      // À l'export : applique directement le cadre choisi sur la photo affichée
+      if (screens.result.classList.contains("active")) reframeLatest();
     });
     box.appendChild(chip);
   });
@@ -1120,6 +1364,12 @@ function bindSettings() {
   });
   $("set-track").checked = state.trackEnabled;
   $("set-track").addEventListener("change", (e) => { state.trackEnabled = e.target.checked; });
+  // Logo sur la photo
+  $("set-logo").checked = state.logoEnabled;
+  $("set-logo").addEventListener("change", (e) => {
+    state.logoEnabled = e.target.checked;
+    toast(state.logoEnabled ? "Logo MomentoBooth affiché sur la photo" : "Logo retiré");
+  });
   $("set-delete").checked = state.deleteEnabled;
   $("set-delete").addEventListener("change", (e) => {
     state.deleteEnabled = e.target.checked;
@@ -1158,11 +1408,12 @@ $("btn-save-all").addEventListener("click", saveAllToPhotos);
 $("btn-save-comment").addEventListener("click", saveComment);
 $("photo-comment").addEventListener("keydown", (e) => { if (e.key === "Enter") saveComment(); });
 $("btn-frames").addEventListener("click", () => openSheet("sheet-frames"));
+$("btn-reframe").addEventListener("click", () => openSheet("sheet-frames"));
 $("timer-close").addEventListener("click", () => sheetMap["sheet-timer"].classList.remove("open"));
 document.querySelectorAll(".sheet-close").forEach((btn) => {
   btn.addEventListener("click", () => btn.closest(".sheet")?.classList.remove("open"));
 });
-document.querySelectorAll(".share-chip").forEach((btn) => {
+document.querySelectorAll(".share-chip:not(.no-method)").forEach((btn) => {
   btn.addEventListener("click", () => shareMethod(btn.dataset.method));
 });
 $("backdrop-file").addEventListener("change", (event) => {
@@ -1195,9 +1446,17 @@ async function init() {
   buildBackdropOptions();
   buildTimerOptions();
   buildFrameOptions();
+  bindFrameTextEdit();
   bindSettings();
+  // Logo MomentoBooth (icône envoyée par l'utilisateur, rognée en rond)
+  const logoImg = new Image();
+  logoImg.onload = () => { state.logoImage = logoImg; };
+  logoImg.src = "/icons/logo.png";
   if (navigator.serviceWorker) {
-    try { await navigator.serviceWorker.register("/sw.js"); } catch { /* offline ok */ }
+    try {
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await reg.update();
+    } catch { /* offline ok */ }
   }
   await startCamera();
   await initFaceLandmarker();

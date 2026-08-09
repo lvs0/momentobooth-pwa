@@ -51,7 +51,8 @@
 
   <!-- Compte à rebours -->
   <div id="countdown" class="countdown hidden">
-    <div class="countdown-ring"><span id="countdown-number" class="countdown-number">5</span></div>
+    <div class="countdown-ring"><span id="countdown-number" class="countdown-number">5</span><span id="countdown-pause" class="countdown-pause hidden">⏸</span></div>
+    <div class="countdown-hint">Touchez pour mettre en pause</div>
   </div>
 
   <!-- Barre outils bas -->
@@ -74,7 +75,12 @@
   <div id="sheet-frames" class="sheet">
     <div class="sheet-head">🎂 Cadres anniversaire<span class="sheet-close">✕</span></div>
     <div id="frame-options" class="frame-options"></div>
-    <div class="sheet-sub">Cadre « 18 ans Lilou & Kenza » avec différentes bordures</div>
+    <div class="frame-text-edit">
+      <input id="frame-text-1" type="text" maxlength="22" placeholder="Titre ligne 1 (ex. 18 ANS)">
+      <input id="frame-text-2" type="text" maxlength="22" placeholder="Titre ligne 2 (ex. Lilou & Kenza)">
+      <button id="btn-apply-frame-text" class="mini-btn">✓ Appliquer le titre</button>
+    </div>
+    <div class="sheet-sub">Choisissez un cadre — le titre personnalisé s'affiche sur le ruban</div>
   </div>
 
   <!-- Sheet fond -->
@@ -90,6 +96,7 @@
   <div id="sheet-settings" class="sheet">
     <div class="sheet-head">⚙️ Paramètres<span class="sheet-close">✕</span></div>
     <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox"><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Logo MomentoBooth</span><label class="switch"><input id="set-logo" type="checkbox" checked><span class="slider"></span></label></div>
     <div class="settings-row"><span>Flash</span><div id="flash-modes" class="segmented"><button data-flash="auto" class="active">Auto</button><button data-flash="on">On</button><button data-flash="off">Off</button></div></div>
     <div class="settings-row"><span>Qualité max</span><label class="switch"><input id="set-quality" type="checkbox" checked><span class="slider"></span></label></div>
     <div class="settings-row"><span>Track visage (cadre)</span><label class="switch"><input id="set-track" type="checkbox" checked><span class="slider"></span></label></div>
@@ -122,6 +129,7 @@
       <button class="share-chip" data-method="download">📥 Télécharger</button>
       <button class="share-chip" data-method="download-gif">📥 GIF</button>
       <button class="share-chip" data-method="photos">📸 Photos</button>
+      <button id="btn-reframe" class="share-chip no-method">🎨 Cadre & titre</button>
     </div>
     <div id="share-status" class="share-status"></div>
     <div id="share-qr-box" class="share-qr-box hidden"><img id="share-qr" alt="QR code"></div>
