@@ -8,10 +8,20 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="MomentoBooth">
-<title>MomentoBooth</title>
+<meta name="format-detection" content="telephone=no">
+<meta name="apple-mobile-web-app-orientations" content="portrait">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/icons/icon-192.png">
-<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<!-- Icônes Apple Touch -->
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png">
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png">
+<link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+<!-- Splash screens iOS -->
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12mini.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
+<link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
+<link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
 <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -60,10 +70,18 @@
     <div class="sheet-sub">Touchez la durée — la photo se prendra automatiquement</div>
   </div>
 
+  <!-- Sheet cadres anniversaire -->
+  <div id="sheet-frames" class="sheet">
+    <div class="sheet-head">🎂 Cadres anniversaire<span class="sheet-close">✕</span></div>
+    <div id="frame-options" class="frame-options"></div>
+    <div class="sheet-sub">Cadre « 18 ans Lilou & Kenza » avec différentes bordures</div>
+  </div>
+
   <!-- Sheet fond -->
   <div id="sheet-backdrop" class="sheet">
     <div class="sheet-head">🎨 Fond<span class="sheet-close">✕</span></div>
     <div id="backdrop-options" class="backdrop-options"></div>
+    <button id="btn-frames" class="upload-fond">🎂 Cadres anniversaire</button>
     <label class="upload-fond">🖼️ Choisir une image<input id="backdrop-file" type="file" accept="image/*"></label>
     <div class="chroma-toggle"><input id="chroma-check" type="checkbox"><label for="chroma-check">Fond vert magique (chroma)</label></div>
   </div>
@@ -76,6 +94,7 @@
     <div class="settings-row"><span>Qualité max</span><label class="switch"><input id="set-quality" type="checkbox" checked><span class="slider"></span></label></div>
     <div class="settings-row"><span>Track visage (cadre)</span><label class="switch"><input id="set-track" type="checkbox" checked><span class="slider"></span></label></div>
     <div class="settings-row"><span>Désactiver le fond</span><button id="btn-clear-backdrop" class="mini-btn">Retirer</button></div>
+    <div class="settings-row"><span>Supprimer les photos</span><label class="switch"><input id="set-delete" type="checkbox"><span class="slider"></span></label></div>
     <div class="sheet-sub">Le mode portrait prend une photo normale + une photo floutée + un GIF animé</div>
   </div>
 
@@ -98,9 +117,14 @@
       <button class="share-chip" data-method="qrcode">QR code</button>
       <button class="share-chip" data-method="download">📥 Télécharger</button>
       <button class="share-chip" data-method="download-gif">📥 GIF</button>
+      <button class="share-chip" data-method="photos">📸 Photos</button>
     </div>
     <div id="share-status" class="share-status"></div>
     <div id="share-qr-box" class="share-qr-box hidden"><img id="share-qr" alt="QR code"></div>
+    <div class="comment-box">
+      <input id="photo-comment" type="text" maxlength="120" placeholder="✏️ Ajouter un commentaire à la photo…">
+      <button id="btn-save-comment" class="mini-btn">OK</button>
+    </div>
   </div>
 </section>
 
@@ -111,6 +135,10 @@
     <strong>Galerie</strong>
     <span id="gallery-count" class="gallery-count">0</span>
   </div>
+  <div class="gallery-tools">
+    <button id="btn-export-zip" class="mini-btn">📦 Export ZIP</button>
+    <button id="btn-save-all" class="mini-btn">📸 Enregistrer toutes</button>
+  </div>
   <div id="gallery-grid" class="gallery-grid"></div>
 </section>
 
@@ -118,6 +146,7 @@
 <div id="toast" class="toast"></div>
 
 <script src="/js/vendor/gif.js"></script>
+<script src="/js/vendor/jszip.min.js"></script>
 <script type="module" src="/js/filters.js"></script>
 <script type="module" src="/js/masks.js"></script>
 <script type="module" src="/js/app.js"></script>

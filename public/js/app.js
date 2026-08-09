@@ -5,6 +5,7 @@
    ========================================================= */
 import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js";
 import { drawMask } from "./masks.js";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
 
 /* ---------- État ---------- */
 const state = {
@@ -26,6 +27,10 @@ const state = {
   latestPhoto: null,
   latestGif: null,
   publicUrl: "",
+  lastLocalId: null,     // id IndexedDB de la dernière photo
+  frameId: "none",       // cadre anniversaire
+  frameText: FRAME_TEXTS.default,
+  deleteEnabled: false,  // autoriser la suppression des photos
   landmarker: null,
   face: null,
   faceMask: null,
@@ -45,6 +50,7 @@ const sheetMap = {
   "sheet-timer": $("sheet-timer"),
   "sheet-backdrop": $("sheet-backdrop"),
   "sheet-settings": $("sheet-settings"),
+  "sheet-frames": $("sheet-frames"),
 };
 
 /* ---------- Helpers ---------- */
@@ -490,6 +496,9 @@ function drawVideoFrame(ctx, video, W, H) {
     drawMask(ctx, W, H, state.face, filter.mask);
     ctx.restore();
   }
+
+  // Cadre anniversaire (par-dessus tout, pas de miroir)
+  drawFrame(ctx, W, H, state.frameId, state.frameText);
 }
 
 function grabFrame() {
@@ -747,6 +756,8 @@ function shareMethod(method) {
       } else {
         status.textContent = "Pas de GIF (mode photo simple)";
       }
+    } else if (method === "photos") {
+      await saveToPhotos(state.latestPhoto);
     }
   } catch { status.textContent = "Erreur partage"; }
 }
@@ -784,6 +795,7 @@ async function loadLocal() {
 
 async function uploadPhoto(blob) {
   const id = await saveLocal(blob);
+  state.lastLocalId = id;
   const form = new FormData();
   form.append("photo", blob, `${id}.jpg`);
   try {
@@ -815,28 +827,189 @@ async function renderGallery() {
     return;
   }
   all.forEach((photo) => {
+    const wrap = document.createElement("div");
+    wrap.className = "gallery-cell";
     const img = document.createElement("img");
     img.src = photo.blob ? URL.createObjectURL(photo.blob) : (serverById.get(photo.id)?.url ?? "");
     img.loading = "lazy";
     img.addEventListener("click", () => {
       if (photo.blob) state.latestPhoto = photo.blob;
       else fetch(serverById.get(photo.id).url).then((r) => r.blob()).then((blob) => { state.latestPhoto = blob; });
+      if (photo.blob) state.lastLocalId = photo.id; // commentaire sur cette photo locale
       screens.gallery.classList.remove("active");
       screens.result.classList.add("active");
       $("result-grid").innerHTML = "";
       $("result-grid").classList.remove("multi");
-      const wrap = document.createElement("div");
-      wrap.className = "result-item";
+      const rwrap = document.createElement("div");
+      rwrap.className = "result-item";
       const rimg = document.createElement("img");
       rimg.src = img.src;
       rimg.className = "result-image";
-      wrap.appendChild(rimg);
-      $("result-grid").appendChild(wrap);
+      rwrap.appendChild(rimg);
+      $("result-grid").appendChild(rwrap);
       $("share-box").style.display = "none";
       $("share-status").textContent = "";
       $("share-qr-box").classList.add("hidden");
+      // Commentaire existant
+      const savedComment = photos.find((p) => p.id === photo.id)?.comment;
+      $("photo-comment").value = savedComment || "";
     });
-    grid.appendChild(img);
+    wrap.appendChild(img);
+    // Badge commentaire
+    if (photo.comment) {
+      const badge = document.createElement("span");
+      badge.className = "gallery-comment";
+      badge.textContent = "💬";
+      badge.title = photo.comment;
+      wrap.appendChild(badge);
+    }
+    // Bouton suppression (si activé)
+    if (state.deleteEnabled) {
+      const delBtn = document.createElement("button");
+      delBtn.className = "gallery-delete";
+      delBtn.textContent = "✕";
+      delBtn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (!confirm("Supprimer cette photo ?")) return;
+        await deletePhoto(photo.id, serverById.has(photo.id));
+        renderGallery();
+      });
+      wrap.appendChild(delBtn);
+    }
+    grid.appendChild(wrap);
+  });
+}
+
+async function deletePhoto(id, isServer) {
+  // Local
+  try {
+    const d = await db();
+    await new Promise((resolve, reject) => {
+      const tx = d.transaction("photos", "readwrite");
+      tx.objectStore("photos").delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+  } catch { /* pas en local */ }
+  // Serveur
+  if (isServer) {
+    try { await fetch(`/api/photos/${id}`, { method: "DELETE" }); } catch { /* serveur optionnel */ }
+  }
+  toast("Photo supprimée");
+}
+
+/* Export ZIP de toutes les photos */
+async function exportZip() {
+  if (!window.JSZip) { toast("ZIP indisponible"); return; }
+  const photos = await loadLocal();
+  if (!photos.length) { toast("Aucune photo locale"); return; }
+  toast("Création du ZIP…");
+  const zip = new JSZip();
+  const folder = zip.folder("momentobooth");
+  const names = new Set();
+  photos.forEach((photo) => {
+    let name = `photo-${photo.id.split("-").pop() || photo.id}.jpg`;
+    while (names.has(name)) name = `photo-${Math.random().toString(36).slice(2, 6)}.jpg`;
+    names.add(name);
+    folder.file(name, photo.blob);
+  });
+  try {
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `momentobooth-${Date.now()}.zip`;
+    a.click();
+    toast(`ZIP exporté (${photos.length} photos)`);
+  } catch { toast("Erreur export ZIP"); }
+}
+
+/* Enregistrer toutes les photos dans la galerie iOS (Web Share API files) */
+async function saveAllToPhotos() {
+  const photos = await loadLocal();
+  if (!photos.length) { toast("Aucune photo locale"); return; }
+  const files = photos.map((p) => new File([p.blob], `momentobooth-${p.id}.jpg`, { type: "image/jpeg" }));
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try {
+      await navigator.share({ files, title: "MomentoBooth" });
+      toast("Enregistrées dans Photos ✓");
+    } catch { toast("Partage annulé"); }
+  } else {
+    // Fallback : télécharger une par une
+    files.forEach((file, i) => setTimeout(() => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(file);
+      a.download = file.name;
+      a.click();
+    }, i * 500));
+    toast("Téléchargement des photos…");
+  }
+}
+
+/* Enregistrer une photo dans Photos iOS (Web Share API files) */
+async function saveToPhotos(blob) {
+  if (!blob) { toast("Pas de photo"); return; }
+  const file = new File([blob], `momentobooth-${Date.now()}.jpg`, { type: "image/jpeg" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: "MomentoBooth" }); toast("Enregistrée dans Photos ✓"); }
+    catch { /* annulé */ }
+  } else {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file);
+    a.download = file.name;
+    a.click();
+    toast("Téléchargée ✓");
+  }
+}
+
+/* Commentaire sur la photo courante */
+async function saveComment() {
+  const value = $("photo-comment").value.trim();
+  if (!value) { toast("Écrivez un commentaire"); return; }
+  if (!state.lastLocalId) {
+    // La photo doit d'abord être sauvegardée
+    toast("Sauvegardez d'abord la photo");
+    return;
+  }
+  try {
+    const d = await db();
+    await new Promise((resolve, reject) => {
+      const tx = d.transaction("photos", "readwrite");
+      const store = tx.objectStore("photos");
+      const get = store.get(state.lastLocalId);
+      get.onsuccess = () => {
+        if (get.result) store.put({ ...get.result, comment: value });
+      };
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+    toast("Commentaire ajouté 💬");
+  } catch { toast("Erreur commentaire"); }
+}
+
+/* =========================================================
+   CADRES ANNIVERSAIRE
+   ========================================================= */
+function buildFrameOptions() {
+  const box = $("frame-options");
+  box.innerHTML = "";
+  FRAMES.forEach((frame) => {
+    const chip = document.createElement("button");
+    chip.className = `frame-chip${frame.id === state.frameId ? " active" : ""}`;
+    chip.dataset.frame = frame.id;
+    const img = document.createElement("img");
+    img.src = framePreview(frame.id);
+    img.alt = frame.name;
+    const name = document.createElement("span");
+    name.textContent = frame.name;
+    chip.appendChild(img);
+    chip.appendChild(name);
+    chip.addEventListener("click", () => {
+      state.frameId = frame.id;
+      document.querySelectorAll(".frame-chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      toast(frame.id === "none" ? "Cadre retiré" : `Cadre : ${frame.name}`);
+    });
+    box.appendChild(chip);
   });
 }
 
@@ -894,6 +1067,11 @@ function bindSettings() {
   });
   $("set-track").checked = state.trackEnabled;
   $("set-track").addEventListener("change", (e) => { state.trackEnabled = e.target.checked; });
+  $("set-delete").checked = state.deleteEnabled;
+  $("set-delete").addEventListener("change", (e) => {
+    state.deleteEnabled = e.target.checked;
+    toast(state.deleteEnabled ? "Suppression des photos activée" : "Suppression désactivée");
+  });
   $("btn-clear-backdrop").addEventListener("click", () => {
     state.backdrop = null;
     document.querySelectorAll(".backdrop-swatch").forEach((s) => s.classList.remove("active"));
@@ -921,6 +1099,11 @@ $("btn-save").addEventListener("click", async () => {
   toast("Photo sauvegardée ✓");
   $("share-box").style.display = "block";
 });
+$("btn-export-zip").addEventListener("click", exportZip);
+$("btn-save-all").addEventListener("click", saveAllToPhotos);
+$("btn-save-comment").addEventListener("click", saveComment);
+$("photo-comment").addEventListener("keydown", (e) => { if (e.key === "Enter") saveComment(); });
+$("btn-frames").addEventListener("click", () => openSheet("sheet-frames"));
 $("timer-close").addEventListener("click", () => sheetMap["sheet-timer"].classList.remove("open"));
 document.querySelectorAll(".sheet-close").forEach((btn) => {
   btn.addEventListener("click", () => btn.closest(".sheet")?.classList.remove("open"));
@@ -957,6 +1140,7 @@ async function init() {
 
   buildBackdropOptions();
   buildTimerOptions();
+  buildFrameOptions();
   bindSettings();
   if (navigator.serviceWorker) {
     try { await navigator.serviceWorker.register("/sw.js"); } catch { /* offline ok */ }

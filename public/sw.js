@@ -1,5 +1,5 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v4";
+const CACHE = "momentobooth-v5";
 const ASSETS = [
   "/",
   "/index.html",
@@ -7,8 +7,10 @@ const ASSETS = [
   "/js/app.js",
   "/js/filters.js",
   "/js/masks.js",
+  "/js/frames.js",
   "/js/vendor/gif.js",
   "/js/vendor/gif.worker.js",
+  "/js/vendor/jszip.min.js",
   "/js/mediapipe/vision_bundle.mjs",
   "/js/mediapipe/wasm/vision_wasm_internal.js",
   "/js/mediapipe/wasm/vision_wasm_internal.wasm",

@@ -250,6 +250,7 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
   grid-template-columns: repeat(3, 1fr); gap: 5px;
   padding: 4px 12px 20px;
 }
+.gallery-cell { position: relative; }
 .gallery-grid img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; border-radius: 16px; transition: transform .15s ease; }
 .gallery-grid img:active { transform: scale(.96); }
 
@@ -334,3 +335,51 @@ body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b
   color: var(--text); font-size: 14px; font-weight: 700;
 }
 .mini-btn:active { background: rgba(255,255,255,.22); }
+
+/* ============ GALERIE TOOLS ============ */
+.gallery-tools {
+  display: flex; gap: 10px; padding: 4px 18px 12px;
+}
+.gallery-tools .mini-btn { flex: 1; padding: 12px 8px; font-size: 15px; text-align: center; }
+.gallery-comment {
+  position: absolute; top: 6px; right: 26px; z-index: 5;
+  font-size: 14px;
+}
+.gallery-delete {
+  position: absolute; top: 4px; right: 4px; z-index: 5;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: rgba(220,38,38,.85); border: 1px solid rgba(255,255,255,.3);
+  color: #fff; font-size: 13px; font-weight: 800; line-height: 1;
+}
+
+/* ============ CADRES ANNIVERSAIRE ============ */
+.frame-options {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.frame-chip {
+  border-radius: 18px; overflow: hidden;
+  background: rgba(255,255,255,.07);
+  border: 2px solid transparent;
+  transition: transform .15s ease, border-color .15s ease;
+  padding: 0;
+}
+.frame-chip.active { border-color: var(--gold); transform: scale(1.04); }
+.frame-chip img { width: 100%; height: 110px; object-fit: cover; display: block; }
+.frame-chip span {
+  display: block; text-align: center; padding: 7px 2px;
+  font-size: 12px; font-weight: 800; color: var(--text);
+}
+
+/* ============ COMMENTAIRE ============ */
+.comment-box {
+  display: flex; gap: 8px; margin-top: 12px;
+}
+.comment-box input {
+  flex: 1; min-width: 0;
+  background: rgba(255,255,255,.09); border: 1px solid var(--stroke);
+  color: var(--text); border-radius: 999px;
+  padding: 12px 18px; font-size: 15px; font-weight: 600;
+  outline: none;
+}
+.comment-box input::placeholder { color: var(--muted); }
+.comment-box input:focus { border-color: var(--accent); }
