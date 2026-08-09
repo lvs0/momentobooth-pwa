@@ -167,30 +167,49 @@ function buildFilterStrip() {
 
 function selectFilter(id, thumbEl) {
   state.filterId = id;
+  // ⚠️ CRITIQUE : applique le filtre EN LIVE sur la grande caméra
+  const filter = filterById(id);
+  camera.style.filter = filter.css || "none";
   filterThumbs.forEach((item) => item.thumb.classList.toggle("active", item.thumb === thumbEl));
   if (thumbEl) thumbEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  // Vibreur léger
   try { navigator.vibrate?.(10); } catch {}
 }
 
 /* =========================================================
    GESTES : tap = minuteur · swipe = filtre en direct
+   Pointer events au niveau document (fiable iOS)
    ========================================================= */
-let swipeRefX = 0, swipeStartX = 0, swipeStartY = 0, isSwiping = false;
-const SWIPE_STEP = 64;
+let swipeStartX = 0, swipeStartY = 0, swipeRefX = 0, isSwiping = false, swipeActive = false;
+const SWIPE_STEP = 56;
 
-cameraZone.addEventListener("touchstart", (event) => {
-  swipeStartX = event.touches[0].clientX;
-  swipeStartY = event.touches[0].clientY;
+function gestureTarget(event) {
+  // Ignorer les gestes sur la barre, les filtres, les sheets et les boutons
+  if (event.target.closest(".filter-strip")) return "strip";
+  if (event.target.closest(".bottom-bar")) return "ui";
+  if (event.target.closest(".sheet")) return "ui";
+  if (event.target.closest(".result-actions")) return "ui";
+  if (event.target.closest(".gallery-head") || event.target.closest(".gallery-tools")) return "ui";
+  return "cam";
+}
+
+document.addEventListener("pointerdown", (event) => {
+  if (state.counting) return;
+  if (gestureTarget(event) !== "cam") return;
+  if (screens.result.classList.contains("active") || screens.gallery.classList.contains("active")) return;
+  swipeActive = true;
+  swipeStartX = event.clientX;
+  swipeStartY = event.clientY;
   swipeRefX = swipeStartX;
   isSwiping = false;
 }, { passive: true });
 
-cameraZone.addEventListener("touchmove", (event) => {
-  if (state.counting) return;
-  const dx = event.touches[0].clientX - swipeRefX;
-  const dy = Math.abs(event.touches[0].clientY - swipeStartY);
+document.addEventListener("pointermove", (event) => {
+  if (!swipeActive || state.counting) return;
+  const dx = event.clientX - swipeRefX;
+  const dy = Math.abs(event.clientY - swipeStartY);
   if (Math.abs(dx) < SWIPE_STEP) return;
-  if (dy > Math.abs(dx) * 1.4) return;
+  if (dy > Math.abs(dx) * 1.4) return; // vertical → pas un swipe
   isSwiping = true;
   const steps = Math.round(dx / SWIPE_STEP);
   if (steps !== 0) {
@@ -202,16 +221,16 @@ cameraZone.addEventListener("touchmove", (event) => {
   }
 }, { passive: true });
 
-cameraZone.addEventListener("touchend", () => {
-  if (isSwiping) return;
+document.addEventListener("pointerup", (event) => {
+  if (!swipeActive) return;
+  swipeActive = false;
   if (state.counting) return;
+  if (isSwiping) return; // c'était un swipe
+  if (gestureTarget(event) !== "cam") return;
   openSheet("sheet-timer");
 }, { passive: true });
 
-cameraZone.addEventListener("click", () => {
-  if (state.counting) return;
-  openSheet("sheet-timer");
-});
+document.addEventListener("pointercancel", () => { swipeActive = false; });
 
 /* =========================================================
    MINUTEUR
