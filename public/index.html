@@ -22,16 +22,18 @@
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=21">
+<link rel="stylesheet" href="/css/styles.css?v=22">
 </head>
-<body data-app-version="21"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
+<body data-app-version="22"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
 
 <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
 <main id="screen-capture" class="screen active">
 
-  <!-- Bandeau filtres -->
-  <div id="filter-strip" class="filter-strip">
-    <div id="filter-track" class="filter-strip-track"></div>
+  <!-- Empilement fenêtres (bord droit) : indice que l'on peut swiper -->
+  <div class="window-stack" id="window-stack" aria-hidden="true">
+    <div class="window-card w1"></div>
+    <div class="window-card w2"></div>
+    <div class="window-card w3"></div>
   </div>
 
   <!-- Indicateur mode AUTO -->
@@ -61,14 +63,48 @@
     <div class="halo-out"></div>
   </div>
 
+  <!-- Nom du filtre au swipe (apparaît temporairement) -->
+  <div id="filter-label" class="filter-label" aria-hidden="true"></div>
+
+  <!-- Panneau Accessoires & Filtres (carrousel de caméras en direct) -->
+  <div id="fx-panel" class="fx-panel" aria-hidden="true">
+    <div class="fx-head">
+      <span class="fx-title">Accessoires &amp; Filtres</span>
+      <span id="fx-close" class="sheet-close">✕</span>
+    </div>
+    <div class="fx-seg" id="fx-seg">
+      <button data-cat="accessory" class="active">Accessoires</button>
+      <button data-cat="animation">Animations</button>
+    </div>
+    <div class="fx-carousel" id="fx-carousel"></div>
+    <div class="fx-name" id="fx-name">Original</div>
+    <div class="fx-hint">Swipez ↔ pour changer</div>
+  </div>
+
   <!-- Compte à rebours -->
   <div id="countdown" class="countdown hidden">
     <div class="countdown-ring"><span id="countdown-number" class="countdown-number">5</span><span id="countdown-pause" class="countdown-pause hidden">⏸</span></div>
     <div class="countdown-hint">Touchez pour mettre en pause</div>
   </div>
 
+  <!-- Tutoriel swipe : doigt + fenêtres qui reviennent -->
+  <div id="swipe-tuto" class="swipe-tuto" aria-hidden="true">
+    <div class="tuto-hand">👈</div>
+    <div class="tuto-text">Swipez pour changer de filtre</div>
+  </div>
+
+  <!-- Veille : écran flouté + carte « Cliquez pour vous prendre en photo » -->
+  <div id="idle-overlay" class="idle-overlay" aria-hidden="true">
+    <div class="idle-card">
+      <div class="idle-tap"><span class="idle-cam">📷</span></div>
+      <div class="idle-title">Cliquez pour vous prendre en photo</div>
+      <div class="idle-sub">Votre photobooth est prêt</div>
+    </div>
+  </div>
+
   <!-- Barre outils bas -->
   <div class="bottom-bar">
+    <button id="btn-fx" class="tool-btn fx-btn" aria-label="Accessoires et filtres"><svg viewBox="0 0 24 24" width="27" height="27"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z" fill="currentColor"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9L18.5 21l-.9-2.6-2.6-.9 2.6-.9z" fill="currentColor" opacity=".85"/><circle cx="5.5" cy="17.5" r="1.8" fill="currentColor" opacity=".7"/></svg></button>
     <button id="btn-auto" class="tool-btn auto-btn" aria-label="Capture automatique"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>
     <button id="btn-backdrop" class="tool-btn" aria-label="Fond"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 11l-8.5 8.5a2.1 2.1 0 0 1-3 0L3.6 15.6a2.1 2.1 0 0 1 0-3L12 4"/><path d="M15.5 6.5 20 11"/><path d="M2.5 15h15"/><path d="M21 17.3c0 1.2-1 2.2-2.2 2.2s-2.3-1-2.3-2.2c0-1.2 1.1-2.6 2.3-3.5 1.2.9 2.2 2.3 2.2 3.5z"/></svg></button>
     <button id="btn-flip" class="tool-btn" aria-label="Retourner"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M4 7h10a4 4 0 0 1 0 8H4M8 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
@@ -168,10 +204,11 @@
   <div id="gallery-grid" class="gallery-grid"></div>
 </section>
 
-<script src="/js/vendor/gif.js?v=21"></script>
-<script src="/js/vendor/jszip.min.js?v=21"></script>
-<script type="module" src="/js/filters.js?v=21"></script>
-<script type="module" src="/js/masks.js?v=21"></script>
-<script type="module" src="/js/app.js?v=21"></script>
+<script src="/js/vendor/gif.js?v=22"></script>
+<script src="/js/vendor/jszip.min.js?v=22"></script>
+<script type="module" src="/js/filters.js?v=22"></script>
+<script type="module" src="/js/masks.js?v=22"></script>
+<script type="module" src="/js/animations.js?v=22"></script>
+<script type="module" src="/js/app.js?v=22"></script>
 </body>
 </html>

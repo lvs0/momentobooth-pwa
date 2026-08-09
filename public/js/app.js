@@ -3,9 +3,10 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=21";
-import { drawMask } from "./masks.js?v=21";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=21";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=22";
+import { drawMask } from "./masks.js?v=22";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=22";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=22";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -26,6 +27,9 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=21";
   portraitMode: false,   // capture double + GIF à chaque prise
   burstMode: false,      // rafale Flash+ : flash fort + meilleure prise automatique
   lensDeviceId: null,    // objectif choisi (deviceId) — null = auto
+  fxCat: "accessory",   // catégorie du panneau : accessory | animation
+  animationId: null,     // animation overlay active (ballons, …)
+  animationEngine: null,
   flashMode: "on",       // on | auto | off — ON par défaut : flash à chaque photo
   qualityMax: true,
   trackEnabled: true,
@@ -42,7 +46,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=21";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "21"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=21 du SW
+const APP_VERSION = "22"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=22 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -50,7 +54,7 @@ const screens = { capture: $("screen-capture"), result: $("screen-result"), gall
 const camera = $("camera");
 const cameraZone = $("camera-zone");
 const stickerCanvas = $("sticker-canvas");
-const filterTrack = $("filter-track");
+const fxPanel = $("fx-panel");
 const countdownEl = $("countdown");
 const countdownNumber = $("countdown-number");
 const sheetMap = {
@@ -371,12 +375,20 @@ async function startCamera() {
     const base = state.lensDeviceId
       ? { deviceId: { exact: state.lensDeviceId } }
       : { facingMode: facing };
-    const attempts = [
-      { ...base, width: { ideal: 2560 }, height: { ideal: 1920 } },
-      { ...base, width: { ideal: 1920 }, height: { ideal: 1440 } },
-      { ...base, width: { ideal: 1280 }, height: { ideal: 720 } },
-      base,
-    ];
+    // 4K d'abord si qualité max (back camera), puis descente progressive.
+    const attempts = state.qualityMax
+      ? [
+          { ...base, width: { ideal: 3840 }, height: { ideal: 2160 } },
+          { ...base, width: { ideal: 2560 }, height: { ideal: 1920 } },
+          { ...base, width: { ideal: 1920 }, height: { ideal: 1440 } },
+          { ...base, width: { ideal: 1280 }, height: { ideal: 720 } },
+          base,
+        ]
+      : [
+          { ...base, width: { ideal: 1920 }, height: { ideal: 1440 } },
+          { ...base, width: { ideal: 1280 }, height: { ideal: 720 } },
+          base,
+        ];
     let stream = null, lastError = null;
     for (const video of attempts) {
       try {
@@ -389,8 +401,8 @@ async function startCamera() {
     camera.srcObject = state.stream;
     await camera.play().catch(() => {});
     // On re-synchronise les miniatures avec le vrai flux
-    filterThumbs.forEach((item) => { if (item.video && item.hydrated) { item.video.srcObject = state.stream; } });
-    buildFilterStrip();
+    fxCards.forEach((item) => { if (item.video && item.hydrated) { item.video.srcObject = state.stream; } });
+    if (fxPanel.classList.contains("open")) buildFxPanel();
     // Caméra OK → masque l'écran d'erreur s'il était visible
     if (errorEl) errorEl.classList.add("hidden");
     console.log("[MomentoBooth] caméra OK", camera.videoWidth, "x", camera.videoHeight);
@@ -441,48 +453,121 @@ async function flipCamera() {
 }
 
 /* =========================================================
-   FILTRES : miniatures — vidéo live pour couleurs,
-   icône SVG travaillée pour les masques
+   ACCESSOIRES & FILTRES : panneau carrousel de caméras en
+   direct. Deux catégories : Accessoires (filtres + masques)
+   et Animations (ballons, confettis…). Le SWIPE global (sur
+   la caméra) navigue dans la catégorie active avec le nom qui
+   apparaît + un flou de transition (comme une mise au point).
    ========================================================= */
-let filterThumbs = [];
-function buildFilterStrip() {
-  filterTrack.innerHTML = "";
-  filterThumbs = FILTERS.map((filter, index) => {
-    const thumb = document.createElement("div");
-    thumb.className = `filter-thumb${index === 0 ? " active" : ""}`;
-    thumb.dataset.filter = filter.id;
+let fxCards = [];          // { card, video, hydrated, id }
+let fxObserver = null;
+let _fxBlurTimer = null;
 
-    if (filter.color) {
+function fxList() {
+  return state.fxCat === "animation" ? ANIMATIONS : FILTERS;
+}
+function fxItemById(id) {
+  return state.fxCat === "animation" ? animationById(id) : filterById(id);
+}
+
+/* Applique un élément (filtre OU animation) + feedback swipe */
+function applyFx(id, opts = {}) {
+  if (state.fxCat === "animation") {
+    applyAnimation(id);
+  } else {
+    applyFilter(id);
+  }
+  if (opts.showName) showFilterName(fxItemById(id)?.name || "");
+}
+
+/* Filtre : applique en live + flou de transition (mise au point) */
+function applyFilter(id) {
+  state.filterId = id;
+  const filter = filterById(id);
+  // Flou court puis net : effet « mise au point » façon iPhone
+  document.body.classList.add("fx-blur");
+  clearTimeout(_fxBlurTimer);
+  _fxBlurTimer = setTimeout(() => {
+    camera.style.filter = filter.css || "none";
+    document.body.classList.remove("fx-blur");
+  }, 70);
+  // Sans transition résiduelle après l'effet
+  fxCards.forEach((item) => item.card.classList.toggle("active", item.id === id));
+  try { navigator.vibrate?.(8); } catch {}
+}
+
+/* Animation overlay : ballons, confettis… dessinés sur le canvas */
+function applyAnimation(id) {
+  state.animationId = id || null;
+  if (!state.animationId) {
+    stopAnimation();
+    state.animationEngine = null;
+    drawLiveOverlay(); // nettoie le canvas
+  } else {
+    state.animationEngine = startAnimation(state.animationId, () => drawLiveOverlay());
+  }
+  fxCards.forEach((item) => item.card.classList.toggle("active", item.id === id));
+  try { navigator.vibrate?.(8); } catch {}
+}
+
+/* Nom du filtre : apparaît temporairement au centre (swipe) */
+function showFilterName(name) {
+  const label = $("filter-label");
+  if (!label) return;
+  label.textContent = name;
+  label.classList.remove("show");
+  void label.offsetWidth;
+  label.classList.add("show");
+  clearTimeout(label._t);
+  label._t = setTimeout(() => label.classList.remove("show"), 1300);
+}
+
+/* Construit le carrousel du panneau (catégorie active) */
+function buildFxPanel() {
+  const box = $("fx-carousel");
+  if (!box) return;
+  box.innerHTML = "";
+  fxCards = fxList().map((item) => {
+    const card = document.createElement("div");
+    card.className = `fx-card${item.id === (state.fxCat === "animation" ? state.animationId : state.filterId) ? " active" : ""}`;
+    card.dataset.fx = item.id;
+    if (state.fxCat === "animation" || !item.color) {
+      // Animation ou masque : prévisualisation (emoji / icône SVG)
+      const preview = document.createElement("div");
+      preview.className = "fx-preview";
+      preview.innerHTML = state.fxCat === "animation"
+        ? item.icon
+        : (item.icon || MASK_ICONS[item.mask] || "🎭");
+      card.appendChild(preview);
+    } else {
+      // Filtre couleur : caméra EN DIRECT avec le filtre
       const video = document.createElement("video");
       video.autoplay = true;
       video.playsInline = true;
       video.muted = true;
-      video.style.filter = filter.css;
+      video.style.filter = item.css;
       video.setAttribute("aria-hidden", "true");
-      thumb.appendChild(video);
-      thumb._video = video;
-    } else {
-      // Masque : icône SVG travaillée
-      const iconWrap = document.createElement("div");
-      iconWrap.className = "filter-icon";
-      iconWrap.innerHTML = filter.icon || MASK_ICONS[filter.mask] || "";
-      thumb.appendChild(iconWrap);
+      card.appendChild(video);
+      card._video = video;
     }
-
     const name = document.createElement("span");
-    name.className = "filter-name";
-    name.textContent = filter.name;
-    thumb.appendChild(name);
-
-    thumb.addEventListener("click", () => selectFilter(filter.id, thumb));
-    filterTrack.appendChild(thumb);
-    return { thumb, video: thumb._video, hydrated: false };
+    name.className = "fx-card-name";
+    name.textContent = item.name;
+    card.appendChild(name);
+    card.addEventListener("click", () => {
+      applyFx(item.id, { showName: true });
+      closeFxPanel();
+    });
+    box.appendChild(card);
+    return { card, id: item.id, video: card._video, hydrated: false };
   });
+  updateFxName();
 
-  const observer = new IntersectionObserver((entries) => {
+  // Hydratation paresseuse des vidéos (ne charge que les visibles → léger)
+  if (fxObserver) fxObserver.disconnect();
+  fxObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
-      const index = Array.from(filterTrack.children).indexOf(entry.target);
-      const item = filterThumbs[index];
+      const item = fxCards.find((c) => c.card === entry.target);
       if (!item || !item.video) continue;
       if (entry.isIntersecting && !item.hydrated) {
         item.video.srcObject = state.stream;
@@ -492,19 +577,47 @@ function buildFilterStrip() {
         item.hydrated = false;
       }
     }
-  }, { root: filterTrack, threshold: 0.15 });
-  filterThumbs.forEach((item) => item.video && observer.observe(item.thumb));
+  }, { root: box, threshold: 0.25 });
+  fxCards.forEach((item) => item.video && fxObserver.observe(item.card));
 }
 
+/* Nom affiché sous le carrousel (carte la plus centrée) */
+function updateFxName() {
+  const nameEl = $("fx-name");
+  if (!nameEl) return;
+  const box = $("fx-carousel");
+  if (!box) return;
+  const center = box.scrollLeft + box.clientWidth / 2;
+  let best = null, bestDist = Infinity;
+  for (const item of fxCards) {
+    const r = item.card.getBoundingClientRect();
+    const c = r.left + r.width / 2 - box.getBoundingClientRect().left + box.scrollLeft;
+    const d = Math.abs(c - center);
+    if (d < bestDist) { bestDist = d; best = item; }
+  }
+  if (best) nameEl.textContent = fxItemById(best.id)?.name || "";
+}
+
+function openFxPanel() {
+  buildFxPanel();
+  $("fx-panel").classList.add("open");
+  $("fx-panel").setAttribute("aria-hidden", "false");
+  $("btn-fx")?.classList.add("active");
+  sfxOpen();
+}
+function closeFxPanel() {
+  $("fx-panel").classList.remove("open");
+  $("fx-panel").setAttribute("aria-hidden", "true");
+  $("btn-fx")?.classList.remove("active");
+  sfxClose();
+}
+
+/* Sélection (ancien nom) : l'écran résultat l'utilise encore */
 function selectFilter(id, thumbEl) {
-  state.filterId = id;
-  // ⚠️ CRITIQUE : applique le filtre EN LIVE sur la grande caméra
-  const filter = filterById(id);
-  camera.style.filter = filter.css || "none";
-  filterThumbs.forEach((item) => item.thumb.classList.toggle("active", item.thumb === thumbEl));
+  state.fxCat = "accessory";
+  applyFilter(id);
+  showFilterName(filterById(id).name);
   if (thumbEl) thumbEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-  // Vibreur léger
-  try { navigator.vibrate?.(10); } catch {}
 }
 
 /* =========================================================
@@ -515,8 +628,8 @@ let swipeStartX = 0, swipeStartY = 0, swipeRefX = 0, isSwiping = false, swipeAct
 const SWIPE_STEP = 56;
 
 function gestureTarget(event) {
-  // Ignorer les gestes sur la barre, les filtres, les sheets et les boutons
-  if (event.target.closest(".filter-strip")) return "strip";
+  // Ignorer les gestes sur la barre, le panneau FX, les sheets et les boutons
+  if (event.target.closest(".fx-panel")) return "ui";
   if (event.target.closest(".bottom-bar")) return "ui";
   if (event.target.closest(".sheet")) return "ui";
   if (event.target.closest(".result-actions")) return "ui";
@@ -548,10 +661,18 @@ document.addEventListener("pointermove", (event) => {
   isSwiping = true;
   const steps = Math.round(dx / SWIPE_STEP);
   if (steps !== 0) {
-    const index = FILTERS.findIndex((f) => f.id === state.filterId);
-    const next = Math.max(0, Math.min(FILTERS.length - 1, index + steps));
-    const thumb = document.querySelector(`.filter-thumb[data-filter="${FILTERS[next].id}"]`);
-    selectFilter(FILTERS[next].id, thumb);
+    // Navigue dans la catégorie active (accessoires OU animations)
+    const list = fxList();
+    const currentId = state.fxCat === "animation" ? state.animationId : state.filterId;
+    const index = list.findIndex((f) => f.id === currentId);
+    const next = Math.max(0, Math.min(list.length - 1, (index < 0 ? 0 : index) + steps));
+    applyFx(list[next].id, { showName: true });
+    // Le nom + flou apparaissent — le panneau suit aussi
+    if ($("fx-panel").classList.contains("open")) {
+      fxCards.forEach((item) => item.card.classList.toggle("active", item.id === list[next].id));
+      const cardEl = fxCards.find((item) => item.id === list[next].id)?.card;
+      if (cardEl) cardEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }
     swipeRefX += steps * SWIPE_STEP;
   }
 }, { passive: true });
@@ -660,7 +781,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=21");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=22");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
@@ -682,7 +803,7 @@ function detectFace() {
   } catch { state.face = null; state.faceMask = null; }
 }
 
-/* Overlay live : masque + tracker */
+/* Overlay live : masque + tracker + ANIMATION (ballons…) */
 function drawLiveOverlay() {
   const ctx = stickerCanvas.getContext("2d");
   ctx.clearRect(0, 0, stickerCanvas.width, stickerCanvas.height);
@@ -695,6 +816,11 @@ function drawLiveOverlay() {
   // Tracker visage : cadre doré sur les visages, disparaît après délai
   if (state.trackEnabled || state.autoMode) {
     drawHeadTracker(ctx);
+  }
+
+  // Animation overlay (ballons, confettis…) par-dessus
+  if (state.animationEngine) {
+    state.animationEngine.draw(ctx, stickerCanvas.width, stickerCanvas.height);
   }
 }
 
@@ -718,6 +844,7 @@ function drawHeadTracker(ctx) {
   if (!state.face || state.face.length < 30) {
     // Visage quitté → le prochain visage aura un nouveau tracker
     state._trackStart = null;
+    state._focusAnim = null;
     return;
   }
   const cw = stickerCanvas.width, ch = stickerCanvas.height;
@@ -725,29 +852,64 @@ function drawHeadTracker(ctx) {
   const box = faceBox(state.face, cw, ch, vw, vh);
   const now = performance.now();
   // Le cadre apparaît dès qu'un visage est détecté, disparaît après 2,5 s
-  if (!state._trackStart) state._trackStart = now;
+  if (!state._trackStart) {
+    state._trackStart = now;
+    state._focusAnim = now; // anime la « mise au point » au premier lock (comme iPhone)
+  }
   if (now - state._trackStart > 2500) {
     state._trackStart = null;
+    state._focusAnim = null;
     return;
   }
   ctx.save();
+  // Animation de MISE AU POINT auto : le cadre « respire » et se verrouille
+  let scaleIn = 1, alpha = 1;
+  if (state._focusAnim) {
+    const t = Math.min(1, (now - state._focusAnim) / 550);
+    scaleIn = 1.12 - 0.12 * t;
+    alpha = 1 - t * 0.35;
+  }
   ctx.strokeStyle = state.autoMode ? "rgba(240,201,106,.95)" : "rgba(125,211,252,.9)";
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 3.5;
   ctx.shadowColor = ctx.strokeStyle;
-  ctx.shadowBlur = 16;
+  ctx.shadowBlur = 18;
+  const bx = box.x - 8, by = box.y - 8, bw = box.w + 16, bh = box.h + 16;
+  ctx.globalAlpha = alpha;
+  ctx.save();
+  ctx.translate(bx + bw / 2, by + bh / 2);
+  ctx.scale(scaleIn, scaleIn);
+  ctx.translate(-(bx + bw / 2), -(by + bh / 2));
   ctx.beginPath();
-  ctx.roundRect(box.x - 8, box.y - 8, box.w + 16, box.h + 16, 22);
+  ctx.roundRect(bx, by, bw, bh, 22);
   ctx.stroke();
-  // Coins accentués (curseur)
-  const k = 18;
-  ctx.lineWidth = 6;
+  // Coins accentués façon iPhone (curseur de mise au point)
+  const k = 20;
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
   ctx.beginPath();
-  const X = box.x - 10, Y = box.y - 10, W = box.w + 20, H = box.h + 20;
+  const X = box.x - 11, Y = box.y - 11, W = box.w + 22, H = box.h + 22;
   ctx.moveTo(X, Y + k); ctx.lineTo(X, Y); ctx.lineTo(X + k, Y);
   ctx.moveTo(X + W - k, Y); ctx.lineTo(X + W, Y); ctx.lineTo(X + W, Y + k);
   ctx.moveTo(X + W, Y + H - k); ctx.lineTo(X + W, Y + H); ctx.lineTo(X + W - k, Y + H);
   ctx.moveTo(X + k, Y + H); ctx.lineTo(X, Y + H); ctx.lineTo(X, Y + H - k);
   ctx.stroke();
+  // Réticule doré central (mise au point) au moment du lock
+  if (state._focusAnim && now - state._focusAnim < 500) {
+    const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    const pulse = 1 + 0.25 * Math.sin(((now - state._focusAnim) / 500) * Math.PI);
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 20, cy); ctx.lineTo(cx - 12, cy);
+    ctx.moveTo(cx + 12, cy); ctx.lineTo(cx + 20, cy);
+    ctx.moveTo(cx, cy - 20); ctx.lineTo(cx, cy - 12);
+    ctx.moveTo(cx, cy + 12); ctx.lineTo(cx, cy + 20);
+    ctx.stroke();
+  }
+  ctx.restore();
   ctx.restore();
 }
 
@@ -1030,6 +1192,10 @@ function drawVideoFrame(ctx, video, W, H, skipFrame = false) {
   if (!skipFrame) drawFrame(ctx, W, H, state.frameId, state.frameText);
   // Logo MomentoBooth rogné (déjà dessiné à plat, pas de miroir)
   if (!skipFrame) drawLogo(ctx, W, H);
+  // Animation figée sur la photo (si une animation est active)
+  if (!skipFrame && state.animationEngine) {
+    state.animationEngine.drawStatic(ctx, W, H);
+  }
 }
 
 /* Logo MomentoBooth : rogné en rond, en bas à droite de la photo */
@@ -1059,7 +1225,7 @@ function grabFrameCanvas() {
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const vw = video.videoWidth || 1280;
     const vh = video.videoHeight || 960;
-    const cap = state.qualityMax ? 2160 : 1440;
+    const cap = state.qualityMax ? 3840 : 1440; // 4K si qualité max
     const scale = Math.min(1, cap / Math.max(vw, vh));
     const W = Math.round(vw * scale), H = Math.round(vh * scale);
     canvas.width = W; canvas.height = H;
@@ -1817,6 +1983,30 @@ on("btn-retry-camera", "click", async () => {
   await startCamera();
 });
 on("btn-backdrop", "click", () => openSheet("sheet-backdrop"));
+on("btn-fx", "click", () => {
+  if (fxPanel.classList.contains("open")) closeFxPanel();
+  else openFxPanel();
+});
+on("fx-close", "click", closeFxPanel);
+/* Catégories : Accessoires / Animations */
+document.querySelectorAll("#fx-seg button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.fxCat = btn.dataset.cat;
+    document.querySelectorAll("#fx-seg button").forEach((b) => b.classList.toggle("active", b === btn));
+    // Applique la première de la catégorie (ou garde l'actuelle si elle y est)
+    const current = state.fxCat === "animation" ? state.animationId : state.filterId;
+    const list = fxList();
+    if (!list.find((i) => i.id === current)) applyFx(list[0].id, { showName: true });
+    buildFxPanel();
+    sfxOpen();
+  });
+});
+/* Scroll du carrousel → met à jour le nom affiché (débounce léger) */
+let _fxScrollT = null;
+$("fx-carousel")?.addEventListener("scroll", () => {
+  clearTimeout(_fxScrollT);
+  _fxScrollT = setTimeout(updateFxName, 90);
+}, { passive: true });
 on("btn-settings", "click", () => openSheet("sheet-settings"));
 on("btn-gallery", "click", async () => {
   screens.capture.classList.remove("active");
@@ -1909,11 +2099,12 @@ async function init() {
   try { buildTimerOptions(); } catch {}
   try { buildFrameOptions(); } catch {}
   try { bindFrameTextEdit(); } catch {}
+  try { buildFxPanel(); } catch {}
   try { bindSettings(); } catch {}
   // Logo MomentoBooth (icône envoyée par l'utilisateur, rognée en rond)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
-  logoImg.src = "/icons/logo.png?v=21";
+  logoImg.src = "/icons/logo.png?v=22";
 
   /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {
@@ -1944,5 +2135,115 @@ async function init() {
   /* 5) Détection visage en arrière-plan (no-op tant que caméra + modèle prêts) */
   initFaceLandmarker().catch(() => {});
   setInterval(detectFace, 120);
+
+  /* 6) Veille + tutoriel (attract mode léger) */
+  initIdleMode();
+  maybeShowSwipeTuto();
+}
+
+/* ════════════════════════════════════════════════════════════
+   VEILLE (attract mode) : quand personne pendant 30 s,
+   l'écran + la caméra se floutent progressivement, puis une
+   carte « Cliquez pour vous prendre en photo » 📷 apparaît.
+   Au clic : petite animation → le tutoriel swipe revient →
+   compte à rebours → capture.
+   ════════════════════════════════════════════════════════════ */
+let _idleTimer = null;
+let _idleTriggeredAt = 0;
+const IDLE_DELAY = 30000; // 30 s sans interaction
+
+function initIdleMode() {
+  const overlay = $("idle-overlay");
+  // Toute activité (toucher, bouger, clavier) repousse la veille
+  const poke = () => {
+    if (document.body.classList.contains("idle")) return;
+    _idleTriggeredAt = performance.now();
+  };
+  ["pointerdown", "pointermove", "touchstart", "keydown"].forEach((ev) =>
+    document.addEventListener(ev, poke, { passive: true }),
+  );
+  // Surveille l'inactivité toutes les 2 s (léger)
+  setInterval(() => {
+    if (document.body.classList.contains("idle")) return;
+    if (state.counting || state.autoMode) return; // jamais pendant une capture
+    if (screens.capture.classList.contains("active") && performance.now() - _idleTriggeredAt > IDLE_DELAY) {
+      enterIdle();
+    }
+  }, 2000);
+  // Clic sur la carte → petite animation → tutoriel → capture
+  overlay?.addEventListener("pointerdown", async (e) => {
+    e.stopPropagation();
+    if (!document.body.classList.contains("idle")) return;
+    const card = overlay.querySelector(".idle-card");
+    card.style.transition = "transform .18s ease";
+    card.style.transform = "scale(.92)";
+    sfxOpen();
+    setTimeout(() => {
+      card.style.transition = "transform .45s cubic-bezier(.2,.8,.2,1), opacity .45s ease";
+      card.style.transform = "scale(1.1)";
+      card.style.opacity = "0";
+    }, 180);
+    exitIdle();
+    setTimeout(() => {
+      card.style.transition = "";
+      card.style.transform = "";
+      card.style.opacity = "";
+    }, 700);
+    // Le tutoriel swipe revient (fenêtres qui reviennent), puis capture
+    showSwipeTuto();
+    setTimeout(() => startCountdown(), 2600);
+  });
+}
+
+function enterIdle() {
+  if (state.counting || state.autoMode) return;
+  document.body.classList.add("idle"); // flou progressif (transition CSS 3 s)
+  const overlay = $("idle-overlay");
+  if (overlay) {
+    overlay.classList.add("show");
+    overlay.setAttribute("aria-hidden", "false");
+  }
+  // Petite animation : la carte apparaît après le début du flou
+  setTimeout(() => {
+    if (document.body.classList.contains("idle")) {
+      try { navigator.vibrate?.(30); } catch {}
+    }
+  }, 1200);
+  console.log("[MomentoBooth] veille activée (30 s inactif)");
+}
+
+function exitIdle() {
+  document.body.classList.remove("idle"); // déblur
+  const overlay = $("idle-overlay");
+  if (overlay) {
+    overlay.classList.remove("show");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+  _idleTriggeredAt = performance.now();
+}
+
+/* ════════════════════════════════════════════════════════════
+   TUTORIEL SWIPE : fenêtres multitâche qui reviennent + doigt
+   qui glisse de droite à gauche (montre le geste).
+   ════════════════════════════════════════════════════════════ */
+function showSwipeTuto() {
+  const tuto = $("swipe-tuto");
+  if (!tuto) return;
+  tuto.classList.add("show");
+  tuto.setAttribute("aria-hidden", "false");
+  document.body.classList.add("tuto");
+  clearTimeout(tuto._t);
+  tuto._t = setTimeout(() => {
+    tuto.classList.remove("show");
+    tuto.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("tuto");
+  }, 3400);
+}
+
+function maybeShowSwipeTuto() {
+  // Une seule fois par session
+  if (sessionStorage.getItem("mb-swipe-tuto")) return;
+  sessionStorage.setItem("mb-swipe-tuto", "1");
+  setTimeout(showSwipeTuto, 2600);
 }
 init();

@@ -1,0 +1,9 @@
+user_pref("media.navigator.streams.fake", true);
+user_pref("media.navigator.streams.fake.width", 1280);
+user_pref("media.navigator.streams.fake.height", 960);
+user_pref("media.autoplay.default", 0);
+user_pref("media.navigator.permission.disabled", true);
+user_pref("devtools.console.stdout.content", true);
+user_pref("browser.cache.disk.enable", false);
+user_pref("browser.cache.memory.enable", false);
+user_pref("privacy.clearOnShutdown.cache", true);
