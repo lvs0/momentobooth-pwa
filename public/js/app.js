@@ -21,7 +21,7 @@ const state = {
   autoLastNose: null,
   autoArmed: false,
   portraitMode: false,   // capture double + GIF à chaque prise
-  flashEnabled: true,
+  flashMode: "auto",     // auto | on | off
   qualityMax: true,
   trackEnabled: true,
   latestPhoto: null,
@@ -75,9 +75,25 @@ function playBeep(freq = 880, duration = 0.12, gain = 0.15) {
   } catch { /* no audio */ }
 }
 
-/* Flash plein écran */
+/* Flash plein écran — mode auto : flash seulement si scène sombre */
+function isSceneDark() {
+  try {
+    if (!camera.videoWidth) return false;
+    const c = document.createElement("canvas");
+    c.width = 96; c.height = 96;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(camera, 0, 0, 96, 96);
+    const data = ctx.getImageData(0, 0, 96, 96).data;
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4) sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+    const avg = sum / (96 * 96);
+    return avg < 60; // seuil de luminosité
+  } catch { return false; }
+}
+
 function flash() {
-  if (!state.flashEnabled) return;
+  if (state.flashMode === "off") return;
+  if (state.flashMode === "auto" && !isSceneDark()) return;
   const overlay = $("flash-overlay");
   overlay.classList.remove("go");
   void overlay.offsetWidth; // relance l'animation
@@ -91,7 +107,7 @@ async function startCamera() {
   try {
     const facing = state.facing === "user" ? "user" : "environment";
     state.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1440 } },
+      video: { facingMode: facing, width: { ideal: 2560 }, height: { ideal: 1920 } },
       audio: false,
     });
     camera.srcObject = state.stream;
@@ -544,7 +560,7 @@ function grabFrame() {
         img.onload = () => {
           ctx.drawImage(img, 0, 0, W, H);
           drawVideoFrame(ctx, video, W, H);
-          canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.95);
+          canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.97);
         };
         img.src = state.backdrop.url;
         return;
@@ -552,7 +568,7 @@ function grabFrame() {
     }
 
     drawVideoFrame(ctx, video, W, H);
-    canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.95);
+    canvas.toBlob((blob) => resolve(blob ?? null), "image/jpeg", 0.97);
   });
 }
 
@@ -629,7 +645,7 @@ function grabFramePortrait() {
         const octx = out.getContext("2d");
         octx.drawImage(blurBase, 0, 0);
         octx.drawImage(netMasked, 0, 0);
-        out.toBlob((blob) => resolve(blob ? { blob, width: W, height: H } : null), "image/jpeg", 0.95);
+        out.toBlob((blob) => resolve(blob ? { blob, width: W, height: H } : null), "image/jpeg", 0.97);
         return;
       } catch { /* fallback */ }
     }
@@ -652,7 +668,7 @@ function grabFramePortrait() {
       bctx.drawImage(net, 0, 0);
       bctx.restore();
     }
-    blurBase.toBlob((blob) => resolve(blob ? { blob, width: W, height: H } : null), "image/jpeg", 0.95);
+    blurBase.toBlob((blob) => resolve(blob ? { blob, width: W, height: H } : null), "image/jpeg", 0.97);
   });
 }
 
@@ -1077,8 +1093,15 @@ function bindSettings() {
     state.portraitMode = e.target.checked;
     toast(state.portraitMode ? "Mode portrait : photo + flou + GIF" : "Mode portrait off");
   });
-  $("set-flash").checked = state.flashEnabled;
-  $("set-flash").addEventListener("change", (e) => { state.flashEnabled = e.target.checked; });
+  // Flash : Auto / On / Off
+  document.querySelectorAll("#flash-modes button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.flashMode = btn.dataset.flash;
+      document.querySelectorAll("#flash-modes button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      toast(btn.dataset.flash === "auto" ? "Flash auto (si sombre)" : btn.dataset.flash === "on" ? "Flash toujours" : "Flash désactivé");
+    });
+  });
   $("set-quality").checked = state.qualityMax;
   $("set-quality").addEventListener("change", (e) => {
     state.qualityMax = e.target.checked;
@@ -1111,6 +1134,7 @@ $("btn-gallery").addEventListener("click", async () => {
   await renderGallery();
 });
 $("btn-back-capture").addEventListener("click", showCapture);
+$("btn-back-result").addEventListener("click", showCapture);
 $("btn-retake").addEventListener("click", showCapture);
 $("btn-save").addEventListener("click", async () => {
   if (!state.latestPhoto) return;
