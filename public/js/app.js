@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "14"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=14 du SW
+const APP_VERSION = "15"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=15 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -57,6 +57,23 @@ const sheetMap = {
   "sheet-settings": $("sheet-settings"),
   "sheet-frames": $("sheet-frames"),
 };
+
+/* Diagnostic visuel (petite pastille) : s'affiche seulement en cas de souci
+   caméra — à copier-coller à l'assistant pour un diagnostic exact. */
+function showCamDiag(detail) {
+  try {
+    let pill = $("cam-diag");
+    if (!pill) {
+      pill = document.createElement("div");
+      pill.id = "cam-diag";
+      pill.className = "cam-diag";
+      document.body.appendChild(pill);
+    }
+    pill.textContent = `v${APP_VERSION} | ${detail} | https:${location.protocol === "https:" ? "OUI" : "NON"} | mediaDevices:${navigator.mediaDevices ? "ok" : "absent"}`;
+    pill.classList.add("show");
+    console.error("[MomentoBooth] diagnostic:", pill.textContent);
+  } catch { /* ignore */ }
+}
 
 /* ---------- Helpers ---------- */
 /* Toast : créé dynamiquement au premier message — AUCUN élément permanent
@@ -190,6 +207,7 @@ function flash() {
    CAMÉRA
    ========================================================= */
 async function startCamera() {
+  console.log("[MomentoBooth] startCamera appelé");
   const errorEl = $("camera-error");
   try {
     const facing = state.facing === "user" ? "user" : "environment";
@@ -217,9 +235,25 @@ async function startCamera() {
     buildFilterStrip();
     // Caméra OK → masque l'écran d'erreur s'il était visible
     if (errorEl) errorEl.classList.add("hidden");
+    console.log("[MomentoBooth] caméra OK", camera.videoWidth, "x", camera.videoHeight);
+    // ⚠️ Watchdog : si la vidéo reste NOIRE (aucune dimension après 2,5 s),
+    // on ré-attache le flux (bug iOS connu) puis on affiche un diagnostic.
+    setTimeout(() => {
+      if (camera.videoWidth === 0 && state.stream) {
+        try {
+          camera.srcObject = null;
+          camera.srcObject = state.stream;
+          camera.play().catch(() => {});
+        } catch { /* ignore */ }
+      }
+      if (camera.videoWidth === 0) {
+        showCamDiag("flux obtenu mais vidéo noire (width=0)");
+      }
+    }, 2500);
   } catch (error) {
     // ⚠️ Affiche un écran clair + bouton réessayer au lieu d'un écran noir
     console.error("[MomentoBooth] getUserMedia échec:", error?.name, error?.message);
+    showCamDiag(`erreur ${error?.name || "inconnue"}: ${error?.message || ""}`);
     if (errorEl) errorEl.classList.remove("hidden");
     const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
     const textEl = errorEl?.querySelector(".camera-error-text");
@@ -1525,6 +1559,7 @@ async function init() {
   /* ⚠️ Porte de sortie anti-cache : si le HTML servi par le service worker ne
      correspond pas à la version du JS (vieux cache), on désinstalle le SW et
      on recharge une fois — impossible de rester bloqué sur une vieille version. */
+  console.log("[MomentoBooth] init v" + APP_VERSION);
   try {
     const htmlVersion = document.body.dataset.appVersion;
     const forced = sessionStorage.getItem("mb-force-reload");

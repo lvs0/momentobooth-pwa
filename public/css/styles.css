@@ -321,6 +321,20 @@ body { touch-action: manipulation; }
 }
 .toast.show { opacity: 1; }
 
+/* ============ DIAGNOSTIC CAMÉRA (pastille) ============ */
+.cam-diag {
+  position: absolute; top: calc(var(--safe-top) + 74px); left: 8px; z-index: 99;
+  max-width: calc(100vw - 16px);
+  background: rgba(220, 38, 38, .82); border: 1px solid rgba(255,255,255,.25);
+  color: #fff; font-size: 11px; font-weight: 700; line-height: 1.4;
+  padding: 8px 12px; border-radius: 12px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  opacity: 0; pointer-events: none; transition: opacity .3s ease;
+  word-break: break-word;
+}
+.cam-diag.show { opacity: 1; }
+
 /* ============ FLASH ============ */
 .flash-overlay {
   position: absolute; inset: 0; z-index: 90; pointer-events: none;
