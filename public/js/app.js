@@ -3,9 +3,9 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js";
-import { drawMask } from "./masks.js";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=16";
+import { drawMask } from "./masks.js?v=16";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=16";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "15"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=15 du SW
+const APP_VERSION = "16"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=16 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -493,7 +493,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=16");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
@@ -1588,39 +1588,51 @@ async function init() {
     }
   });
 
-  buildBackdropOptions();
-  buildTimerOptions();
-  buildFrameOptions();
-  bindFrameTextEdit();
-  bindSettings();
+  /* ⚠️ 1) LA CAMÉRA D'ABORD — plus rien ne peut la bloquer.
+     Avant : startCamera était après les awaits du service worker et du
+     stockage persistant → s'ils traînaient (réseau, iOS Safari), la caméra
+     ne démarrait JAMAIS (écran noir + interface, sans aucune erreur). */
+  startCamera().catch(() => {});
+
+  /* 2) UI — protégée individuellement, ne bloque jamais */
+  try { buildBackdropOptions(); } catch {}
+  try { buildTimerOptions(); } catch {}
+  try { buildFrameOptions(); } catch {}
+  try { bindFrameTextEdit(); } catch {}
+  try { bindSettings(); } catch {}
   // Logo MomentoBooth (icône envoyée par l'utilisateur, rognée en rond)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
   logoImg.src = "/icons/logo.png";
+
+  /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {
-    try {
-      // Un contrôleur existait-il avant ? Si non, c'est la première installation
-      // (clients.claim() déclencherait controllerchange → pas de reload inutile).
-      const hadController = Boolean(navigator.serviceWorker.controller);
-      const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
-      await reg.update();
-      // Nouvelle version active → recharger, mais JAMAIS pendant une capture
-      let refreshing = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (refreshing || !hadController) return;
-        if (state.counting || state.autoMode) { // différé si capture en cours
-          toast("Mise à jour prête — après la photo");
-          return;
-        }
-        refreshing = true;
-        toast("Mise à jour — rechargement…");
-        setTimeout(() => window.location.reload(), 800);
-      });
-    } catch { /* offline ok */ }
+    void (async () => {
+      try {
+        const hadController = Boolean(navigator.serviceWorker.controller);
+        const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+        await reg.update();
+        // Nouvelle version active → recharger, mais JAMAIS pendant une capture
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (refreshing || !hadController) return;
+          if (state.counting || state.autoMode) { // différé si capture en cours
+            toast("Mise à jour prête — après la photo");
+            return;
+          }
+          refreshing = true;
+          toast("Mise à jour — rechargement…");
+          setTimeout(() => window.location.reload(), 800);
+        });
+      } catch { /* offline ok */ }
+    })();
   }
-  await requestPersistentStorage();
-  await startCamera();
-  await initFaceLandmarker();
+
+  /* 4) Stockage persistant en arrière-plan */
+  requestPersistentStorage().catch(() => {});
+
+  /* 5) Détection visage en arrière-plan (no-op tant que caméra + modèle prêts) */
+  initFaceLandmarker().catch(() => {});
   setInterval(detectFace, 120);
 }
 init();

@@ -82,7 +82,14 @@ app.get("/api/qr", async (req, res) => {
 });
 
 /* ---- Frontend PWA ---- */
-app.use(express.static(PUBLIC_DIR, { maxAge: "1h" }));
+/* HTML : JAMAIS en cache (les mises à jour doivent arriver immédiatement).
+   Assets versionnés (?v=...) : cache 1 h OK (l'URL change à chaque version). */
+app.use(express.static(PUBLIC_DIR, {
+  maxAge: "1h",
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-cache");
+  },
+}));
 app.use((req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 /* ---- Lancement ---- */
