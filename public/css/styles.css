@@ -316,6 +316,7 @@ body { touch-action: manipulation; }
   border: 1px solid var(--stroke-bright);
   backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%);
   box-shadow: 0 10px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.2);
+  opacity: 0; /* ⚠️ invisible par défaut — le toast n'est créé qu'au besoin */
   transition: opacity .3s ease;
 }
 .toast.show { opacity: 1; }

@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "11"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=11 du SW
+const APP_VERSION = "12"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=12 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -51,7 +51,6 @@ const stickerCanvas = $("sticker-canvas");
 const filterTrack = $("filter-track");
 const countdownEl = $("countdown");
 const countdownNumber = $("countdown-number");
-const toastEl = $("toast");
 const sheetMap = {
   "sheet-timer": $("sheet-timer"),
   "sheet-backdrop": $("sheet-backdrop"),
@@ -60,11 +59,20 @@ const sheetMap = {
 };
 
 /* ---------- Helpers ---------- */
+/* Toast : créé dynamiquement au premier message — AUCUN élément permanent
+   dans le HTML (le div vide restait visible en pilule permanente sur l'écran). */
 function toast(message) {
-  toastEl.textContent = message;
-  toastEl.classList.add("show");
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => toastEl.classList.remove("show"), 2600);
+  let el = $("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add("show");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("show"), 2600);
 }
 
 /* --- Audio : contexte partagé + sons d'interface forts --- */
