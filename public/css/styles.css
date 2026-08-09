@@ -524,6 +524,28 @@ body.idle #screen-capture { filter: blur(16px) brightness(.72); }
   max-width: 320px;
 }
 .idle-sub { font-size: 16px; color: var(--muted); font-weight: 700; }
+.idle-clock {
+  margin-top: 10px;
+  font-family: var(--font-display);
+  font-size: 46px; font-weight: 900;
+  letter-spacing: .02em;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255,255,255,.92);
+  text-shadow: 0 0 34px rgba(125,211,252,.55), 0 4px 18px rgba(0,0,0,.45);
+  background: rgba(10,10,24,.4);
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 20px;
+  padding: 8px 26px;
+  backdrop-filter: blur(16px) saturate(150%); -webkit-backdrop-filter: blur(16px) saturate(150%);
+  animation: clock-in .7s .35s ease both;
+}
+@keyframes clock-in {
+  from { opacity: 0; transform: translateY(8px) scale(.9); }
+  to { opacity: 1; transform: none; }
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  .idle-clock { font-size: 34px; padding: 5px 18px; margin-top: 6px; }
+}
 
 /* ============ FLASH + CONTOUR LUMINEUX ============
    ⚠️ Sur iPhone Safari, la LED physique n'est PAS accessible aux sites web.

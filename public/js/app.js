@@ -3,10 +3,10 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=23";
-import { drawMask } from "./masks.js?v=23";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=23";
-import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=23";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=24";
+import { drawMask } from "./masks.js?v=24";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=24";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=24";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -52,7 +52,7 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "23"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=23 du SW
+const APP_VERSION = "24"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=24 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -791,7 +791,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=23");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=24");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     const opts = {
       runningMode: "VIDEO",
@@ -2232,7 +2232,7 @@ async function init() {
   // Logo MomentoBooth : icône complète iOS 26 (fond dégradé plein + logo blanc)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
-  logoImg.src = "/icons/icon-512.png?v=23";
+  logoImg.src = "/icons/icon-512.png?v=24";
 
   /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {
@@ -2278,10 +2278,20 @@ async function init() {
 /* ════════════════════════════════════════════════════════════
    VEILLE (attract mode) : quand personne pendant 30 s,
    l'écran + la caméra se floutent progressivement, puis une
-   carte « Cliquez pour vous prendre en photo » 📷 apparaît.
+   carte « Cliquez pour vous prendre en photo » 📷 apparaît,
+   avec l'HEURE en grand (mise à jour chaque minute).
    Au clic : petite animation → le tutoriel swipe revient →
    compte à rebours → capture.
    ════════════════════════════════════════════════════════════ */
+function updateIdleClock() {
+  const el = $("idle-clock");
+  if (!el) return;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  el.textContent = `${hh}:${mm}`;
+}
+let _idleClockTimer = null;
 let _idleTimer = null;
 let _idleTriggeredAt = 0;
 const IDLE_DELAY = 30000; // 30 s sans interaction
@@ -2337,6 +2347,10 @@ function enterIdle() {
     overlay.classList.add("show");
     overlay.setAttribute("aria-hidden", "false");
   }
+  // Heure affichée en grand sur la carte de veille, mise à jour chaque minute
+  updateIdleClock();
+  clearInterval(_idleClockTimer);
+  _idleClockTimer = setInterval(updateIdleClock, 60000);
   // Petite animation : la carte apparaît après le début du flou
   setTimeout(() => {
     if (document.body.classList.contains("idle")) {
@@ -2353,6 +2367,7 @@ function exitIdle() {
     overlay.classList.remove("show");
     overlay.setAttribute("aria-hidden", "true");
   }
+  clearInterval(_idleClockTimer); // plus besoin de l'horloge hors veille
   _idleTriggeredAt = performance.now();
 }
 
