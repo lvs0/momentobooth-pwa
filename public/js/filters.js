@@ -14,6 +14,11 @@ export const MASK_ICONS = {
   family:   `<svg viewBox="0 0 64 64"><circle cx="22" cy="26" r="9" fill="#ffd54f" stroke="#8a6d1a" stroke-width="2"/><path d="M10 52 Q10 40 22 40 Q34 40 34 52 Z" fill="#5c8a3a"/><circle cx="42" cy="26" r="7" fill="#a5d6ff" stroke="#1a5c8a" stroke-width="2"/><path d="M34 52 Q34 42 42 42 Q50 42 50 52 Z" fill="#3a7a5c"/><circle cx="32" cy="20" r="5" fill="#ffb74d"/><circle cx="20" cy="22" r="1.6" fill="#333"/><circle cx="24" cy="22" r="1.6" fill="#333"/><path d="M20 27 Q22 29 24 27" stroke="#333" stroke-width="1.4" fill="none"/></svg>`,
   mustache: `<svg viewBox="0 0 64 64"><path d="M12 30 Q22 24 32 32 Q42 24 52 30 Q56 34 52 38 Q44 42 32 36 Q20 42 12 38 Q8 34 12 30 Z" fill="#4a2c10" stroke="#2a1806" stroke-width="2"/><path d="M16 32 Q32 28 48 32" stroke="#5c3a17" stroke-width="2" fill="none"/></svg>`,
   halo:     `<svg viewBox="0 0 64 64"><ellipse cx="32" cy="14" rx="16" ry="5.5" fill="none" stroke="#ffe082" stroke-width="4" opacity=".95"/><circle cx="22" cy="14" r="2" fill="#ffe082"/><circle cx="32" cy="10" r="2" fill="#fff59d"/><circle cx="42" cy="14" r="2" fill="#ffe082"/><path d="M28 14 L32 17 L36 14 L32 11 Z" fill="#fff8e1" opacity=".6"/></svg>`,
+  cat:      `<svg viewBox="0 0 64 64"><path d="M10 34 L18 8 L30 30 Z" fill="#3a2b3f" stroke="#20142a" stroke-width="2"/><path d="M14 28 L18 16 L24 26 Z" fill="#f6a5c0"/><path d="M54 34 L46 8 L34 30 Z" fill="#3a2b3f" stroke="#20142a" stroke-width="2"/><path d="M50 28 L46 16 L40 26 Z" fill="#f6a5c0"/><path d="M16 36 L32 44 L48 36 L48 40 L32 52 L16 40 Z" fill="#f6a5c0" opacity=".9"/></svg>`,
+  bear:     `<svg viewBox="0 0 64 64"><circle cx="16" cy="14" r="10" fill="#7a5230" stroke="#4a2e14" stroke-width="2"/><circle cx="16" cy="14" r="5" fill="#e8b98a"/><circle cx="48" cy="14" r="10" fill="#7a5230" stroke="#4a2e14" stroke-width="2"/><circle cx="48" cy="14" r="5" fill="#e8b98a"/><path d="M12 34 Q32 46 52 34 Q54 44 50 50 Q40 58 32 58 Q24 58 14 50 Q10 44 12 34 Z" fill="#8a5f35"/><circle cx="24" cy="42" r="2.4" fill="#221100"/><circle cx="40" cy="42" r="2.4" fill="#221100"/><ellipse cx="32" cy="48" rx="5" ry="3.4" fill="#221100"/></svg>`,
+  catnose:  `<svg viewBox="0 0 64 64"><path d="M22 30 L32 42 L42 30 Z" fill="#e8799f"/><path d="M18 28 L26 30 M20 34 L30 34" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"/><path d="M46 28 L38 30 M44 34 L34 34" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"/><circle cx="30" cy="22" r="1.8" fill="#fff"/><circle cx="34" cy="22" r="1.8" fill="#fff"/></svg>`,
+  horns:    `<svg viewBox="0 0 64 64"><path d="M14 30 Q4 16 8 4 Q18 8 20 22 Z" fill="#b3242a" stroke="#5a0d12" stroke-width="2"/><path d="M50 30 Q60 16 56 4 Q46 8 44 22 Z" fill="#b3242a" stroke="#5a0d12" stroke-width="2"/></svg>`,
+  antennas: `<svg viewBox="0 0 64 64"><path d="M20 34 Q14 20 18 10" stroke="#2b6a4e" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="18" cy="10" r="5" fill="#ffd166" stroke="#b8860b" stroke-width="1.5"/><path d="M44 34 Q50 20 46 10" stroke="#2b6a4e" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="46" cy="10" r="5" fill="#ffd166" stroke="#b8860b" stroke-width="1.5"/></svg>`,
 };
 
 export const MASKS = {
@@ -27,6 +32,11 @@ export const MASKS = {
   family:    { name: "Famille Verpoort", icon: MASK_ICONS.family },
   mustache:  { name: "Moustache", icon: MASK_ICONS.mustache },
   halo:      { name: "Ange", icon: MASK_ICONS.halo },
+  cat:       { name: "Oreilles de chat", icon: MASK_ICONS.cat },
+  bear:      { name: "Oreilles d'ours", icon: MASK_ICONS.bear },
+  catnose:   { name: "Museau chat", icon: MASK_ICONS.catnose },
+  horns:     { name: "Cornes", icon: MASK_ICONS.horns },
+  antennas:  { name: "Antennes", icon: MASK_ICONS.antennas },
 };
 
 /* ─── 24 filtres CSSgram (MIT) + 8 maison ─── */
@@ -82,6 +92,11 @@ export const FILTERS = [
   { id: "family",    name: "Famille Verpoort", css: "saturate(1.15) brightness(1.03)", ops: [["saturate",1.15],["brightness",1.03]], mask: "family",    color: false, icon: MASK_ICONS.family },
   { id: "mustache",  name: "Moustache",        css: "sepia(.12)", ops: [["sepia",.12]], mask: "mustache",  color: false, icon: MASK_ICONS.mustache },
   { id: "halo",      name: "Ange",             css: "brightness(1.1) saturate(1.1)", ops: [["brightness",1.1],["saturate",1.1]], mask: "halo",      color: false, icon: MASK_ICONS.halo },
+  { id: "cat",       name: "Oreilles de chat", css: "saturate(1.15)", ops: [["saturate",1.15]], mask: "cat",       color: false, icon: MASK_ICONS.cat },
+  { id: "bear",      name: "Oreilles d'ours",  css: "saturate(1.1)", ops: [["saturate",1.1]], mask: "bear",      color: false, icon: MASK_ICONS.bear },
+  { id: "catnose",   name: "Museau chat",      css: "saturate(1.2) brightness(1.03)", ops: [["saturate",1.2],["brightness",1.03]], mask: "catnose",   color: false, icon: MASK_ICONS.catnose },
+  { id: "horns",     name: "Cornes",           css: "contrast(1.05)", ops: [["contrast",1.05]], mask: "horns",     color: false, icon: MASK_ICONS.horns },
+  { id: "antennas",  name: "Antennes",         css: "saturate(1.1)", ops: [["saturate",1.1]], mask: "antennas",  color: false, icon: MASK_ICONS.antennas },
 ];
 
 export function filterById(id) {

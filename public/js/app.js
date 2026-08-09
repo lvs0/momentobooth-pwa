@@ -3,10 +3,10 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=22";
-import { drawMask } from "./masks.js?v=22";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=22";
-import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=22";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=23";
+import { drawMask } from "./masks.js?v=23";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=23";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=23";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -41,12 +41,18 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
   frameText: { ...FRAME_TEXTS.default },   // titres éditables
   deleteEnabled: false,  // autoriser la suppression des photos
   landmarker: null,
-  face: null,
-  faceMask: null,
+  face: null,  faceMask: null,
+  faces: [],                // tous les visages détectés (multi-face)
+  prerollEnabled: true,    // préfilmage : séquence quand quelqu'un approche / voix proche
+  filmBubbleEnabled: true, // bulle « Vous êtes filmé »
+  focusing: false,         // focus manuel actif (appui long)
+  focusX: 0, focusY: 0,
+
+
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "22"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=22 du SW
+const APP_VERSION = "23"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=23 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -406,8 +412,12 @@ async function startCamera() {
     // Caméra OK → masque l'écran d'erreur s'il était visible
     if (errorEl) errorEl.classList.add("hidden");
     console.log("[MomentoBooth] caméra OK", camera.videoWidth, "x", camera.videoHeight);
+    // Caméra OK → le splash disparaît en fondu (interface révélée)
+    hideSplash();
     // Contour lumineux : analyse la luminosité de la scène en continu
     startLightMonitor();
+    // Préfilmage : ring buffer + déclencheurs (approche / voix proche)
+    if (state.prerollEnabled) { startPreroll(); initPrerollAudio(); }
     // Objectifs : liste les caméras réelles (Android) et met à jour le sélecteur
     listLenses().then(() => { try { buildLensOptions(); } catch {} });
     // ⚠️ Watchdog : si la vidéo reste NOIRE (aucune dimension après 2,5 s),
@@ -781,14 +791,26 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=22");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=23");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
-    state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
+    const opts = {
       runningMode: "VIDEO",
       numFaces: 2,
       outputFaceSegmentationMasks: true,
-    });
+    };
+    try {
+      // GPU d'abord (rapide), fallback CPU si indisponible
+      state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
+        ...opts,
+        baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
+      });
+    } catch {
+      state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
+        ...opts,
+        baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "CPU" },
+      });
+    }
+    if (state.landmarker) console.log("[MomentoBooth] FaceLandmarker prêt (moustache/AUTO/fonds activés)");
   } catch { state.landmarker = null; }
 }
 
@@ -798,19 +820,69 @@ function detectFace() {
     const result = state.landmarker.detectForVideo(camera, performance.now());
     state.face = result.faceLandmarks?.[0] ?? null;
     state.faceMask = result.segmentationMasks?.[0] ?? null;
+    state.faces = result.faceLandmarks ?? [];
     updateAutoMode();
+    updateFilmBubble();
     drawLiveOverlay();
-  } catch { state.face = null; state.faceMask = null; }
+  } catch { state.face = null; state.faceMask = null; state.faces = []; }
 }
 
 /* Overlay live : masque + tracker + ANIMATION (ballons…) */
+/* Fond en LIVE : si un fond est choisi, on dessine le fond + la personne
+   détourée (masque de segmentation) par-dessus la vidéo, en basse résolution
+   pour rester léger (le canvas ne fait que la taille de l'écran). */
 function drawLiveOverlay() {
   const ctx = stickerCanvas.getContext("2d");
-  ctx.clearRect(0, 0, stickerCanvas.width, stickerCanvas.height);
+  const W = stickerCanvas.width, H = stickerCanvas.height;
+  ctx.clearRect(0, 0, W, H);
   const filter = filterById(state.filterId);
 
+  if (state.backdrop && state.face && state.face.length > 30) {
+    // ── Fond en direct : dessine le fond, puis la personne découpée ──
+    if (state.backdrop.type === "gradient") {
+      const grad = ctx.createLinearGradient(0, 0, W, H);
+      const stops = state.backdrop.css.match(/#[0-9a-f]{6}/gi) ?? [];
+      stops.forEach((color, idx) => grad.addColorStop(idx / Math.max(1, stops.length - 1), color));
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    } else if (state.backdrop.type === "image" && state._backdropImg) {
+      ctx.drawImage(state._backdropImg, 0, 0, W, H);
+    }
+    // Personne détourée via la segmentation (si dispo) sinon la vidéo complète
+    const src = state.faceMask || camera;
+    if (src === state.faceMask) {
+      // Vidéo dessinée à la position du visage, masquée par la segmentation
+      try {
+        const cut = document.createElement("canvas");
+        cut.width = W; cut.height = H;
+        const cctx = cut.getContext("2d");
+        if (state.facing === "user") { cctx.translate(W, 0); cctx.scale(-1, 1); }
+        cctx.drawImage(camera, 0, 0, W, H);
+        cctx.globalCompositeOperation = "destination-in";
+        cctx.drawImage(state.faceMask, 0, 0, W, H);
+        ctx.drawImage(cut, 0, 0);
+      } catch { ctx.drawImage(camera, 0, 0, W, H); }
+    } else {
+      ctx.drawImage(camera, 0, 0, W, H);
+    }
+  } else if (state.backdrop && !state.face) {
+    // Fond choisi mais visage pas encore détecté → fond seul + vidéo en fondu
+    if (state.backdrop.type === "gradient") {
+      const grad = ctx.createLinearGradient(0, 0, W, H);
+      const stops = state.backdrop.css.match(/#[0-9a-f]{6}/gi) ?? [];
+      stops.forEach((color, idx) => grad.addColorStop(idx / Math.max(1, stops.length - 1), color));
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    } else if (state.backdrop.type === "image" && state._backdropImg) {
+      ctx.drawImage(state._backdropImg, 0, 0, W, H);
+    }
+    ctx.globalAlpha = .92;
+    ctx.drawImage(camera, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
   if (filter.mask !== "none" && state.face && state.face.length > 30) {
-    drawMask(ctx, stickerCanvas.width, stickerCanvas.height, state.face, filter.mask);
+    drawMask(ctx, W, H, state.face, filter.mask);
   }
 
   // Tracker visage : cadre doré sur les visages, disparaît après délai
@@ -820,7 +892,7 @@ function drawLiveOverlay() {
 
   // Animation overlay (ballons, confettis…) par-dessus
   if (state.animationEngine) {
-    state.animationEngine.draw(ctx, stickerCanvas.width, stickerCanvas.height);
+    state.animationEngine.draw(ctx, W, H);
   }
 }
 
@@ -1198,22 +1270,29 @@ function drawVideoFrame(ctx, video, W, H, skipFrame = false) {
   }
 }
 
-/* Logo MomentoBooth : rogné en rond, en bas à droite de la photo */
+/* Logo MomentoBooth : icône iOS 26 complète (fond dégradé plein + logo blanc),
+   en bas à droite de la photo — plus de rognage ni de bord visible */
 function drawLogo(ctx, W, H) {
   if (!state.logoEnabled || !state.logoImage) return;
-  const size = Math.max(44, Math.min(W, H) * 0.15);
+  const size = Math.max(52, Math.min(W, H) * 0.17);
   const margin = Math.max(12, Math.min(W, H) * 0.03);
   const x = W - size - margin;
   const y = H - size - margin;
   ctx.save();
-  // Rognage circulaire du logo
+  // Coins légèrement arrondis (comme les icônes iOS) mais fond PLEIN
+  const r = size * 0.24;
   ctx.beginPath();
-  ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+  ctx.roundRect(x, y, size, size, r);
   ctx.closePath();
   ctx.clip();
   ctx.drawImage(state.logoImage, x, y, size, size);
   ctx.restore();
-  // Pas de liseré : le logo est rogné proprement, sans contour
+  // Liseré subtil pour détacher du fond de la photo (léger, élégant)
+  ctx.strokeStyle = "rgba(255,255,255,.35)";
+  ctx.lineWidth = Math.max(1, size * 0.012);
+  ctx.beginPath();
+  ctx.roundRect(x, y, size, size, r);
+  ctx.stroke();
 }
 
 /* Canvas brut haute qualité : vidéo + filtre + masque + fond (SANS cadre/logo)
@@ -1230,26 +1309,45 @@ function grabFrameCanvas() {
     const W = Math.round(vw * scale), H = Math.round(vh * scale);
     canvas.width = W; canvas.height = H;
     if (state.backdrop) {
-      if (state.backdrop.type === "gradient") {
-        const grad = ctx.createLinearGradient(0, 0, W, H);
-        const stops = state.backdrop.css.match(/#[0-9a-f]{6}/gi) ?? [];
-        stops.forEach((color, idx) => grad.addColorStop(idx / Math.max(1, stops.length - 1), color));
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, H);
-      } else if (state.backdrop.type === "image") {
-        const img = new Image();
-        img.onload = () => {
-          ctx.drawImage(img, 0, 0, W, H);
+      // ── Fond : d'abord le fond, PUIS la personne détourée par-dessus (segmentation) ──
+      const drawBackdrop = () => {
+        if (state.backdrop.type === "gradient") {
+          const grad = ctx.createLinearGradient(0, 0, W, H);
+          const stops = state.backdrop.css.match(/#[0-9a-f]{6}/gi) ?? [];
+          stops.forEach((color, idx) => grad.addColorStop(idx / Math.max(1, stops.length - 1), color));
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, W, H);
+        } else if (state.backdrop.type === "image" && state._backdropImg) {
+          ctx.drawImage(state._backdropImg, 0, 0, W, H);
+        } else if (state.backdrop.type === "image" && !state._backdropImg) {
+          // Image pas encore chargée → on attend sa chargement puis on retente
+          const img = new Image();
+          img.onload = () => { state._backdropImg = img; drawBackdrop(); };
+          img.onerror = () => drawBackdrop();
+          img.src = state.backdrop.url;
+          return;
+        }
+        // Personne détourée via le masque de segmentation (sinon vidéo complète)
+        if (state.faceMask && state.face && state.face.length > 30) {
+          try {
+            const cut = document.createElement("canvas");
+            cut.width = W; cut.height = H;
+            const cctx = cut.getContext("2d");
+            if (state.facing === "user") { cctx.translate(W, 0); cctx.scale(-1, 1); }
+            cctx.drawImage(video, 0, 0, W, H);
+            cctx.globalCompositeOperation = "destination-in";
+            cctx.drawImage(state.faceMask, 0, 0, W, H);
+            ctx.drawImage(cut, 0, 0);
+          } catch {
+            drawVideoFrame(ctx, video, W, H, true);
+          }
+        } else {
           drawVideoFrame(ctx, video, W, H, true);
-          resolve(canvas);
-        };
-        img.onerror = () => { // image en échec → vidéo seule (jamais bloquer)
-          drawVideoFrame(ctx, video, W, H, true);
-          resolve(canvas);
-        };
-        img.src = state.backdrop.url;
-        return;
-      }
+        }
+        resolve(canvas);
+      };
+      drawBackdrop();
+      return;
     }
     drawVideoFrame(ctx, video, W, H, true);
     resolve(canvas);
@@ -1566,8 +1664,12 @@ async function shareMethod(method) {
    ========================================================= */
 function db() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("momentobooth", 1);
-    req.onupgradeneeded = () => req.result.createObjectStore("photos", { keyPath: "id" });
+    const req = indexedDB.open("momentobooth", 2);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("moments")) d.createObjectStore("moments", { keyPath: "id" });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -1907,6 +2009,8 @@ function buildBackdropOptions() {
       state.backdrop = g.id ? { type: "gradient", css: g.css } : null;
       document.querySelectorAll(".backdrop-swatch").forEach((s) => s.classList.remove("active"));
       swatch.classList.add("active");
+      document.body.classList.toggle("has-backdrop", Boolean(state.backdrop));
+      drawLiveOverlay(); // rendu live immédiat
       toast(g.id ? `Fond : ${g.name}` : "Fond retiré");
     });
     box.appendChild(swatch);
@@ -1953,6 +2057,23 @@ function bindSettings() {
     toast(state.qualityMax ? "Qualité maximale (4K)" : "Qualité standard");
   });
   on("set-track", "change", (e) => { state.trackEnabled = e.target.checked; });
+  // Préfilmage : séquence quand quelqu'un approche / voix proche (stockée à part)
+  on("set-preroll", "change", (e) => {
+    state.prerollEnabled = e.target.checked;
+    if (state.prerollEnabled) {
+      startPreroll(); initPrerollAudio();
+      toast("Préfilmage activé — moments drôles capturés à part");
+    } else {
+      stopPreroll();
+      toast("Préfilmage désactivé");
+    }
+  });
+  // Bulle « Vous êtes filmé »
+  on("set-film-bubble", "change", (e) => {
+    state.filmBubbleEnabled = e.target.checked;
+    if (!state.filmBubbleEnabled) $("film-bubble")?.classList.add("hidden");
+    toast(state.filmBubbleEnabled ? "Bulle « Vous êtes filmé » activée" : "Bulle désactivée");
+  });
   // Logo sur la photo
   on("set-logo", "change", (e) => {
     state.logoEnabled = e.target.checked;
@@ -1965,6 +2086,8 @@ function bindSettings() {
   on("btn-clear-backdrop", "click", () => {
     state.backdrop = null;
     document.querySelectorAll(".backdrop-swatch").forEach((s) => s.classList.remove("active"));
+    document.body.classList.remove("has-backdrop");
+    drawLiveOverlay();
     toast("Fond désactivé");
   });
 }
@@ -2041,6 +2164,11 @@ on("backdrop-file", "change", (event) => {
   if (!file) return;
   const url = URL.createObjectURL(file);
   state.backdrop = { type: "image", url };
+  // Charge aussi l'image pour le rendu LIVE (personne détourée sur le fond)
+  const img = new Image();
+  img.onload = () => { state._backdropImg = img; };
+  img.onerror = () => { state._backdropImg = null; };
+  img.src = url;
   toast("Fond image chargé 🖼️");
 });
 on("chroma-check", "change", (event) => {
@@ -2101,10 +2229,10 @@ async function init() {
   try { bindFrameTextEdit(); } catch {}
   try { buildFxPanel(); } catch {}
   try { bindSettings(); } catch {}
-  // Logo MomentoBooth (icône envoyée par l'utilisateur, rognée en rond)
+  // Logo MomentoBooth : icône complète iOS 26 (fond dégradé plein + logo blanc)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
-  logoImg.src = "/icons/logo.png?v=22";
+  logoImg.src = "/icons/icon-512.png?v=23";
 
   /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {
@@ -2139,6 +2267,12 @@ async function init() {
   /* 6) Veille + tutoriel (attract mode léger) */
   initIdleMode();
   maybeShowSwipeTuto();
+
+  /* 7) Focus manuel (appui long sur l'écran) */
+  initManualFocus();
+
+  /* 8) Sécurité : si la caméra échoue, le splash ne doit pas rester bloqué */
+  setTimeout(hideSplash, 6000);
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -2246,4 +2380,213 @@ function maybeShowSwipeTuto() {
   sessionStorage.setItem("mb-swipe-tuto", "1");
   setTimeout(showSwipeTuto, 2600);
 }
+
+/* ════════════════════════════════════════════════════════════
+   SPLASH : logo sur fond assorti au logo (bleu dégradé).
+   Disparaît en fondu une fois l'interface prête (caméra OK).
+   ════════════════════════════════════════════════════════════ */
+let _splashDone = false;
+function hideSplash() {
+  if (_splashDone) return;
+  _splashDone = true;
+  const splash = $("app-splash");
+  if (!splash) return;
+  splash.classList.add("done");
+  splash.setAttribute("aria-hidden", "true");
+  // Retire du DOM après le fondu (léger)
+  setTimeout(() => splash.remove(), 1100);
+}
+
+/* ════════════════════════════════════════════════════════════
+   FOCUS MANUEL : appui long sur l'écran → défloutage + curseur
+   de mise au point à la position choisie (façon iPhone).
+   ════════════════════════════════════════════════════════════ */
+let _focusTimer = null;
+function initManualFocus() {
+  const zone = $("screen-capture");
+  if (!zone) return;
+  const cursor = $("focus-cursor");
+  const start = (e) => {
+    if (state.counting || state.autoMode) return;
+    if (gestureTarget(e) !== "cam") return;
+    const x = e.clientX, y = e.clientY;
+    clearTimeout(_focusTimer);
+    _focusTimer = setTimeout(() => {
+      state.focusing = true;
+      state.focusX = x; state.focusY = y;
+      if (cursor) {
+        cursor.style.left = x + "px";
+        cursor.style.top = y + "px";
+        cursor.classList.add("show");
+      }
+      // Défloutage progressif (recherche de mise au point) puis netteté
+      document.body.classList.add("focusing");
+      sfxOpen();
+      setTimeout(() => {
+        document.body.classList.remove("focusing");
+        setTimeout(() => {
+          state.focusing = false;
+          if (cursor) setTimeout(() => cursor.classList.remove("show"), 1400);
+        }, 320);
+      }, 520);
+    }, 420); // appui long ~420 ms
+  };
+  const cancel = () => { clearTimeout(_focusTimer); };
+  zone.addEventListener("pointerdown", start, { passive: true });
+  zone.addEventListener("pointermove", (e) => {
+    // Pendant la recherche : le curseur suit si on bouge peu
+    if (!state.focusing) return;
+    if (cursor && Math.abs(e.clientX - state.focusX) < 160 && Math.abs(e.clientY - state.focusY) < 160) {
+      cursor.style.left = e.clientX + "px";
+      cursor.style.top = e.clientY + "px";
+    }
+  }, { passive: true });
+  window.addEventListener("pointerup", cancel, { passive: true });
+  window.addEventListener("pointercancel", cancel, { passive: true });
+}
+
+/* ════════════════════════════════════════════════════════════
+   BULLE « VOUS ÊTES FILMÉ » : quand quelqu'un passe devant
+   (visage détecté), une bulle en haut avec mini-visages 😁.
+   ════════════════════════════════════════════════════════════ */
+let _bubbleHideTimer = null;
+function updateFilmBubble() {
+  const bubble = $("film-bubble");
+  if (!bubble || !state.filmBubbleEnabled) return;
+  const n = state.faces.length;
+  if (n > 0) {
+    const facesBox = bubble.querySelector(".film-bubble-faces");
+    if (facesBox && facesBox.childElementCount !== Math.min(3, n)) {
+      facesBox.innerHTML = Array.from({ length: Math.min(3, n) }, () =>
+        `<div class="film-bubble-face">😄</div>`).join("");
+    }
+    bubble.classList.remove("hidden");
+    bubble.setAttribute("aria-hidden", "false");
+    clearTimeout(_bubbleHideTimer);
+    _bubbleHideTimer = setTimeout(() => {
+      bubble.classList.add("hidden");
+      bubble.setAttribute("aria-hidden", "true");
+    }, 2200);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   PRÉFILMAGE : ring buffer basse résolution en arrière-plan.
+   Quand quelqu'un approche (visage) ou une voix est très proche,
+   la séquence préfilmée est stockée À PART (store « moments »).
+   Désactivable. Léger : 6 s × ~8 fps en 240 px.
+   ════════════════════════════════════════════════════════════ */
+const PREROLL_SECONDS = 6;
+const PREROLL_FPS = 8;
+const PREROLL_SIZE = 240;
+let _prerollFrames = [];   // ring buffer [{t, canvas}]
+let _prerollTimer = null;
+let _prerollRecording = false;
+let _prerollTriggeredAt = 0;
+let _prerollOverlayCount = 0; // frames accumulées après déclenchement
+let _prerollAudioCtx = null;
+let _prerollAnalyser = null;
+let _prerollLastVoice = 0;
+
+/* Boucle d'échantillonnage : capture une petite frame toutes les ~125 ms */
+function startPreroll() {
+  if (!state.prerollEnabled || _prerollTimer || !state.stream) return;
+  const tick = () => {
+    if (!state.stream || !camera.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = PREROLL_SIZE;
+    canvas.height = Math.round(PREROLL_SIZE / ratioOf(camera));
+    const ctx = canvas.getContext("2d");
+    // Miroir si caméra frontale (cohérent avec l'aperçu)
+    if (state.facing === "user") { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+    _prerollFrames.push({ t: performance.now(), canvas });
+    const maxFrames = PREROLL_SECONDS * PREROLL_FPS;
+    while (_prerollFrames.length > maxFrames) _prerollFrames.shift();
+
+    // Déclencheur 1 : voix très proche (niveau audio élevé)
+    if (_prerollAnalyser && performance.now() - _prerollLastVoice > 3500) {
+      const buf = new Uint8Array(_prerollAnalyser.fftSize);
+      _prerollAnalyser.getByteFrequencyData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i];
+      const level = sum / buf.length;
+      if (level > 42) { _prerollLastVoice = performance.now(); triggerPreroll("voix proche"); }
+    }
+
+    // Déclencheur 2 : quelqu'un approche (visage détecté)
+    if (state.faces.length > 0 && !_prerollRecording && performance.now() - _prerollTriggeredAt > 20000) {
+      triggerPreroll("quelqu'un approche");
+    }
+
+    // Enregistrement en cours : après le déclencheur, on capture 1,5 s de plus
+    if (_prerollRecording) {
+      _prerollOverlayCount++;
+      if (_prerollOverlayCount >= PREROLL_FPS * 1.5) {
+        _prerollRecording = false;
+        savePrerollClip();
+      }
+    }
+  };
+  _prerollTimer = setInterval(tick, 1000 / PREROLL_FPS);
+}
+function stopPreroll() {
+  if (_prerollTimer) { clearInterval(_prerollTimer); _prerollTimer = null; }
+  if (_prerollAudioCtx) { try { _prerollAudioCtx.close(); } catch {} _prerollAudioCtx = null; _prerollAnalyser = null; }
+  _prerollFrames = [];
+}
+
+/* Active l'écoute audio (niveau voix) si le stream a une piste audio */
+function initPrerollAudio() {
+  if (!state.prerollEnabled || _prerollAudioCtx || !state.stream) return;
+  const track = state.stream.getAudioTracks()[0];
+  if (!track) return; // pas de micro demandé → déclencheur visage seul
+  try {
+    _prerollAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = _prerollAudioCtx.createMediaStreamSource(state.stream);
+    _prerollAnalyser = _prerollAudioCtx.createAnalyser();
+    _prerollAnalyser.fftSize = 256;
+    src.connect(_prerollAnalyser);
+  } catch { /* audio indisponible : visage seul */ }
+}
+
+/* Déclenche le préfilmage : marque l'état + stocke le clip */
+function triggerPreroll(reason) {
+  if (!state.prerollEnabled || _prerollFrames.length < PREROLL_FPS * 2) return;
+  _prerollRecording = true;
+  _prerollOverlayCount = 0;
+  _prerollTriggeredAt = performance.now();
+  console.log("[MomentoBooth] préfilmage déclenché :", reason);
+  toast(`🎬 Séquence préfilmée (${reason})`);
+}
+
+/* Encode le clip (frames → GIF) et le stocke à part (store « moments ») */
+function savePrerollClip() {
+  const frames = _prerollFrames.slice();
+  _prerollFrames = []; // purge pour éviter un double-clip
+  if (frames.length < PREROLL_FPS * 2) return;
+  try {
+    const gif = new GIF({ workers: 2, quality: 12, width: frames[0].canvas.width, height: frames[0].canvas.height });
+    frames.forEach((f) => gif.addFrame(f.canvas, { delay: 1000 / PREROLL_FPS, copy: true }));
+    gif.render();
+    gif.on("finished", async (blob) => {
+      try {
+        const id = `moment-${Date.now()}`;
+        const d = await db();
+        await new Promise((resolve, reject) => {
+          const tx = d.transaction("moments", "readwrite");
+          tx.objectStore("moments").put({ id, blob, date: Date.now(), reason: "approche" });
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+        toast("📼 Moment préfilmé sauvegardé (à part)");
+      } catch { /* stockage indisponible */ }
+    });
+    gif.on("error", () => {});
+  } catch { /* encoder indisponible */ }
+}
+
+/* ════════════════════════════════════════════════════════════
+   INIT
+   ════════════════════════════════════════════════════════════ */
 init();

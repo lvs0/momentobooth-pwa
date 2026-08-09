@@ -1,31 +1,31 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v22";
-/* ⚠️ Les URLs versionnées (?v=22) doivent MATCHER celles de index.html ET les imports de app.js :
+const CACHE = "momentobooth-v23";
+/* ⚠️ Les URLs versionnées (?v=23) doivent MATCHER celles de index.html ET les imports de app.js :
    sinon l'iPhone peut servir un mélange de versions (HTML neuf + JS vieux)
    → crash de init() → plus de caméra. */
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/styles.css?v=22",
-  "/js/app.js?v=22",
-  "/js/filters.js?v=22",
-  "/js/masks.js?v=22",
-  "/js/frames.js?v=22",
-  "/js/animations.js?v=22",
-  "/js/vendor/gif.js?v=22",
+  "/css/styles.css?v=23",
+  "/js/app.js?v=23",
+  "/js/filters.js?v=23",
+  "/js/masks.js?v=23",
+  "/js/frames.js?v=23",
+  "/js/animations.js?v=23",
+  "/js/vendor/gif.js?v=23",
   "/js/vendor/gif.worker.js",
-  "/js/vendor/jszip.min.js?v=22",
-  "/js/mediapipe/vision_bundle.mjs",
-  "/js/mediapipe/wasm/vision_wasm_internal.js",
-  "/js/mediapipe/wasm/vision_wasm_internal.wasm",
-  "/js/mediapipe/wasm/vision_wasm_nosimd_internal.js",
-  "/js/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
-  "/js/mediapipe/face_landmarker.task",
+  "/js/vendor/jszip.min.js?v=23",
+  "/mediapipe/vision_bundle.mjs?v=23",
+  "/mediapipe/wasm/vision_wasm_internal.js",
+  "/mediapipe/wasm/vision_wasm_internal.wasm",
+  "/mediapipe/face_landmarker.task",
   "/manifest.webmanifest",
-  "/icons/icon-192.png?v=14",
-  "/icons/icon-512.png?v=14",
-  "/icons/apple-touch-icon-180.png?v=14",
-  "/icons/logo.png?v=22",
+  "/icons/icon-192.png?v=23",
+  "/icons/icon-512.png?v=23",
+  "/icons/apple-touch-icon-180.png?v=23",
+  "/icons/logo.png?v=23",
+  "/img/tuto-swipe-1.png?v=23",
+  "/img/tuto-swipe-2.png?v=23",
 ];
 
 /* Préchargement de la navigation (réseau) — iOS 15.4+ / Safari */

@@ -3,28 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#06060e">
+<meta name="theme-color" content="#0a1633">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="MomentoBooth">
 <meta name="format-detection" content="telephone=no">
-<meta name="apple-mobile-web-app-orientations" content="portrait">
+
 <link rel="manifest" href="/manifest.webmanifest">
 <!-- Icônes Apple Touch -->
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png?v=14">
-<link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png?v=14">
-<link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png?v=14">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=14">
-<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png?v=14">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png?v=23">
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png?v=23">
+<link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png?v=23">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=23">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png?v=23">
 <!-- Splash screens iOS -->
 <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12mini.png">
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=22">
+<link rel="stylesheet" href="/css/styles.css?v=23">
 </head>
-<body data-app-version="22"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
+<body data-app-version="23"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
 
 <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
 <main id="screen-capture" class="screen active">
@@ -56,11 +56,12 @@
   <!-- Flash -->
   <div id="flash-overlay" class="flash-overlay"></div>
 
-  <!-- Contour lumineux basse lumière (se déploie quand la scène est sombre) -->
+  <!-- Contour lumineux basse lumière : panneau LED de studio (bord pâteux) -->
   <div id="light-frame" class="light-frame" aria-hidden="true">
-    <div class="ring"></div>
-    <div class="halo-in"></div>
-    <div class="halo-out"></div>
+    <div class="studio-halo"></div>
+    <div class="studio-band"></div>
+    <div class="studio-glow"></div>
+    <div class="studio-edge"></div>
   </div>
 
   <!-- Nom du filtre au swipe (apparaît temporairement) -->
@@ -87,9 +88,9 @@
     <div class="countdown-hint">Touchez pour mettre en pause</div>
   </div>
 
-  <!-- Tutoriel swipe : doigt + fenêtres qui reviennent -->
+  <!-- Tutoriel swipe : doigt (animation importée) + fenêtres qui reviennent -->
   <div id="swipe-tuto" class="swipe-tuto" aria-hidden="true">
-    <div class="tuto-hand">👈</div>
+    <div class="tuto-hand"><img src="/img/tuto-swipe-1.png?v=23" alt=""><img class="f2" src="/img/tuto-swipe-2.png?v=23" alt=""></div>
     <div class="tuto-text">Swipez pour changer de filtre</div>
   </div>
 
@@ -150,12 +151,33 @@
     <div class="settings-row"><span>Flash</span><div id="flash-modes" class="segmented"><button data-flash="on" class="active">On</button><button data-flash="auto">Auto</button><button data-flash="off">Off</button></div></div>
     <div class="settings-row"><span>Qualité max</span><label class="switch"><input id="set-quality" type="checkbox" checked><span class="slider"></span></label></div>
     <div class="settings-row"><span>Track visage (cadre)</span><label class="switch"><input id="set-track" type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Préfilmage moments<small class="row-sub">séquence préfilmée si quelqu'un approche / voix proche</small></span><label class="switch"><input id="set-preroll" type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="settings-row"><span>Bulle « Vous êtes filmé »<small class="row-sub">avec mini-visages quand quelqu'un passe devant</small></span><label class="switch"><input id="set-film-bubble" type="checkbox" checked><span class="slider"></span></label></div>
     <div class="settings-row"><span>Désactiver le fond</span><button id="btn-clear-backdrop" class="mini-btn">Retirer</button></div>
     <div class="settings-row"><span>Supprimer les photos</span><label class="switch"><input id="set-delete" type="checkbox"><span class="slider"></span></label></div>
     <div class="sheet-sub">Le mode portrait prend une photo normale + une photo floutée + un GIF animé</div>
   </div>
 
 </main>
+
+<!-- ═════════ SPLASH : logo sur fond assorti au logo, puis fondu ═════════ -->
+<div id="app-splash" class="app-splash" aria-hidden="false">
+  <div class="splash-logo"><img src="/icons/icon-512.png?v=23" alt="MomentoBooth"></div>
+  <div class="splash-name">Momento<span>Booth</span></div>
+  <div class="splash-tag">Capturez vos plus beaux moments</div>
+</div>
+
+<!-- ═════════ FOCUS MANUEL : curseur de mise au point (appui long) ═════════ -->
+<div id="focus-cursor" class="focus-cursor hidden" aria-hidden="true">
+  <div class="focus-corner tl"></div><div class="focus-corner tr"></div>
+  <div class="focus-corner bl"></div><div class="focus-corner br"></div>
+</div>
+
+<!-- ═════════ BULLE « VOUS ÊTES FILMÉ » : mini-visages + smiley ═════════ -->
+<div id="film-bubble" class="film-bubble hidden" aria-hidden="true">
+  <div class="film-bubble-faces"></div>
+  <div class="film-bubble-text">😁 Vous êtes filmé !</div>
+</div>
 
 <!-- ═════════ ÉCRAN RÉSULTAT ═════════ -->
 <section id="screen-result" class="screen">
@@ -204,11 +226,11 @@
   <div id="gallery-grid" class="gallery-grid"></div>
 </section>
 
-<script src="/js/vendor/gif.js?v=22"></script>
-<script src="/js/vendor/jszip.min.js?v=22"></script>
-<script type="module" src="/js/filters.js?v=22"></script>
-<script type="module" src="/js/masks.js?v=22"></script>
-<script type="module" src="/js/animations.js?v=22"></script>
-<script type="module" src="/js/app.js?v=22"></script>
+<script src="/js/vendor/gif.js?v=23"></script>
+<script src="/js/vendor/jszip.min.js?v=23"></script>
+<script type="module" src="/js/filters.js?v=23"></script>
+<script type="module" src="/js/masks.js?v=23"></script>
+<script type="module" src="/js/animations.js?v=23"></script>
+<script type="module" src="/js/app.js?v=23"></script>
 </body>
 </html>
