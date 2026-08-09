@@ -22,9 +22,9 @@
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=19">
+<link rel="stylesheet" href="/css/styles.css?v=20">
 </head>
-<body data-app-version="19"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
+<body data-app-version="20"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
 
 <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
 <main id="screen-capture" class="screen active">
@@ -53,6 +53,13 @@
 
   <!-- Flash -->
   <div id="flash-overlay" class="flash-overlay"></div>
+
+  <!-- Contour lumineux basse lumière (se déploie quand la scène est sombre) -->
+  <div id="light-frame" class="light-frame" aria-hidden="true">
+    <div class="ring"></div>
+    <div class="halo-in"></div>
+    <div class="halo-out"></div>
+  </div>
 
   <!-- Compte à rebours -->
   <div id="countdown" class="countdown hidden">
@@ -159,10 +166,10 @@
   <div id="gallery-grid" class="gallery-grid"></div>
 </section>
 
-<script src="/js/vendor/gif.js?v=19"></script>
-<script src="/js/vendor/jszip.min.js?v=19"></script>
-<script type="module" src="/js/filters.js?v=19"></script>
-<script type="module" src="/js/masks.js?v=19"></script>
-<script type="module" src="/js/app.js?v=19"></script>
+<script src="/js/vendor/gif.js?v=20"></script>
+<script src="/js/vendor/jszip.min.js?v=20"></script>
+<script type="module" src="/js/filters.js?v=20"></script>
+<script type="module" src="/js/masks.js?v=20"></script>
+<script type="module" src="/js/app.js?v=20"></script>
 </body>
 </html>

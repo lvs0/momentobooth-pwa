@@ -3,9 +3,9 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=19";
-import { drawMask } from "./masks.js?v=19";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=19";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=20";
+import { drawMask } from "./masks.js?v=20";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=20";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -40,7 +40,7 @@ import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=19";
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "19"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=19 du SW
+const APP_VERSION = "20"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=20 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -167,10 +167,17 @@ async function requestPersistentStorage() {
   } catch { /* non supporté */ }
 }
 
-/* Flash plein écran — mode auto : flash seulement si scène sombre */
-function isSceneDark() {
+/* ════════════════════════════════════════════════════════════
+   CONTOUR LUMINEUX BASSE LUMIÈRE
+   Analyse en continu la luminosité RÉELLE de la scène (canvas sur
+   la vidéo) et déploie un contour lumineux techno quand il fait sombre :
+   anneau néon rotatif + halos pulsants. Bien plus qu'un écran blanc.
+   ════════════════════════════════════════════════════════════ */
+
+/* Luminance moyenne de la scène (0 = noir, 255 = très clair) */
+function sceneLuminance() {
   try {
-    if (!camera.videoWidth) return false;
+    if (!camera.videoWidth) return 255;
     const c = document.createElement("canvas");
     c.width = 96; c.height = 96;
     const ctx = c.getContext("2d", { willReadFrequently: true });
@@ -178,9 +185,56 @@ function isSceneDark() {
     const data = ctx.getImageData(0, 0, 96, 96).data;
     let sum = 0;
     for (let i = 0; i < data.length; i += 4) sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
-    const avg = sum / (96 * 96);
-    return avg < 60; // seuil de luminosité
-  } catch { return false; }
+    return sum / (96 * 96);
+  } catch { return 255; }
+}
+
+function isSceneDark() { return sceneLuminance() < 60; }
+
+/* Moniteur : toutes les ~1,6 s, met à jour le contour lumineux.
+   Hystérésis (dark < 58, light > 80) : évite le clignotement à la frontière. */
+let _lightMonitorTimer = null;
+let _lightFrameOn = false;
+function setLightFrame(on) {
+  const lf = $("light-frame");
+  if (!lf) return;
+  if (on && !_lightFrameOn) {
+    lf.classList.add("active");
+    _lightFrameOn = true;
+  } else if (!on && _lightFrameOn) {
+    lf.classList.remove("active");
+    _lightFrameOn = false;
+  }
+}
+function startLightMonitor() {
+  if (_lightMonitorTimer) return;
+  const tick = () => {
+    if (!camera.videoWidth || !state.stream) return;
+    // Uniquement sur l'écran capture (pas de contour sur résultat/galerie)
+    if (!screens.capture.classList.contains("active")) { setLightFrame(false); return; }
+    const lum = sceneLuminance();
+    if (_lightFrameOn) {
+      if (lum > 80) setLightFrame(false);   // redevenu clair → on retire
+    } else {
+      if (lum < 58) setLightFrame(true);    // sombre → le contour se déploie
+    }
+  };
+  tick();
+  _lightMonitorTimer = setInterval(tick, 1600);
+}
+function stopLightMonitor() {
+  if (_lightMonitorTimer) { clearInterval(_lightMonitorTimer); _lightMonitorTimer = null; }
+  setLightFrame(false);
+}
+
+/* Burst : intensifie brièvement le contour (à la capture, comme un flash) */
+function lightFrameBurst() {
+  const lf = $("light-frame");
+  if (!lf) return;
+  lf.classList.remove("burst");
+  void lf.offsetWidth;
+  lf.classList.add("burst");
+  setTimeout(() => lf.classList.remove("burst"), 850);
 }
 
 /* Flash visuel plein écran (le vrai LED n'est pas accessible sur iPhone Safari).
@@ -199,6 +253,8 @@ function flash() {
   overlay.classList.remove("go");
   void overlay.offsetWidth;
   overlay.classList.add("go");
+  /* Contour lumineux : le bord s'intensifie brièvement avec l'éclair */
+  lightFrameBurst();
 }
 
 /* Torche physique : dispo sur Android/Chrome (torch:true), inopérant sur iOS
@@ -266,6 +322,8 @@ async function startCamera() {
     // Caméra OK → masque l'écran d'erreur s'il était visible
     if (errorEl) errorEl.classList.add("hidden");
     console.log("[MomentoBooth] caméra OK", camera.videoWidth, "x", camera.videoHeight);
+    // Contour lumineux : analyse la luminosité de la scène en continu
+    startLightMonitor();
     // ⚠️ Watchdog : si la vidéo reste NOIRE (aucune dimension après 2,5 s),
     // on ré-attache le flux (bug iOS connu) puis on affiche un diagnostic.
     setTimeout(() => {
@@ -282,6 +340,7 @@ async function startCamera() {
     }, 2500);
   } catch (error) {
     // ⚠️ Affiche un écran clair + bouton réessayer au lieu d'un écran noir
+    stopLightMonitor(); // pas de contour lumineux sur l'écran d'erreur
     console.error("[MomentoBooth] getUserMedia échec:", error?.name, error?.message);
     showCamDiag(`erreur ${error?.name || "inconnue"}: ${error?.message || ""}`);
     if (errorEl) errorEl.classList.remove("hidden");

@@ -23,7 +23,14 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; background: var(--bg); color: var(--text); overflow: hidden; overscroll-behavior: none; }
-body { position: fixed; inset: 0; width: 100%; }
+/* ⚠️ PLEIN ÉCRAN PWA : 100dvh (le vrai viewport iPhone, sans les barres Safari).
+   height:100% seul = l'espace vide en dessous de la vidéo sur iPhone. */
+html { height: 100%; }
+body { position: fixed; inset: 0; width: 100%; height: 100%; height: 100dvh; }
+@supports (height: 100dvh) {
+  html { height: 100dvh; }
+  .screen, .camera-zone, #camera, #sticker-canvas { height: 100dvh; }
+}
 
 /* Blobs lumineux de fond */
 body::before, body::after {
@@ -34,7 +41,7 @@ body::before { width: 55vw; height: 55vw; background: radial-gradient(circle, #1
 body::after { width: 50vw; height: 50vw; background: radial-gradient(circle, #3b1d5f, transparent 70%); bottom: -12vw; left: -16vw; animation: drift 22s ease-in-out infinite alternate-reverse; }
 @keyframes drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(6vw, 4vw) scale(1.12); } }
 
-.screen { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .3s ease, transform .3s ease; }
+.screen { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .3s ease, transform .3s ease; height: 100%; height: 100dvh; }
 .screen.active { opacity: 1; pointer-events: auto; transform: none; }
 .hidden { display: none !important; }
 
@@ -90,9 +97,9 @@ body { touch-action: manipulation; }
 }
 
 /* --- Zone caméra --- */
-.camera-zone { position: absolute; inset: 0; overflow: hidden; }
-#camera { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.sticker-canvas { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.camera-zone { position: absolute; inset: 0; overflow: hidden; height: 100%; height: 100dvh; }
+#camera { position: absolute; inset: 0; width: 100%; height: 100%; height: 100dvh; min-height: 100%; object-fit: cover; }
+.sticker-canvas { position: absolute; inset: 0; z-index: 3; pointer-events: none; height: 100%; height: 100dvh; }
 
 /* --- Écran erreur caméra (au lieu d'un écran noir) --- */
 .camera-error {
@@ -335,13 +342,91 @@ body { touch-action: manipulation; }
 }
 .cam-diag.show { opacity: 1; }
 
-/* ============ FLASH ============ */
+/* ============ FLASH + CONTOUR LUMINEUX ============
+   ⚠️ Sur iPhone Safari, la LED physique n'est PAS accessible aux sites web.
+   Le flash est donc : 1) un éclair d'écran blanc (éclaire réellement en
+   caméra frontale) 2) UN CONTOUR LUMINEUX TECHNO qui se déploie en basse
+   lumière : anneau néon rotatif + halos pulsants — bien plus qu'un blanc. */
 .flash-overlay {
   position: absolute; inset: 0; z-index: 90; pointer-events: none;
-  background: #fff; opacity: 0;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255,255,255,1) 0%, rgba(255,255,255,.92) 34%, rgba(214,238,255,.55) 62%, transparent 78%);
+  opacity: 0;
 }
 .flash-overlay.go { animation: flash-go .65s ease-out; }
 @keyframes flash-go { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
+
+/* --- Contour lumineux : se déploie quand la scène est sombre ---
+   Composé de 3 couches : anneau néon rotatif (conic + rotation),
+   halo intérieur pulsant, et halo extérieur diffuse. */
+.light-frame {
+  position: absolute; inset: 0; z-index: 42; pointer-events: none;
+  opacity: 0;
+  overflow: hidden; /* le ring (rotation) ne doit pas dépasser de l'écran */
+  transition: opacity 1.2s ease;
+}
+.light-frame.active { opacity: 1; }
+
+/* Anneau néon : dégradé conique très lumineux qui TOURNE autour de l'écran */
+.light-frame .ring {
+  position: absolute; inset: 0;
+  border-radius: 30px;
+  padding: 3px;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    rgba(255,255,255,0) 40deg,
+    rgba(255,255,255,1) 60deg,
+    #7dd3fc 90deg,
+    #c084fc 120deg,
+    #f0c96a 150deg,
+    rgba(255,255,255,0) 200deg,
+    transparent 360deg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: .92;
+  filter: drop-shadow(0 0 10px rgba(125,211,252,.85)) drop-shadow(0 0 26px rgba(192,132,252,.5));
+  animation: ring-spin 5s linear infinite;
+}
+@keyframes ring-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Halo intérieur : baigne la scène d'une lueur chaude/froide pulsante */
+.light-frame .halo-in {
+  position: absolute; inset: 6px;
+  border-radius: 26px;
+  background: radial-gradient(ellipse at 50% 45%, rgba(125,211,252,.14), rgba(192,132,252,.10) 45%, transparent 72%);
+  animation: halo-breathe 3.2s ease-in-out infinite;
+}
+@keyframes halo-breathe {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+
+/* Halo extérieur : lueur diffuse qui déborde de l'écran */
+.light-frame .halo-out {
+  position: absolute; inset: -14px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(125,211,252,.12), rgba(192,132,252,.06) 55%, transparent 80%);
+  filter: blur(22px);
+  animation: halo-breathe 3.2s ease-in-out 1.1s infinite;
+}
+
+/* Pendant la capture (flash) : le contour s'INTENSIFIE brièvement */
+.light-frame.burst .ring {
+  animation-duration: .7s;
+  filter: drop-shadow(0 0 16px rgba(255,255,255,.95)) drop-shadow(0 0 42px rgba(125,211,252,.9));
+}
+.light-frame.burst .halo-in { animation-duration: .7s; }
+.light-frame.burst { opacity: 1; }
+
+/* Réduire les animations : le contour reste visible mais statique */
+@media (prefers-reduced-motion: reduce) {
+  .light-frame .ring { animation: none; }
+  .light-frame .halo-in, .light-frame .halo-out { animation: none; opacity: .8; }
+}
 
 /* ============ FILTRES MASQUES : icônes SVG ============ */
 .filter-icon {
