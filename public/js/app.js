@@ -276,6 +276,7 @@ function buildTimerOptions() {
 async function startCountdown() {
   if (state.counting) return;
   state.counting = true;
+  document.body.classList.add("ui-hidden"); // masque l'interface pendant le compte à rebours
   countdownEl.classList.remove("hidden");
   let remaining = state.timerSeconds;
   countdownNumber.textContent = String(remaining);
@@ -290,6 +291,7 @@ async function startCountdown() {
     }
     countdownEl.classList.add("hidden");
     await capture();
+    document.body.classList.remove("ui-hidden"); // l'interface revient après la capture
     state.counting = false;
     return null;
   };
@@ -855,7 +857,7 @@ async function renderGallery() {
   const unique = new Map();
   photos.forEach((p) => unique.set(p.id, p));
   serverPhotos.forEach((p) => { if (!unique.has(p.id)) unique.set(p.id, p); });
-  const all = [...unique.values()];
+  const all = [...unique.values()].sort((a, b) => (b.date ?? b.createdAt ?? 0) - (a.date ?? a.createdAt ?? 0));
   $("gallery-count").textContent = `${all.length} photo${all.length > 1 ? "s" : ""}`;
   if (!all.length) {
     grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l\'écran pour commencer !</p>';
@@ -890,6 +892,15 @@ async function renderGallery() {
       $("photo-comment").value = savedComment || "";
     });
     wrap.appendChild(img);
+    // Heure de la photo (date stockée en IndexedDB / serveur)
+    const ts = photo.date ?? photo.createdAt ?? null;
+    if (ts) {
+      const timeBadge = document.createElement("span");
+      timeBadge.className = "gallery-time";
+      const d = new Date(ts);
+      timeBadge.textContent = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+      wrap.appendChild(timeBadge);
+    }
     // Badge commentaire
     if (photo.comment) {
       const badge = document.createElement("span");

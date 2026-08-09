@@ -1,5 +1,5 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v5";
+const CACHE = "momentobooth-v6";
 const ASSETS = [
   "/",
   "/index.html",
