@@ -315,18 +315,20 @@ function faceBox(face, cw, ch, vw, vh) {
 }
 
 function drawHeadTracker(ctx) {
-  if (!state.face || state.face.length < 30) return;
+  if (!state.face || state.face.length < 30) {
+    // Visage quitté → le prochain visage aura un nouveau tracker
+    state._trackStart = null;
+    return;
+  }
   const cw = stickerCanvas.width, ch = stickerCanvas.height;
   const vw = camera.videoWidth || 1280, vh = camera.videoHeight || 960;
   const box = faceBox(state.face, cw, ch, vw, vh);
   const now = performance.now();
-  // Disparaît après 2,5 s de suivi (même si le visage reste)
-  if (!state._trackUntil || now > state._trackUntil) {
-    if (!state._trackStart) state._trackStart = now;
-    if (now - state._trackStart > 2500) {
-      state._trackStart = null;
-      return;
-    }
+  // Le cadre apparaît dès qu'un visage est détecté, disparaît après 2,5 s
+  if (!state._trackStart) state._trackStart = now;
+  if (now - state._trackStart > 2500) {
+    state._trackStart = null;
+    return;
   }
   ctx.save();
   ctx.strokeStyle = state.autoMode ? "rgba(240,201,106,.95)" : "rgba(125,211,252,.9)";
