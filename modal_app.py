@@ -3,15 +3,7 @@
 Déploiement :
     modal deploy modal_app.py
 
-Ce que ça fait :
-    - Construit une image Node.js 20 avec le code du serveur (server/ + public/).
-    - Monte un Volume Modal persistant sur /app/photos : les photos et les
-      sessions invitées (.sessions.json) survivent aux redémarrages à froid.
-    - Expose le serveur Express sur une URL publique https://…modal.run
-      (HTTPS automatique, domaine *.modal.run inclus).
-
-L'iPhone charge alors la PWA depuis l'URL Modal : caméra, galerie, partage QR,
-et les traitements délégués (GIF/ZIP/scoring) passent tous par le cloud.
+v81 — rebuild forcé : fix frames.js, titre Momento, tablette Android, logo rogné, icônes transparentes.
 """
 
 import subprocess
@@ -31,6 +23,7 @@ image = (
         "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
         "apt-get install -y nodejs",
     )
+    .run_commands("echo 'cache-bust-v81-'$(date +%s)")
     .workdir("/app")
     .add_local_file("server/package.json", "/app/server/package.json", copy=True)
     .run_commands(
