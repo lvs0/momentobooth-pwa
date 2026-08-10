@@ -8,6 +8,8 @@ export const FRAME_TEXTS = {
   default: { line1: "18 ANS", line2: "Lilou & Kenza" },
 };
 
+/* Designs de bordure : chaque design a draw(ctx, W, H) */
+const DESIGNS = {
   /* ─── Barbie : rose poudré, paillettes, typo cursive ─── */
   barbie: {
     name: "Barbie",
@@ -68,8 +70,7 @@ export const FRAME_TEXTS = {
       ctx.restore();
     },
   },
-/* Designs de bordure : chaque design a draw(ctx, W, H) */
-const DESIGNS = {
+
   none:      { name: "Aucun", draw: () => {} },
 
   /* ─── Doré classique : filet + coins + ruban texte ─── */
