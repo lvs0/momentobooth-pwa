@@ -84,7 +84,7 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "77"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
+const APP_VERSION = "78"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);

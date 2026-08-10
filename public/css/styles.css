@@ -1365,3 +1365,57 @@ body.idle #auto-status { opacity: 0; pointer-events: none; transition: opacity .
   }
   .tool-btn { width: 52px; height: 52px; }
 }
+
+/* ═══════════════════════════════════════════════════════
+   Tablette Android & mode standalone — plein écran total
+   ═══════════════════════════════════════════════════════ */
+
+/* En mode installé (Android/iOS standalone), on force le fullscreen
+   avec gestion de la barre de navigation Android via safe-area-inset-bottom */
+@media (display-mode: standalone) {
+  html, body {
+    height: 100dvh;
+    height: -webkit-fill-available;
+  }
+  body {
+    /* Android : la navigation bar est gérée par safe-area-inset-bottom */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* Les éléments en bas d'écran tiennent compte de la barre Android */
+  .screen {
+    min-height: 100dvh;
+  }
+}
+
+/* Tablettes Android : ajustements pour écrans larges */
+@media (min-width: 768px) and (display-mode: standalone) {
+  :root {
+    --app-height: 100dvh;
+    --camera-height: 100dvh;
+  }
+  body {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .camera-zone {
+    width: 100vw;
+    height: 100dvh;
+  }
+  /* Sur tablette, les contrôles sont plus larges */
+  .bottom-bar {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .controls-row {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+}
+
+/* Fallback pour Android Chrome qui ne supporte pas display-mode standalone
+   mais utilise la balise meta mobile-web-app-capable */
+@media (min-width: 768px) {
+  @supports (height: 100dvh) {
+    body {
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
+}
