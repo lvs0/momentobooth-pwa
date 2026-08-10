@@ -3,10 +3,10 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=76";
-import { drawMask } from "./masks.js?v=76";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=76";
-import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=76";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js";
+import { drawMask } from "./masks.js";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -84,7 +84,7 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "82"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
+const APP_VERSION = "83"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -1248,7 +1248,7 @@ async function initFaceLandmarker() {
   const promise = (async () => {
     let created = null;
     try {
-      const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=76");
+      const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs");
       const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
       // Le mode multi-visage est opt-in avec la bulle : 3 visages max suffisent
       // pour l'interface, sans imposer ce coût au mode caméra standard.
