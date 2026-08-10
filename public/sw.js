@@ -1,31 +1,30 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v25";
-/* ⚠️ Les URLs versionnées (?v=25) doivent MATCHER celles de index.html ET les imports de app.js :
+const CACHE = "momentobooth-v76";
+/* ⚠️ Les URLs versionnées (?v=76) doivent MATCHER celles de index.html ET les imports de app.js :
    sinon l'iPhone peut servir un mélange de versions (HTML neuf + JS vieux)
    → crash de init() → plus de caméra. */
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/styles.css?v=25",
-  "/js/app.js?v=25",
-  "/js/filters.js?v=25",
-  "/js/masks.js?v=25",
-  "/js/frames.js?v=25",
-  "/js/animations.js?v=25",
-  "/js/vendor/gif.js?v=25",
-  "/js/vendor/gif.worker.js",
-  "/js/vendor/jszip.min.js?v=25",
-  "/mediapipe/vision_bundle.mjs?v=25",
+  "/css/styles.css?v=76",
+  "/js/app.js?v=76",
+  "/js/filters.js?v=76",
+  "/js/masks.js?v=76",
+  "/js/frames.js?v=76",
+  "/js/animations.js?v=76",
+  "/mediapipe/vision_bundle.mjs?v=76",
   "/mediapipe/wasm/vision_wasm_internal.js",
   "/mediapipe/wasm/vision_wasm_internal.wasm",
   "/mediapipe/face_landmarker.task",
   "/manifest.webmanifest",
-  "/icons/icon-192.png?v=25",
-  "/icons/icon-512.png?v=25",
-  "/icons/apple-touch-icon-180.png?v=25",
-  "/icons/logo.png?v=25",
-  "/img/tuto-swipe-1.png?v=25",
-  "/img/tuto-swipe-2.png?v=25",
+  "/icons/icon-192.png?v=76",
+  "/icons/icon-512.png?v=76",
+  "/icons/apple-touch-icon-180.png?v=76",
+  "/icons/logo-trim.png?v=76",
+  "/img/tuto-swipe-1.png?v=76",
+  "/img/tuto-swipe-2.png?v=76",
+  "/img/idle-swipe.gif?v=76",
+  "/img/idle-click.gif?v=76",
 ];
 
 /* Préchargement de la navigation (réseau) — iOS 15.4+ / Safari */
@@ -53,6 +52,12 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/")) return; // réseau uniquement
+  // Le manifeste et le service worker doivent toujours être revalidés :
+  // leurs headers no-cache ne doivent pas être contournés par le cache PWA.
+  if (url.pathname === "/manifest.webmanifest" || url.pathname === "/sw.js") {
+    event.respondWith(fetch(request, { cache: "no-store" }).catch(() => caches.match(request, { cacheName: CACHE })));
+    return;
+  }
 
   /* Navigation (pages) : réseau d'abord, fallback cache → jamais d'écran blanc */
   if (request.mode === "navigate") {
@@ -79,6 +84,8 @@ self.addEventListener("fetch", (event) => {
   }
 
   /* Assets : cache d'abord (cache COURANT uniquement) puis réseau en fond.
+     Les vendors optionnels GIF/ZIP sont ainsi téléchargés uniquement lors
+     de leur première utilisation, puis restent disponibles hors ligne.
      ⚠️ cacheName: CACHE → on ne sert JAMAIS une vieille version depuis un
      ancien cache (le bug « l'iPhone affiche l'ancienne version »). */
   event.respondWith(

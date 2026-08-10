@@ -8,6 +8,66 @@ export const FRAME_TEXTS = {
   default: { line1: "18 ANS", line2: "Lilou & Kenza" },
 };
 
+  /* ─── Barbie : rose poudré, paillettes, typo cursive ─── */
+  barbie: {
+    name: "Barbie",
+    draw(ctx, W, H, text) {
+      const m = Math.min(W, H) * 0.04;
+      const lw = Math.max(8, m * 0.28);
+      ctx.save();
+      /* Fond rose poudré avec paillettes */
+      ctx.fillStyle = "rgba(255,105,180,.12)";
+      ctx.fillRect(0, 0, W, H);
+      /* Bordures roses */
+      ctx.strokeStyle = "#ff69b4";
+      ctx.lineWidth = lw;
+      ctx.shadowColor = "rgba(255,20,147,.7)";
+      ctx.shadowBlur = 18;
+      ctx.strokeRect(m, m, W - 2 * m, H - 2 * m);
+      /* Filet intérieur doré */
+      ctx.strokeStyle = "rgba(255,215,0,.55)";
+      ctx.lineWidth = Math.max(2, lw * 0.3);
+      ctx.shadowBlur = 6;
+      ctx.strokeRect(m + lw, m + lw, W - 2 * (m + lw), H - 2 * (m + lw));
+      /* Paillettes aléatoires (effet glitter) */
+      const glitterCount = Math.floor((W * H) / 1800);
+      for (let i = 0; i < glitterCount; i++) {
+        const gx = Math.random() * (W - 2 * m) + m;
+        const gy = Math.random() * (H - 2 * m) + m;
+        ctx.fillStyle = `rgba(255,${192 + Math.random() * 63},${203 + Math.random() * 52},${0.3 + Math.random() * 0.5})`;
+        ctx.beginPath();
+        ctx.arc(gx, gy, 1.5 + Math.random() * 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      /* Ruban rose en bas */
+      const bandH = Math.max(58, H * 0.12);
+      const bandW = W * 0.78;
+      const x = (W - bandW) / 2, y = H - bandH - m * 1.4;
+      ctx.shadowBlur = 0;
+      const grad = ctx.createLinearGradient(0, y, 0, y + bandH);
+      grad.addColorStop(0, "#ff69b4");
+      grad.addColorStop(0.5, "#ff1493");
+      grad.addColorStop(1, "#ff69b4");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(x, y, bandW, bandH, bandH / 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.4)";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      /* Texte Barbie : cursive rose vif */
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "rgba(255,20,147,.8)";
+      ctx.shadowBlur = 10;
+      const fontSize = Math.max(26, bandH * 0.38);
+      ctx.font = `italic 900 ${fontSize}px "Georgia", "Times New Roman", serif`;
+      ctx.fillText(text.line1.toUpperCase(), W / 2, y + bandH * 0.42);
+      ctx.font = `italic 800 ${fontSize * 0.78}px "Georgia", "Times New Roman", serif`;
+      ctx.fillText(text.line2, W / 2, y + bandH * 0.82);
+      ctx.restore();
+    },
+  },
 /* Designs de bordure : chaque design a draw(ctx, W, H) */
 const DESIGNS = {
   none:      { name: "Aucun", draw: () => {} },
@@ -257,11 +317,11 @@ export function drawFrame(ctx, W, H, frameId, text) {
 /* Aperçu SVG des designs pour le panneau (data-URI) */
 export function framePreview(id, w = 120, h = 160) {
   const names = {
-    none: "Aucun", gold: "Doré", confetti: "Confettis", balloons: "Ballons",
+    none: "Aucun", gold: "Doré", barbie: "Barbie", confetti: "Confettis", balloons: "Ballons",
     hearts: "Cœurs", floral: "Floral", stars: "Étoiles", party: "Fête",
   };
   const colors = {
-    none: "#333", gold: "#d4af37", confetti: "#ff5252", balloons: "#40c4ff",
+    none: "#333", barbie: "#ff69b4", gold: "#d4af37", confetti: "#ff5252", balloons: "#40c4ff",
     hearts: "#ff5274", floral: "#ff80ab", stars: "#ffd740", party: "#e040fb",
   };
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160">
@@ -269,7 +329,7 @@ export function framePreview(id, w = 120, h = 160) {
     <rect x="${id === "none" ? 2 : 8}" y="${id === "none" ? 2 : 8}" width="${id === "none" ? 116 : 104}" height="${id === "none" ? 156 : 144}" rx="8" fill="#0a0a14" stroke="${colors[id] || "#fff"}" stroke-width="${id === "none" ? 1 : 3}"/>
     <rect x="30" y="118" width="60" height="22" rx="11" fill="${colors[id] || "#fff"}"/>
     <text x="60" y="133" font-size="9" font-weight="bold" fill="#fff" text-anchor="middle" font-family="sans-serif">18 ANS</text>
-    <text x="60" y="74" font-size="12" fill="${colors[id] || "#aaa"}" text-anchor="middle" font-family="sans-serif">${names[id]}</text>
+    <text x="60" y="76" font-size="12" fill="${colors[id] || "#aaa"}" text-anchor="middle" font-family="sans-serif">${names[id]}</text>
   </svg>`;
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 }

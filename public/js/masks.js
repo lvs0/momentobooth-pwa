@@ -24,60 +24,354 @@ function drawEmoji(ctx, emoji, x, y, size) {
   ctx.restore();
 }
 
-/* ─── Masque : couronne (La Reine) ─── */
+/* Rectangle arrondi compatible iOS 15 (roundRect n'existe qu'à partir d'iOS 16) */
+function rr(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+/* ─── Couronne « La Reine » : or travaillé, gemmes, reflets, tracking rotation ─── */
 function drawCrown(ctx, face, W, H) {
   const nose = face[1], forehead = face[10], leftEar = face[234], rightEar = face[454];
   const cx = px((nose.x + forehead.x) / 2, W);
   const topY = py(Math.min(forehead.y, nose.y), H);
   const headW = Math.abs(px(leftEar.x, W) - px(rightEar.x, W));
-  const size = Math.max(60, headW * 0.9);
-  drawEmoji(ctx, "👑", cx, topY - size * 0.55, size);
+  const s = Math.max(72, headW * 0.62);
+  const angle = headAngle(face);
+  ctx.save();
+  ctx.translate(cx, topY - s * 0.36);
+  ctx.rotate((angle * Math.PI) / 180);
+  ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 14;
+  // Bandeau doré
+  const band = ctx.createLinearGradient(0, -s * 0.06, 0, s * 0.16);
+  band.addColorStop(0, "#ffe9a3"); band.addColorStop(.45, "#ffd24a"); band.addColorStop(1, "#c8941e");
+  rr(ctx, -s * 0.5, -s * 0.06, s, s * 0.22, s * 0.05);
+  ctx.fillStyle = band; ctx.fill();
+  ctx.strokeStyle = "rgba(122,84,8,.75)"; ctx.lineWidth = Math.max(1.5, s * 0.018);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // Pointes de la couronne
+  const gold = ctx.createLinearGradient(0, -s * 0.62, 0, s * 0.04);
+  gold.addColorStop(0, "#fff6c9"); gold.addColorStop(.5, "#ffd94d"); gold.addColorStop(1, "#d4a017");
+  const tips = [
+    [-0.5, 0.28], [-0.25, 0.34], [0, 0.4], [0.25, 0.34], [0.5, 0.28],
+  ];
+  tips.forEach(([tx, ty], index) => {
+    ctx.beginPath();
+    ctx.moveTo(tx * s - s * 0.13, ty * s);
+    ctx.lineTo(tx * s + s * 0.13, ty * s);
+    ctx.lineTo(tx * s, ty * s - s * 0.5);
+    ctx.closePath();
+    ctx.fillStyle = gold; ctx.fill();
+    ctx.strokeStyle = "rgba(150,105,10,.7)"; ctx.lineWidth = Math.max(1, s * 0.014);
+    ctx.stroke();
+    // Boule d'or au sommet de chaque pointe
+    ctx.beginPath();
+    ctx.arc(tx * s, ty * s - s * 0.5, Math.max(1.8, s * 0.028), 0, Math.PI * 2);
+    ctx.fillStyle = index % 2 ? "#ff8fab" : "#8ecbff";
+    ctx.fill();
+  });
+  // Gemme centrale
+  ctx.beginPath();
+  ctx.ellipse(0, s * 0.03, s * 0.09, s * 0.06, 0, 0, Math.PI * 2);
+  const gem = ctx.createLinearGradient(0, -s * 0.03, 0, s * 0.1);
+  gem.addColorStop(0, "#ff5d8f"); gem.addColorStop(1, "#a80f4e");
+  ctx.fillStyle = gem; ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,.65)";
+  ctx.beginPath();
+  ctx.ellipse(-s * 0.03, -s * 0.015, s * 0.024, s * 0.014, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
-/* ─── Masque : lunettes ─── */
+/* ─── Lunettes « Ray-Ban » : verres dégradés + reflets, tracking rotation ─── */
 function drawGlasses(ctx, face, W, H) {
   const leftEye = face[33], rightEye = face[263];
   const cx = px((leftEye.x + rightEye.x) / 2, W);
   const cy = py((leftEye.y + rightEye.y) / 2, H);
   const eyeDist = Math.abs(px(leftEye.x, W) - px(rightEye.x, W));
-  const size = Math.max(50, eyeDist * 1.5);
-  drawEmoji(ctx, "🕶️", cx, cy + size * 0.05, size);
+  const s = Math.max(52, eyeDist * 0.82);
+  const angle = headAngle(face);
+  ctx.save();
+  ctx.translate(cx, cy + s * 0.04);
+  ctx.rotate((angle * Math.PI) / 180);
+  // Branches
+  ctx.strokeStyle = "#14161f";
+  ctx.lineWidth = Math.max(2.4, s * 0.045);
+  ctx.lineCap = "round";
+  [-1, 1].forEach((dir) => {
+    ctx.beginPath();
+    ctx.moveTo(dir * s * 0.78, -s * 0.02);
+    ctx.lineTo(dir * s * 1.24, -s * 0.14);
+    ctx.stroke();
+  });
+  // Pont
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.28, -s * 0.12);
+  ctx.quadraticCurveTo(0, -s * 0.24, s * 0.28, -s * 0.12);
+  ctx.strokeStyle = "#14161f";
+  ctx.lineWidth = Math.max(1.8, s * 0.03);
+  ctx.stroke();
+  // Verres dégradés + reflet
+  const lensGrad = ctx.createLinearGradient(0, -s * 0.34, 0, s * 0.34);
+  lensGrad.addColorStop(0, "rgba(16,20,34,.95)"); lensGrad.addColorStop(.5, "rgba(34,44,74,.92)"); lensGrad.addColorStop(1, "rgba(8,10,18,.97)");
+  const lensW = s * 0.46, lensH = s * 0.34;
+  [-1, 1].forEach((dir) => {
+    const lx = dir * s * 0.52;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 8;
+    rr(ctx, lx - lensW / 2, -lensH / 2, lensW, lensH, lensH * 0.34);
+    ctx.fillStyle = lensGrad; ctx.fill();
+    ctx.strokeStyle = "#0c0e16"; ctx.lineWidth = Math.max(1.6, s * 0.028);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Reflet diagonal
+    ctx.save();
+    ctx.clip();
+    ctx.beginPath();
+    ctx.moveTo(lx - lensW * 0.5, -lensH * 0.1);
+    ctx.lineTo(lx + lensW * 0.55, -lensH * 0.62);
+    ctx.lineTo(lx + lensW * 0.85, -lensH * 0.42);
+    ctx.lineTo(lx - lensW * 0.2, lensH * 0.1);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,.22)";
+    ctx.fill();
+    ctx.restore();
+    // Petite étincelle
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.beginPath();
+    ctx.arc(lx - lensW * 0.16, -lensH * 0.12, Math.max(1, s * 0.018), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+  ctx.restore();
 }
 
-/* ─── Masque : caca (sur la tête) ─── */
+/* ─── Caca « swirly » : trois bosses, yeux ronds, blush, tracking rotation ─── */
 function drawPoop(ctx, face, W, H) {
   const nose = face[1], forehead = face[10];
-  const cx = px((nose.x + forehead.x) / 2, W) + 30;
+  const cx = px((nose.x + forehead.x) / 2, W);
   const topY = py(Math.min(forehead.y, nose.y), H);
-  drawEmoji(ctx, "💩", cx, topY - 70, 120);
+  const headW = Math.abs(px(face[234].x, W) - px(face[454].x, W));
+  const s = Math.max(54, headW * 0.42);
+  const angle = headAngle(face);
+  ctx.save();
+  ctx.translate(cx, topY - s * 0.8);
+  ctx.rotate((angle * Math.PI) / 180);
+  const brown = ctx.createLinearGradient(0, -s, 0, s * 0.9);
+  brown.addColorStop(0, "#8a5a2b"); brown.addColorStop(.55, "#6b3f1b"); brown.addColorStop(1, "#4a2a10");
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 10;
+  ctx.beginPath();
+  // Trois bosses du haut
+  ctx.moveTo(-s * 0.52, s * 0.1);
+  ctx.quadraticCurveTo(-s * 0.6, -s * 0.55, -s * 0.2, -s * 0.52);
+  ctx.quadraticCurveTo(-s * 0.3, -s * 0.95, 0, -s * 0.85);
+  ctx.quadraticCurveTo(s * 0.3, -s * 0.95, s * 0.2, -s * 0.52);
+  ctx.quadraticCurveTo(s * 0.6, -s * 0.55, s * 0.52, s * 0.1);
+  // Corps qui descend en pointe
+  ctx.quadraticCurveTo(s * 0.62, s * 0.4, s * 0.42, s * 0.72);
+  ctx.quadraticCurveTo(s * 0.2, s * 1.02, 0, s * 0.85);
+  ctx.quadraticCurveTo(-s * 0.2, s * 1.02, -s * 0.42, s * 0.72);
+  ctx.quadraticCurveTo(-s * 0.62, s * 0.4, -s * 0.52, s * 0.1);
+  ctx.closePath();
+  ctx.fillStyle = brown; ctx.fill();
+  ctx.strokeStyle = "rgba(40,22,8,.6)"; ctx.lineWidth = Math.max(1.5, s * 0.025);
+  ctx.stroke();
+  ctx.restore();
+  // Yeux
+  ctx.fillStyle = "#2a1a08";
+  [[-0.16, -0.12], [0.16, -0.12]].forEach(([ex, ey]) => {
+    ctx.beginPath();
+    ctx.ellipse(ex * s, ey * s, s * 0.085, s * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(ex * s - s * 0.03, ey * s - s * 0.04, s * 0.028, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2a1a08";
+  });
+  // Sourire
+  ctx.strokeStyle = "#2a1a08";
+  ctx.lineWidth = Math.max(1.6, s * 0.03);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0, s * 0.22, s * 0.16, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  // Joues
+  ctx.fillStyle = "rgba(255,120,120,.28)";
+  [[-0.34, 0.16], [0.34, 0.16]].forEach(([ex, ey]) => {
+    ctx.beginPath();
+    ctx.arc(ex * s, ey * s, s * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
 }
 
-/* ─── Masque : chapeau cowboy ─── */
+/* ─── Chapeau cowboy : feutre texturé, bandeau, étoile, tracking rotation ─── */
 function drawCowboy(ctx, face, W, H) {
   const nose = face[1], forehead = face[10];
   const cx = px((nose.x + forehead.x) / 2, W);
   const topY = py(Math.min(forehead.y, nose.y), H);
-  drawEmoji(ctx, "🤠", cx, topY - 60, 130);
+  const headW = Math.abs(px(face[234].x, W) - px(face[454].x, W));
+  const s = Math.max(66, headW * 0.5);
+  const angle = headAngle(face);
+  ctx.save();
+  ctx.translate(cx, topY - s * 0.5);
+  ctx.rotate((angle * Math.PI) / 180);
+  ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 12;
+  // Bords relevés
+  const brim = ctx.createLinearGradient(0, 0, 0, s * 0.3);
+  brim.addColorStop(0, "#a4682c"); brim.addColorStop(.5, "#8a4f1e"); brim.addColorStop(1, "#5c3414");
+  ctx.beginPath();
+  ctx.ellipse(0, s * 0.24, s * 0.92, s * 0.2, 0, 0, Math.PI * 2);
+  ctx.fillStyle = brim; ctx.fill();
+  ctx.strokeStyle = "rgba(50,28,8,.7)"; ctx.lineWidth = Math.max(1.5, s * 0.02);
+  ctx.stroke();
+  // Calotte
+  const dome = ctx.createLinearGradient(0, -s * 0.52, 0, s * 0.2);
+  dome.addColorStop(0, "#c07c38"); dome.addColorStop(1, "#7a4a1e");
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.44, s * 0.16);
+  ctx.quadraticCurveTo(-s * 0.5, -s * 0.5, 0, -s * 0.54);
+  ctx.quadraticCurveTo(s * 0.5, -s * 0.5, s * 0.44, s * 0.16);
+  ctx.closePath();
+  ctx.fillStyle = dome; ctx.fill();
+  ctx.strokeStyle = "rgba(50,28,8,.7)"; ctx.lineWidth = Math.max(1.5, s * 0.02);
+  ctx.stroke();
+  // Bandeau
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.44, s * 0.1);
+  ctx.quadraticCurveTo(-s * 0.5, s * 0.24, -s * 0.44, s * 0.3);
+  ctx.quadraticCurveTo(0, s * 0.42, s * 0.44, s * 0.3);
+  ctx.quadraticCurveTo(s * 0.5, s * 0.24, s * 0.44, s * 0.1);
+  ctx.closePath();
+  ctx.fillStyle = "#2c1808";
+  ctx.fill();
+  // Étoile dorée du bandeau
+  ctx.save();
+  ctx.translate(0, s * 0.22);
+  ctx.fillStyle = "#ffd166";
+  const starR = s * 0.09;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? starR : starR * 0.45;
+    const a = (Math.PI / 5) * i - Math.PI / 2;
+    const ex = Math.cos(a) * rad, ey = Math.sin(a) * rad;
+    i === 0 ? ctx.moveTo(ex, ey) : ctx.lineTo(ex, ey);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  ctx.restore();
 }
 
-/* ─── Masque : copin (cool) ─── */
+/* ─── Copin cool : lunettes de soleil à verres miroir + sourire, tracking ─── */
 function drawCopin(ctx, face, W, H) {
   const leftEye = face[33], rightEye = face[263];
   const cx = px((leftEye.x + rightEye.x) / 2, W);
   const cy = py((leftEye.y + rightEye.y) / 2, H);
   const eyeDist = Math.abs(px(leftEye.x, W) - px(rightEye.x, W));
-  const size = Math.max(52, eyeDist * 1.6);
-  drawEmoji(ctx, "😎", cx, cy + size * 0.05, size);
+  const s = Math.max(56, eyeDist * 0.9);
+  const angle = headAngle(face);
+  ctx.save();
+  ctx.translate(cx, cy + s * 0.05);
+  ctx.rotate((angle * Math.PI) / 180);
+  // Verres miroir (dégradé chaud)
+  const mirror = ctx.createLinearGradient(0, -s * 0.36, 0, s * 0.36);
+  mirror.addColorStop(0, "#ffb45c"); mirror.addColorStop(.45, "#c2452e"); mirror.addColorStop(1, "#5c1230");
+  const lensW = s * 0.5, lensH = s * 0.3;
+  [-1, 1].forEach((dir) => {
+    const lx = dir * s * 0.55;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 8;
+    rr(ctx, lx - lensW / 2, -lensH / 2, lensW, lensH, lensH * 0.3);
+    ctx.fillStyle = mirror; ctx.fill();
+    ctx.strokeStyle = "#160d0a"; ctx.lineWidth = Math.max(1.6, s * 0.028);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Reflet miroir
+    ctx.save();
+    ctx.clip();
+    ctx.beginPath();
+    ctx.moveTo(lx - lensW * 0.55, -lensH * 0.05);
+    ctx.lineTo(lx + lensW * 0.6, -lensH * 0.6);
+    ctx.lineTo(lx + lensW * 0.95, -lensH * 0.35);
+    ctx.lineTo(lx - lensW * 0.2, lensH * 0.2);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,.3)";
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  });
+  // Pont
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.3, -s * 0.1);
+  ctx.quadraticCurveTo(0, -s * 0.24, s * 0.3, -s * 0.1);
+  ctx.strokeStyle = "#160d0a";
+  ctx.lineWidth = Math.max(1.8, s * 0.03);
+  ctx.stroke();
+  // Sourire en coin
+  const nose = face[1];
+  const nx = px(nose.x, W) - cx, ny = py(nose.y, H) - cy;
+  ctx.strokeStyle = "rgba(20,20,28,.85)";
+  ctx.lineWidth = Math.max(2, s * 0.04);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(nx - s * 0.28, ny + s * 0.16);
+  ctx.quadraticCurveTo(nx, ny + s * 0.42, nx + s * 0.3, ny + s * 0.14);
+  ctx.stroke();
+  ctx.restore();
 }
 
-/* ─── Masque : copine (baiser) ─── */
+/* ─── Baiser copine : lèvres glossy (dégradé, séparation, reflet), tracking ─── */
 function drawCopine(ctx, face, W, H) {
   const chin = face[152], nose = face[1];
   const cx = px((chin.x + nose.x) / 2, W);
   const cy = py((chin.y + nose.y) / 2, H);
   const faceH = Math.abs(py(face[10].y, H) - py(chin.y, H));
-  const size = Math.max(44, faceH * 0.28);
-  drawEmoji(ctx, "💋", cx + size * 0.55, cy - size * 0.6, size * 1.1);
+  const s = Math.max(34, faceH * 0.2);
+  const angle = headAngle(face);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate((angle * Math.PI) / 180);
+  ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 10;
+  // Lèvres (arc de Cupidon + lèvre inférieure)
+  const lip = ctx.createLinearGradient(0, -s * 0.5, 0, s * 0.55);
+  lip.addColorStop(0, "#ff5d8f"); lip.addColorStop(.5, "#e81f62"); lip.addColorStop(1, "#9c0f43");
+  ctx.beginPath();
+  // Contour supérieur gauche
+  ctx.moveTo(-s * 0.62, -s * 0.05);
+  ctx.quadraticCurveTo(-s * 0.4, -s * 0.52, 0, -s * 0.3);
+  // Contour supérieur droit
+  ctx.quadraticCurveTo(s * 0.4, -s * 0.52, s * 0.62, -s * 0.05);
+  // Lèvre inférieure
+  ctx.quadraticCurveTo(s * 0.55, s * 0.5, 0, s * 0.5);
+  ctx.quadraticCurveTo(-s * 0.55, s * 0.5, -s * 0.62, -s * 0.05);
+  ctx.closePath();
+  ctx.fillStyle = lip; ctx.fill();
+  ctx.strokeStyle = "rgba(120,10,52,.7)"; ctx.lineWidth = Math.max(1.4, s * 0.03);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // Séparation des lèvres
+  ctx.strokeStyle = "rgba(120,10,52,.55)";
+  ctx.lineWidth = Math.max(1, s * 0.022);
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.5, -s * 0.05);
+  ctx.quadraticCurveTo(0, s * 0.1, s * 0.5, -s * 0.05);
+  ctx.stroke();
+  // Reflet glossy
+  ctx.fillStyle = "rgba(255,255,255,.4)";
+  ctx.beginPath();
+  ctx.ellipse(-s * 0.18, -s * 0.2, s * 0.14, s * 0.06, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 /* ─── Masque : Famille Verpoort (cœurs + couronne + texte) ─── */
@@ -103,14 +397,37 @@ function drawFamily(ctx, face, W, H) {
   void chin;
 }
 
-/* ─── Masque : moustache ─── */
+/* ─── Masque : moustache (vectorielle, deux virgules sous le nez) ─── */
 function drawMustache(ctx, face, W, H) {
   const nose = face[1];
   const cx = px(nose.x, W);
-  const cy = py(nose.y, H);
+  const cy = py(nose.y, H) + Math.max(3, H * 0.008);
   const faceW = Math.abs(px(face[234].x, W) - px(face[454].x, W));
-  const size = Math.max(40, faceW * 0.35);
-  drawEmoji(ctx, "🧔", cx, cy + size * 0.2, size);
+  const s = Math.max(34, faceW * 0.3);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.shadowColor = "rgba(0,0,0,.45)";
+  ctx.shadowBlur = 8;
+  [-1, 1].forEach((dir) => {
+    ctx.beginPath();
+    ctx.moveTo(0, s * 0.02);
+    ctx.quadraticCurveTo(dir * s * 0.3, s * 0.34, dir * s * 0.74, s * 0.18);
+    ctx.quadraticCurveTo(dir * s * 1.04, s * 0.02, dir * s * 0.8, -s * 0.24);
+    ctx.quadraticCurveTo(dir * s * 0.5, -s * 0.08, dir * s * 0.38, s * 0.02);
+    ctx.quadraticCurveTo(dir * s * 0.2, -s * 0.14, 0, -s * 0.02);
+    ctx.closePath();
+    ctx.fillStyle = "#3a2410";
+    ctx.fill();
+  });
+  ctx.shadowBlur = 0;
+  // Reflet léger : donne du volume sans alourdir le rendu.
+  ctx.strokeStyle = "rgba(255,255,255,.14)";
+  ctx.lineWidth = Math.max(1, s * 0.02);
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.55, s * 0.06);
+  ctx.quadraticCurveTo(-s * 0.3, s * 0.22, 0, s * 0.04);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /* ─── Masque : ange (halo) ─── */

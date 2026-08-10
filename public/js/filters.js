@@ -77,6 +77,12 @@ const HOME = {
   noir:     { name: "Noir+", css: "brightness(.72) contrast(1.45) saturate(.55)", ops: [["brightness",.72],["contrast",1.45],["saturate",.55]] },
   neon:     { name: "Néon", css: "hue-rotate(85deg) saturate(1.8) contrast(1.05)", ops: [["hueRotate",85],["saturate",1.8],["contrast",1.05]] },
   soft:     { name: "Douce", css: "brightness(1.08) contrast(.9) saturate(1.05)", ops: [["brightness",1.08],["contrast",.9],["saturate",1.05]] },
+  glow:     { name: "Glow", css: "brightness(1.15) contrast(1.08) saturate(1.2)", ops: [["brightness",1.15],["contrast",1.08],["saturate",1.2]] },
+  dream:    { name: "Dream", css: "brightness(1.25) contrast(.85) saturate(.9) blur(0.5px)", ops: [["brightness",1.25],["contrast",.85],["saturate",.9]] },
+  cinema:   { name: "Cinema", css: "contrast(1.3) saturate(1.4) brightness(.95)", ops: [["contrast",1.3],["saturate",1.4],["brightness",.95]] },
+  polaroid: { name: "Polaroid", css: "sepia(.35) contrast(1.12) brightness(1.08) saturate(.9)", ops: [["sepia",.35],["contrast",1.12],["brightness",1.08],["saturate",.9]] },
+  sun:      { name: "Soleil", css: "brightness(1.2) saturate(1.5) hue-rotate(15deg)", ops: [["brightness",1.2],["saturate",1.5],["hueRotate",15]] },
+  dusk:     { name: "Crépuscule", css: "brightness(.85) contrast(1.15) sepia(.15) saturate(1.3)", ops: [["brightness",.85],["contrast",1.15],["sepia",.15],["saturate",1.3]] },
 };
 
 export const FILTERS = [

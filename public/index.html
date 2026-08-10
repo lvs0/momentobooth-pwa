@@ -12,28 +12,34 @@
 
 <link rel="manifest" href="/manifest.webmanifest">
 <!-- Icônes Apple Touch -->
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png?v=25">
-<link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png?v=25">
-<link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png?v=25">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=25">
-<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png?v=25">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png?v=76">
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png?v=76">
+<link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png?v=76">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=76">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png?v=76">
 <!-- Splash screens iOS -->
 <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12mini.png">
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=25">
+<link rel="stylesheet" href="/css/styles.css?v=76">
 </head>
-<body data-app-version="25"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
+<body data-app-version="76"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
+<script>setTimeout(function(){var s=document.getElementById("app-splash");if(s){s.classList.add("done");setTimeout(function(){s.remove();},1100);}},8000);</script>
 
 <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
 <main id="screen-capture" class="screen active">
 
-  <!-- Empilement fenêtres (bord droit) : indice que l'on peut swiper -->
-  <div class="window-stack" id="window-stack" aria-hidden="true">
-    <div class="window-card w1"></div>
-    <div class="window-card w2"></div>
-    <div class="window-card w3"></div>
+  <!-- Accès principal aux accessoires et animations -->
+  <button id="btn-fx-top" class="fx-top-btn" aria-label="Ouvrir Accessoires et Animations" aria-controls="fx-panel" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z" fill="currentColor"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9L18.5 21l-.9-2.6-2.6-.9z" fill="currentColor" opacity=".78"/></svg>
+    <span>Accessoires &amp; Animations</span>
+  </button>
+
+  <!-- Carrousel vertical des filtres photo : uniquement les filtres d'image -->
+  <div class="window-stack filter-rail" id="photo-filter-rail" aria-label="Filtres photo rapides">
+    <div class="rail-caption">PHOTO</div>
+    <div id="photo-filter-rail-list" class="filter-rail-list"></div>
   </div>
 
   <!-- Indicateur mode AUTO -->
@@ -67,19 +73,19 @@
   <!-- Nom du filtre au swipe (apparaît temporairement) -->
   <div id="filter-label" class="filter-label" aria-hidden="true"></div>
 
-  <!-- Panneau Accessoires & Filtres (carrousel de caméras en direct) -->
-  <div id="fx-panel" class="fx-panel" aria-hidden="true">
+  <!-- Panneau Accessoires & Animations : filtres visage et effets décoratifs -->
+  <div id="fx-panel" class="fx-panel" role="dialog" aria-modal="true" aria-labelledby="fx-panel-title" aria-hidden="true">
     <div class="fx-head">
-      <span class="fx-title">Accessoires &amp; Filtres</span>
-      <span id="fx-close" class="sheet-close">✕</span>
+      <span id="fx-panel-title" class="fx-title">Accessoires &amp; Animations</span>
+      <button id="fx-close" type="button" class="sheet-close" aria-label="Fermer Accessoires et Animations">✕</button>
     </div>
     <div class="fx-seg" id="fx-seg">
-      <button data-cat="accessory" class="active">Accessoires</button>
+      <button data-cat="accessory" class="active">Accessoires visage</button>
       <button data-cat="animation">Animations</button>
     </div>
     <div class="fx-carousel" id="fx-carousel"></div>
     <div class="fx-name" id="fx-name">Original</div>
-    <div class="fx-hint">Swipez ↔ pour changer</div>
+    <div class="fx-hint">Swipez ↔ pour changer · filtres photo à droite</div>
   </div>
 
   <!-- Compte à rebours -->
@@ -88,25 +94,54 @@
     <div class="countdown-hint">Touchez pour mettre en pause</div>
   </div>
 
-  <!-- Tutoriel swipe : doigt (animation importée) + fenêtres qui reviennent -->
+  <!-- Tutoriel swipe : animation fournie par l'utilisateur + fenêtres qui reviennent -->
   <div id="swipe-tuto" class="swipe-tuto" aria-hidden="true">
-    <div class="tuto-hand"><img src="/img/tuto-swipe-1.png?v=25" alt=""><img class="f2" src="/img/tuto-swipe-2.png?v=25" alt=""></div>
+    <img class="tuto-swipe-animation" src="/img/idle-swipe.gif?v=76" alt="Animation : balayez l'écran pour changer de filtre">
+    <div class="tuto-hand" aria-hidden="true"><img src="/img/tuto-swipe-1.png?v=76" alt=""><img class="f2" src="/img/tuto-swipe-2.png?v=76" alt=""></div>
     <div class="tuto-text">Swipez pour changer de filtre</div>
   </div>
 
-  <!-- Veille : écran flouté + carte « Cliquez pour vous prendre en photo » -->
+  <!-- Veille : plusieurs écrans d'accueil tournants, caméra floutée et heure -->
   <div id="idle-overlay" class="idle-overlay" aria-hidden="true">
     <div class="idle-card">
-      <div class="idle-tap"><span class="idle-cam">📷</span></div>
-      <div class="idle-title">Cliquez pour vous prendre en photo</div>
-      <div class="idle-sub">Votre photobooth est prêt</div>
+      <div class="idle-scenes" aria-live="polite">
+        <section class="idle-scene active" data-idle-scene="0">
+          <div class="idle-party-orb" aria-hidden="true"><span>🪩</span></div>
+          <img class="idle-click-animation" src="/img/idle-click.gif?v=76" alt="Animation : touchez l'écran" aria-hidden="true">
+          <div class="idle-title">Profiter, c'est la fête !</div>
+          <div class="idle-sub idle-party-copy">Je suis là — c'est l'heure de danser !!!</div>
+          <div class="idle-tap"><span class="idle-cam">📷</span></div>
+          <div class="idle-cta">Touchez pour prendre une photo</div>
+        </section>
+        <section class="idle-scene" data-idle-scene="1" aria-hidden="true">
+          <div class="idle-scene-icon gradient-icon" aria-hidden="true">✨</div>
+          <div class="idle-title">Votre moment vous attend</div>
+          <div class="idle-sub idle-party-copy">Un souvenir, une pose, une belle histoire.</div>
+          <div class="idle-scene-prompt"><span>✦</span><span>✦</span><span>✦</span></div>
+          <div class="idle-cta">Touchez pour commencer</div>
+        </section>
+        <section class="idle-scene" data-idle-scene="2" aria-hidden="true">
+          <div class="idle-style-orbit" aria-hidden="true"><span>🎨</span><i>✦</i><b>◌</b></div>
+          <div class="idle-title">Trouvez votre style</div>
+          <div class="idle-sub idle-party-copy">Filtres photo, accessoires et animations vous attendent.</div>
+          <div class="idle-style-pills" aria-hidden="true"><span>Vif</span><span>Vintage</span><span>✨</span></div>
+          <div class="idle-cta">Touchez pour explorer</div>
+        </section>
+        <section class="idle-scene" data-idle-scene="3" aria-hidden="true">
+          <div class="idle-ready-mark" aria-hidden="true"><span>✓</span></div>
+          <div class="idle-title">Prêt pour un souvenir ?</div>
+          <div class="idle-sub idle-party-copy">La caméra se réveille en un toucher.</div>
+          <div class="idle-tap idle-tap-small"><span class="idle-cam">📸</span></div>
+          <div class="idle-cta">Touchez pour vous prendre en photo</div>
+        </section>
+      </div>
       <div id="idle-clock" class="idle-clock">--:--</div>
+      <div class="idle-scene-dots" aria-hidden="true"><i class="active"></i><i></i><i></i><i></i></div>
     </div>
   </div>
 
   <!-- Barre outils bas -->
   <div class="bottom-bar">
-    <button id="btn-fx" class="tool-btn fx-btn" aria-label="Accessoires et filtres"><svg viewBox="0 0 24 24" width="27" height="27"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z" fill="currentColor"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9L18.5 21l-.9-2.6-2.6-.9 2.6-.9z" fill="currentColor" opacity=".85"/><circle cx="5.5" cy="17.5" r="1.8" fill="currentColor" opacity=".7"/></svg></button>
     <button id="btn-auto" class="tool-btn auto-btn" aria-label="Capture automatique"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>
     <button id="btn-backdrop" class="tool-btn" aria-label="Fond"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 11l-8.5 8.5a2.1 2.1 0 0 1-3 0L3.6 15.6a2.1 2.1 0 0 1 0-3L12 4"/><path d="M15.5 6.5 20 11"/><path d="M2.5 15h15"/><path d="M21 17.3c0 1.2-1 2.2-2.2 2.2s-2.3-1-2.3-2.2c0-1.2 1.1-2.6 2.3-3.5 1.2.9 2.2 2.3 2.2 3.5z"/></svg></button>
     <button id="btn-flip" class="tool-btn" aria-label="Retourner"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M4 7h10a4 4 0 0 1 0 8H4M8 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
@@ -114,11 +149,15 @@
     <button id="btn-gallery" class="tool-btn" aria-label="Galerie"><svg viewBox="0 0 24 24" width="26" height="26"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-4 3 3 4-4 4 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
   </div>
 
-  <!-- Sheet minuteur -->
+  <!-- Sheet minuteur + nombre de photos -->
   <div id="sheet-timer" class="sheet sheet-timer">
-    <div class="sheet-head">⏱️ Minuteur<span id="timer-close" class="sheet-close">✕</span></div>
+    <div class="sheet-head">⏱️ Capture<span id="timer-close" class="sheet-close">✕</span></div>
+    <div class="capture-choice-label">Délai avant la prise</div>
     <div id="timer-options" class="timer-options big"></div>
-    <div class="sheet-sub">Touchez la durée — la photo se prendra automatiquement</div>
+    <div class="capture-choice-label">Nombre de prises</div>
+    <div id="capture-count-options" class="capture-count-options"></div>
+    <div id="capture-count-summary" class="capture-count-summary">1 prise · photo par prise</div>
+    <div class="sheet-sub">Choisissez le délai et le nombre de prises de la série. Portrait/Rafale ajoutent leurs rendus associés.</div>
   </div>
 
   <!-- Sheet cadres anniversaire -->
@@ -145,31 +184,53 @@
   <!-- Sheet paramètres avancés -->
   <div id="sheet-settings" class="sheet">
     <div class="sheet-head">⚙️ Paramètres<span class="sheet-close">✕</span></div>
-    <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox"><span class="slider"></span></label></div>
-    <div class="settings-row"><span>Rafale Flash+<small class="row-sub">flash fort + meilleure prise auto</small></span><label class="switch"><input id="set-burst" type="checkbox"><span class="slider"></span></label></div>
-    <div class="settings-row"><span>Objectif</span><div id="lens-options" class="lens-options"></div></div>
-    <div class="settings-row"><span>Logo MomentoBooth</span><label class="switch"><input id="set-logo" type="checkbox" checked><span class="slider"></span></label></div>
-    <div class="settings-row"><span>Flash</span><div id="flash-modes" class="segmented"><button data-flash="on" class="active">On</button><button data-flash="auto">Auto</button><button data-flash="off">Off</button></div></div>
-    <div class="settings-row"><span>Qualité max</span><label class="switch"><input id="set-quality" type="checkbox" checked><span class="slider"></span></label></div>
-    <div class="settings-row"><span>Track visage (cadre)</span><label class="switch"><input id="set-track" type="checkbox" checked><span class="slider"></span></label></div>
-    <div class="settings-row"><span>Préfilmage moments<small class="row-sub">séquence préfilmée si quelqu'un approche / voix proche</small></span><label class="switch"><input id="set-preroll" type="checkbox" checked><span class="slider"></span></label></div>
-    <div class="settings-row"><span>Bulle « Vous êtes filmé »<small class="row-sub">avec mini-visages quand quelqu'un passe devant</small></span><label class="switch"><input id="set-film-bubble" type="checkbox" checked><span class="slider"></span></label></div>
-    <div class="settings-row"><span>Désactiver le fond</span><button id="btn-clear-backdrop" class="mini-btn">Retirer</button></div>
-    <div class="settings-row"><span>Supprimer les photos</span><label class="switch"><input id="set-delete" type="checkbox"><span class="slider"></span></label></div>
-    <div class="sheet-sub">Le mode portrait prend une photo normale + une photo floutée + un GIF animé</div>
+    <div class="settings-group" data-group="photo"><button type="button" class="settings-group-title" aria-expanded="true"><span>Photo</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Rafale Flash+<small class="row-sub">flash blanc + meilleure prise auto</small></span><label class="switch"><input id="set-burst" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Qualité maximale<small class="row-sub">4K si l'appareil le permet</small></span><label class="switch"><input id="set-quality" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Mode thermique<small class="row-sub">Éco recommandé pour éviter la chauffe</small></span><select id="set-performance" aria-label="Mode thermique"><option value="eco">Éco — 720p</option><option value="balanced">Équilibré — 1080p</option><option value="max">Max</option></select></div>
+    </div>
+    <div class="settings-group" data-group="camera"><button type="button" class="settings-group-title" aria-expanded="true"><span>Caméra</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Objectif</span><div id="lens-options" class="lens-options"></div></div>
+      <div class="settings-row"><span>Flash<small class="row-sub">Auto : torche si dispo, sinon bord lumineux</small></span><div id="flash-modes" class="segmented"><button data-flash="on" class="active">On</button><button data-flash="auto">Auto</button><button data-flash="off">Off</button></div></div>
+      <div class="settings-row"><span>Track visage<small class="row-sub">cadre + accessoires</small></span><label class="switch"><input id="set-track" type="checkbox"><span class="slider"></span></label></div>
+    </div>
+    <div class="settings-group collapsed" data-group="idle"><button type="button" class="settings-group-title" aria-expanded="false"><span>Veille &amp; auto</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Veille / accueil<small class="row-sub">écrans d'accueil animés</small></span><label class="switch"><input id="set-idle" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Réveil par visage<small class="row-sub">nécessite veille + track</small></span><label class="switch"><input id="set-idle-face" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Délai AUTO<small class="row-sub">stabilité avant la prise auto</small></span><div id="auto-delay-modes" class="segmented"><button data-delay="0.5">0,5 s</button><button data-delay="1.5" class="active">1,5 s</button><button data-delay="3">3 s</button></div></div>
+    </div>
+    <div class="settings-group collapsed" data-group="fx"><button type="button" class="settings-group-title" aria-expanded="false"><span>Effets &amp; vie privée</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Contour basse lumière<small class="row-sub">anneau lumineux si scène sombre</small></span><label class="switch"><input id="set-light-frame" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Préfilmage moments<small class="row-sub">séquences avant la photo</small></span><label class="switch"><input id="set-preroll" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Bulle « Vous êtes filmé »<small class="row-sub">message si détection</small></span><label class="switch"><input id="set-film-bubble" type="checkbox"><span class="slider"></span></label></div>
+    </div>
+    <div class="settings-group collapsed" data-group="clean"><button type="button" class="settings-group-title" aria-expanded="false"><span>Nettoyage</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Désactiver le fond</span><button id="btn-clear-backdrop" class="mini-btn">Retirer</button></div>
+      <div class="settings-row"><span>Supprimer les photos</span><label class="switch"><input id="set-delete" type="checkbox"><span class="slider"></span></label></div>
+    </div>
+    <div class="settings-group collapsed" data-group="remote"><button type="button" class="settings-group-title" aria-expanded="false"><span>Camera deportee</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Diffuser ma camera<small class="row-sub">iPhone envoie son flux</small></span><label class="switch"><input id="set-remote-camera" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row" id="remote-token-row" style="display:none"><span>Token<small class="row-sub">Afficher sur la tablette</small></span><input id="remote-token-display" type="text" readonly class="mini-input"><button id="btn-remote-qr" class="mini-btn">QR</button></div>
+      <div class="settings-row" id="remote-qr-row" style="display:none"><img id="remote-qr-img" alt="QR camera deportee" style="max-width:160px;border-radius:12px"></div>
+      <div class="settings-row"><span>Utiliser camera distante<small class="row-sub">Connecter un iPad a un iPhone camera</small></span><input id="remote-connect-token" type="text" placeholder="Token" class="mini-input"><button id="btn-remote-connect" class="mini-btn primary">Connecter</button></div>
+      <div class="settings-row" id="remote-controller-status" style="display:none"><span id="remote-status-text">Connecte...</span><button id="btn-remote-disconnect" class="mini-btn">Deconnecter</button></div>
+    </div>
+    <div class="sheet-sub">Le mode portrait prend une photo + un flou + un GIF anime</div>
+    <div class="sheet-sub">Le mode portrait prend une photo + un flou + un GIF animé</div>
   </div>
 
 </main>
 
 <!-- ═════════ SPLASH : logo sur fond assorti au logo, puis fondu ═════════ -->
 <div id="app-splash" class="app-splash" aria-hidden="false">
-  <div class="splash-logo"><img src="/icons/icon-512.png?v=25" alt="MomentoBooth"></div>
+  <div class="splash-logo"><img src="/icons/logo-trim.png?v=76" alt="MomentoBooth"></div>
   <div class="splash-name">Momento<span>Booth</span></div>
   <div class="splash-tag">Capturez vos plus beaux moments</div>
 </div>
 
 <!-- ═════════ FOCUS MANUEL : curseur de mise au point (appui long) ═════════ -->
-<div id="focus-cursor" class="focus-cursor hidden" aria-hidden="true">
+<div id="focus-cursor" class="focus-cursor hidden" aria-hidden="true"><span class="focus-lock" aria-hidden="true">⌾</span>
   <div class="focus-corner tl"></div><div class="focus-corner tr"></div>
   <div class="focus-corner bl"></div><div class="focus-corner br"></div>
 </div>
@@ -184,15 +245,21 @@
 <section id="screen-result" class="screen">
   <div class="result-topbar">
     <button id="btn-back-result" class="back-btn">← Retour</button>
-    <span class="result-title">Votre photo</span>
+    <span class="result-title">Votre export</span>
+  </div>
+  <div class="result-meta-card">
+    <div><strong id="result-count">1 élément</strong><small>Pack lens : touchez une vignette pour la sélectionner</small></div>
+    <span class="result-ready-pill">PRÊT</span>
   </div>
   <div id="result-grid" class="result-grid"></div>
   <div class="result-actions">
+    <button id="btn-auto-return" class="result-btn ghost" type="button">↩ Retour (<span id="auto-return-count">20</span>s)</button>
     <button id="btn-retake" class="result-btn ghost">↩ Refaire</button>
     <button id="btn-save" class="result-btn primary">💾 Sauvegarder & partager</button>
   </div>
   <div id="share-box" class="share-box">
-    <div class="share-title">Envoyer la photo</div>
+    <div class="share-title">Carte d’export</div>
+    <div class="share-subtitle">Original sans filtre, version filtrée, portrait et GIF : choisissez exactement ce que vous envoyez.</div>
     <div class="share-row">
       <button class="share-chip" data-method="whatsapp">WhatsApp</button>
       <button class="share-chip" data-method="sms">SMS</button>
@@ -217,21 +284,51 @@
 <section id="screen-gallery" class="screen">
   <div class="gallery-head">
     <button id="btn-back-capture" class="back-btn">← Retour</button>
-    <strong>Galerie</strong>
+    <strong id="gallery-title" tabindex="0" aria-label="Galerie">Galerie</strong>
     <span id="gallery-count" class="gallery-count">0</span>
   </div>
   <div class="gallery-tools">
     <button id="btn-export-zip" class="mini-btn">📦 Export ZIP</button>
     <button id="btn-save-all" class="mini-btn">📸 Enregistrer toutes</button>
+    <button id="btn-guest-qr" class="mini-btn" type="button">◈ QR invités</button>
+  </div>
+  <!-- Accès invités volontairement discret : appui long sur « Galerie » -->
+  <div id="guest-share-panel" class="guest-share-panel" aria-hidden="true">
+    <div class="guest-share-head">
+      <div><strong>Accès invités</strong><small>Galerie privée temporaire</small></div>
+      <button id="guest-share-close" class="sheet-close" type="button" aria-label="Fermer">✕</button>
+    </div>
+    <p id="guest-share-status" class="guest-share-status">Créez un lien à montrer aux invités.</p>
+    <div id="guest-share-link-row" class="guest-share-link-row hidden">
+      <input id="guest-share-url" type="url" readonly aria-label="URL de la galerie invités">
+      <button id="guest-copy-url" class="mini-btn" type="button">Copier</button>
+    </div>
+    <div id="guest-share-qr-box" class="guest-share-qr-box hidden"><img id="guest-share-qr" alt="QR code de la galerie invités"></div>
+    <div class="guest-share-actions">
+      <button id="guest-create-link" class="mini-btn primary" type="button">Créer le QR + lien</button>
+      <button id="guest-native-share" class="mini-btn" type="button">Partager</button>
+    </div>
+    <label class="guest-live-toggle"><input id="guest-live-toggle" type="checkbox"><span>Autoriser l’aperçu caméra périodique</span></label>
+    <small class="guest-share-note">Désactivé par défaut. Le lien expire après 8 h et est invalidé si le serveur redémarre. L’aperçu est une image JPEG mise à jour environ toutes les 1,2 s — pas une vidéo WebRTC — et aucune caméra n’est demandée à l’invité.</small>
   </div>
   <div id="gallery-grid" class="gallery-grid"></div>
 </section>
 
-<script src="/js/vendor/gif.js?v=25"></script>
-<script src="/js/vendor/jszip.min.js?v=25"></script>
-<script type="module" src="/js/filters.js?v=25"></script>
-<script type="module" src="/js/masks.js?v=25"></script>
-<script type="module" src="/js/animations.js?v=25"></script>
-<script type="module" src="/js/app.js?v=25"></script>
+<!-- Vue invitée : lecture seule, aucune permission caméra demandée -->
+<section id="screen-guest" class="screen guest-screen">
+  <div class="guest-topbar"><span class="guest-brand">Momento<span>Booth</span></span><span class="guest-badge">Invités</span></div>
+  <div class="guest-live-card">
+    <div class="guest-live-head"><strong>Aperçu de la borne</strong><span id="guest-live-state">En attente</span></div>
+    <div class="guest-live-frame"><img id="guest-live-image" alt="Aperçu caméra de la borne" class="hidden"><div id="guest-live-empty">L’aperçu caméra n’est pas activé.</div></div>
+    <small>La caméra reste sur la borne ; cet écran reçoit seulement une image périodique si le propriétaire l’autorise.</small>
+  </div>
+  <div class="guest-gallery-head"><strong>Galerie</strong><span id="guest-gallery-count">0 photo</span></div>
+  <div id="guest-gallery-grid" class="guest-gallery-grid"></div>
+</section>
+
+<script type="module" src="/js/filters.js?v=76"></script>
+<script type="module" src="/js/masks.js?v=76"></script>
+<script type="module" src="/js/animations.js?v=76"></script>
+<script type="module" src="/js/app.js?v=76"></script>
 </body>
 </html>
