@@ -93,9 +93,11 @@ body.tuto .window-card.w2 { transform: translateX(0) rotate(0deg); opacity: .95;
 .camera-zone { position: absolute; inset: 0; overflow: hidden; height: 100%; height: 100dvh; }
 #camera { position: absolute; inset: 0; width: 100%; height: 100%; height: 100dvh; min-height: 100%; object-fit: cover; transition: filter .3s ease, opacity .3s ease; }
 /* Fond actif → la vidéo sert de source (masquée), le canvas composite la remplace */
-body.has-backdrop #camera { opacity: .25; filter: saturate(1.1); }
-/* Focus manuel : léger flou de recherche puis netteté */
-body.focusing #camera { filter: blur(26px) brightness(.92); }
+body.has-backdrop #camera { opacity: .25; filter: saturate(1.1) !important; }
+/* Focus manuel : léger flou de recherche puis netteté.
+   ⚠️ !important : le filtre sélectionné est posé en style inline sur #camera
+   (applyFilter) et écraserait sinon le flou de mise au point. */
+body.focusing #camera { filter: blur(26px) brightness(.92) !important; }
 .sticker-canvas { position: absolute; inset: 0; z-index: 3; pointer-events: none; height: 100%; height: 100dvh; }
 
 /* --- Écran erreur caméra (au lieu d'un écran noir) --- */

@@ -3,10 +3,10 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=24";
-import { drawMask } from "./masks.js?v=24";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=24";
-import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=24";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=25";
+import { drawMask } from "./masks.js?v=25";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=25";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=25";
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -52,7 +52,7 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "24"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=24 du SW
+const APP_VERSION = "25"; // ⚠️ doit MATCHER data-app-version de index.html + ?v=25 du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -201,7 +201,6 @@ function sceneLuminance() {
   } catch { return 255; }
 }
 
-function isSceneDark() { return sceneLuminance() < 60; }
 
 /* Moniteur : toutes les ~1,6 s, met à jour le contour lumineux.
    Hystérésis (dark < 58, light > 80) : évite le clignotement à la frontière. */
@@ -416,8 +415,14 @@ async function startCamera() {
     hideSplash();
     // Contour lumineux : analyse la luminosité de la scène en continu
     startLightMonitor();
-    // Préfilmage : ring buffer + déclencheurs (approche / voix proche)
-    if (state.prerollEnabled) { startPreroll(); initPrerollAudio(); }
+    // Préfilmage : ring buffer + déclencheurs (approche / voix proche).
+    // Le micro est demandé au PREMIER toucher (pas au chargement) pour éviter
+    // un double prompt de permission iOS (caméra + micro) d'un coup.
+    if (state.prerollEnabled) {
+      startPreroll();
+      const askMic = () => { initPrerollAudio(); window.removeEventListener("pointerdown", askMic); };
+      window.addEventListener("pointerdown", askMic, { once: true, passive: true });
+    }
     // Objectifs : liste les caméras réelles (Android) et met à jour le sélecteur
     listLenses().then(() => { try { buildLensOptions(); } catch {} });
     // ⚠️ Watchdog : si la vidéo reste NOIRE (aucune dimension après 2,5 s),
@@ -692,11 +697,16 @@ document.addEventListener("pointerup", (event) => {
   swipeActive = false;
   if (state.counting) return;
   if (isSwiping) return; // c'était un swipe
+  // Un appui long vient de déclencher le focus manuel → ne pas ouvrir le minuteur
+  if (_focusJustUsed) { _focusJustUsed = false; return; }
   if (gestureTarget(event) !== "cam") return;
   openSheet("sheet-timer");
 }, { passive: true });
 
-document.addEventListener("pointercancel", () => { swipeActive = false; });
+document.addEventListener("pointercancel", () => {
+  swipeActive = false;
+  _focusJustUsed = false; // ne pas avaler le prochain tap après un geste annulé
+});
 
 /* =========================================================
    MINUTEUR
@@ -791,7 +801,7 @@ async function startCountdown() {
    ========================================================= */
 async function initFaceLandmarker() {
   try {
-    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=24");
+    const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs?v=25");
     const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
     const opts = {
       runningMode: "VIDEO",
@@ -849,18 +859,12 @@ function drawLiveOverlay() {
       ctx.drawImage(state._backdropImg, 0, 0, W, H);
     }
     // Personne détourée via la segmentation (si dispo) sinon la vidéo complète
-    const src = state.faceMask || camera;
-    if (src === state.faceMask) {
-      // Vidéo dessinée à la position du visage, masquée par la segmentation
+    if (state.faceMask) {
       try {
-        const cut = document.createElement("canvas");
-        cut.width = W; cut.height = H;
-        const cctx = cut.getContext("2d");
-        if (state.facing === "user") { cctx.translate(W, 0); cctx.scale(-1, 1); }
-        cctx.drawImage(camera, 0, 0, W, H);
-        cctx.globalCompositeOperation = "destination-in";
-        cctx.drawImage(state.faceMask, 0, 0, W, H);
-        ctx.drawImage(cut, 0, 0);
+        // Canvas de travail réutilisé (pas d'allocation à chaque tick 8 fps)
+        if (!state._cutCanvas) state._cutCanvas = document.createElement("canvas");
+        state._cutCanvas.width = W; state._cutCanvas.height = H;
+        drawSegmented(ctx, state._cutCanvas, camera, W, H);
       } catch { ctx.drawImage(camera, 0, 0, W, H); }
     } else {
       ctx.drawImage(camera, 0, 0, W, H);
@@ -1070,6 +1074,7 @@ async function capture() {
   await new Promise((resolve) => setTimeout(resolve, 220));
   const blob = await grabFrame();
   fillLightOff();
+  if (!blob) { toast("Capture impossible, réessayez"); return; }
   flash(); // retour visuel rapide
   state.latestPhoto = blob;
   playBeep(1200, 0.2, 0.3);
@@ -1193,6 +1198,9 @@ async function capturePortrait() {
   state.counting = true;
   sfxShutter();
   try {
+    // Le GIF démarre AVANT la capture (buffer continu) : il contient ainsi
+    // le moment de la pose + un peu d'avant et d'après.
+    gifStartPre();
     // Éclair réel : lumière d'écran soutenue pendant la photo principale
     fillLightOn();
     tryTorch();
@@ -1200,9 +1208,6 @@ async function capturePortrait() {
     const normal = await grabFrame();
     fillLightOff();
     flash();
-    // Le GIF démarre AVANT la capture (buffer continu) — la photo est capturée
-    // pendant que le buffer tourne, puis le GIF se termine un peu APRÈS.
-    gifStartPre();
     const portrait = await grabFramePortrait();
     const gif = await grabGif(6);
     if (state.autoMode) state.autoArmed = false;
@@ -1332,12 +1337,7 @@ function grabFrameCanvas() {
           try {
             const cut = document.createElement("canvas");
             cut.width = W; cut.height = H;
-            const cctx = cut.getContext("2d");
-            if (state.facing === "user") { cctx.translate(W, 0); cctx.scale(-1, 1); }
-            cctx.drawImage(video, 0, 0, W, H);
-            cctx.globalCompositeOperation = "destination-in";
-            cctx.drawImage(state.faceMask, 0, 0, W, H);
-            ctx.drawImage(cut, 0, 0);
+            drawSegmented(ctx, cut, video, W, H);
           } catch {
             drawVideoFrame(ctx, video, W, H, true);
           }
@@ -1416,6 +1416,25 @@ function grabFramePortrait() {
     drawLogo(ctx, net.width, net.height);
     resolve(await portraitBlur(net, net.width, net.height));
   });
+}
+
+/* Dessine la vidéo découpée par le mask de segmentation dans un canvas de
+   travail, en ALIGNANT le miroir : la vidéo est dessinée miroir (caméra
+   frontale) et le mask est miroisé en miroir inverse pour rester aligné.
+   Retourne le canvas « cut » prêt à être composé sur le fond. */
+function drawSegmented(ctx, cut, video, W, H) {
+  const cctx = cut.getContext("2d");
+  cctx.setTransform(1, 0, 0, 1, 0, 0);
+  cctx.clearRect(0, 0, W, H);
+  // ⚠️ La vidéo est dessinée miroir (caméra frontale) ; le CTM miroir RESTE
+  // actif, donc le mask dessiné ensuite l'est aussi → aligné. Ne JAMAIS
+  // ré-appliquer le miroir (deux miroirs s'annulent → découpe décalée).
+  if (state.facing === "user") { cctx.translate(W, 0); cctx.scale(-1, 1); }
+  cctx.drawImage(video, 0, 0, W, H);
+  cctx.globalCompositeOperation = "destination-in";
+  cctx.drawImage(state.faceMask, 0, 0, W, H);
+  cctx.globalCompositeOperation = "source-over";
+  ctx.drawImage(cut, 0, 0);
 }
 
 /* Flou portrait à partir d'un CANVAS (pas de la vidéo live) — réutilisé par
@@ -2061,7 +2080,9 @@ function bindSettings() {
   on("set-preroll", "change", (e) => {
     state.prerollEnabled = e.target.checked;
     if (state.prerollEnabled) {
-      startPreroll(); initPrerollAudio();
+      startPreroll();
+      // Déclencheur voix : demande le micro maintenant (le toggle est déjà un geste)
+      initPrerollAudio();
       toast("Préfilmage activé — moments drôles capturés à part");
     } else {
       stopPreroll();
@@ -2164,9 +2185,10 @@ on("backdrop-file", "change", (event) => {
   if (!file) return;
   const url = URL.createObjectURL(file);
   state.backdrop = { type: "image", url };
+  document.body.classList.add("has-backdrop");
   // Charge aussi l'image pour le rendu LIVE (personne détourée sur le fond)
   const img = new Image();
-  img.onload = () => { state._backdropImg = img; };
+  img.onload = () => { state._backdropImg = img; drawLiveOverlay(); };
   img.onerror = () => { state._backdropImg = null; };
   img.src = url;
   toast("Fond image chargé 🖼️");
@@ -2232,7 +2254,7 @@ async function init() {
   // Logo MomentoBooth : icône complète iOS 26 (fond dégradé plein + logo blanc)
   const logoImg = new Image();
   logoImg.onload = () => { state.logoImage = logoImg; };
-  logoImg.src = "/icons/icon-512.png?v=24";
+  logoImg.src = "/icons/icon-512.png?v=25";
 
   /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
   if (navigator.serviceWorker) {
@@ -2417,6 +2439,7 @@ function hideSplash() {
    de mise au point à la position choisie (façon iPhone).
    ════════════════════════════════════════════════════════════ */
 let _focusTimer = null;
+let _focusJustUsed = false; // appui long → focus manuel (bloque le sheet minuteur)
 function initManualFocus() {
   const zone = $("screen-capture");
   if (!zone) return;
@@ -2427,6 +2450,7 @@ function initManualFocus() {
     const x = e.clientX, y = e.clientY;
     clearTimeout(_focusTimer);
     _focusTimer = setTimeout(() => {
+      _focusJustUsed = true; // le relâchement n'ouvrira pas le minuteur
       state.focusing = true;
       state.focusX = x; state.focusY = y;
       if (cursor) {
@@ -2508,6 +2532,9 @@ function startPreroll() {
   if (!state.prerollEnabled || _prerollTimer || !state.stream) return;
   const tick = () => {
     if (!state.stream || !camera.videoWidth) return;
+    // Léger : pas de capture sur l'écran résultat/galerie (le ring buffer
+    // continue seulement quand la caméra live est visible)
+    if (!screens.capture.classList.contains("active")) return;
     const canvas = document.createElement("canvas");
     canvas.width = PREROLL_SIZE;
     canvas.height = Math.round(PREROLL_SIZE / ratioOf(camera));
@@ -2551,18 +2578,30 @@ function stopPreroll() {
   _prerollFrames = [];
 }
 
-/* Active l'écoute audio (niveau voix) si le stream a une piste audio */
-function initPrerollAudio() {
-  if (!state.prerollEnabled || _prerollAudioCtx || !state.stream) return;
-  const track = state.stream.getAudioTracks()[0];
-  if (!track) return; // pas de micro demandé → déclencheur visage seul
+/* Active l'écoute audio (niveau voix). Le stream vidéo est demandé SANS audio
+   (pour ne jamais faire échouer la caméra sur iOS) : on tente ici un micro
+   SÉPARÉ en arrière-plan. Si refusé/indisponible → déclencheur visage seul. */
+async function initPrerollAudio() {
+  if (!state.prerollEnabled || _prerollAudioCtx) return;
   try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
+    if (!stream) return; // micro refusé → pas de déclencheur voix (silencieux)
     _prerollAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = _prerollAudioCtx.createMediaStreamSource(state.stream);
+    const src = _prerollAudioCtx.createMediaStreamSource(stream);
     _prerollAnalyser = _prerollAudioCtx.createAnalyser();
     _prerollAnalyser.fftSize = 256;
     src.connect(_prerollAnalyser);
-  } catch { /* audio indisponible : visage seul */ }
+    // ⚠️ iOS : un AudioContext créé hors geste utilisateur reste SUSPENDED
+    // (l'analyser renvoie des zéros → déclencheur voix jamais actif).
+    // On le réveille au premier toucher.
+    const wake = () => {
+      if (_prerollAudioCtx && _prerollAudioCtx.state === "suspended") {
+        _prerollAudioCtx.resume().catch(() => {});
+      }
+      window.removeEventListener("pointerdown", wake);
+    };
+    window.addEventListener("pointerdown", wake, { once: true, passive: true });
+  } catch { _prerollAudioCtx = null; _prerollAnalyser = null; }
 }
 
 /* Déclenche le préfilmage : marque l'état + stocke le clip */
@@ -2581,7 +2620,15 @@ function savePrerollClip() {
   _prerollFrames = []; // purge pour éviter un double-clip
   if (frames.length < PREROLL_FPS * 2) return;
   try {
-    const gif = new GIF({ workers: 2, quality: 12, width: frames[0].canvas.width, height: frames[0].canvas.height });
+    // ⚠️ workerScript OBLIGATOIRE : sans lui gif.js cherche gif.worker.js à la
+    // racine → 404 → aucun GIF généré (bug silencieux). Même chemin que grabGif.
+    const gif = new GIF({
+      workers: 2,
+      quality: 12,
+      width: frames[0].canvas.width,
+      height: frames[0].canvas.height,
+      workerScript: "/js/vendor/gif.worker.js",
+    });
     frames.forEach((f) => gif.addFrame(f.canvas, { delay: 1000 / PREROLL_FPS, copy: true }));
     gif.render();
     gif.on("finished", async (blob) => {
