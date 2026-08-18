@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import rateLimit from "express-rate-limit";
 
 /* Traitement délégué par le téléphone (allège le CPU/RAM de l'iPhone) :
    - gifenc   : encodeur GIF pur JS (l'encodage local gif.js coûte cher sur mobile)
@@ -51,9 +52,57 @@ function publicBase(req) {
 
 const app = express();
 app.use(express.json({ limit: "64kb" }));
+
+/* ---- Headers de sécurité ----
+   - Content-Security-Policy : strict, compatible MediaPipe WASM (worker blob:, connect-src 'self' pour WASM)
+   - X-Content-Type-Options : bloque le MIME sniffing
+   - Referrer-Policy : déjà présent (no-referrer)
+   - Permissions-Policy : on coupe micro/géoloc, on garde caméra
+   - X-Frame-Options : anti-clickjacking pour l'UI admin
+*/
+const CSP = [
+  "default-src 'self'",
+  // iOS PWA autorise 'unsafe-inline' pour le style par défaut : on l'autorise aussi pour
+  // les <style> inline générés par certains builders, mais on garde 'self' pour les scripts
+  // (le seul script externe légitime est /mediapipe/ qui passe par 'self').
+  "script-src 'self' 'wasm-unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
 app.use((_req, res, next) => {
+  res.setHeader("Content-Security-Policy", CSP);
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  res.setHeader("X-Frame-Options", "DENY");
   next();
+});
+
+/* ---- Rate limiting ----
+   Protège /api/photos d'un abus (un seul client qui spamme l'upload,
+   ou un script qui sature le disque). 60 uploads / 5 min par IP par défaut.
+   Les clients d'un événement (header x-guest-host-key valide) ont une limite
+   plus haute : 300 / 5 min, pour qu'un event de 4 h ne soit pas étranglé
+   par un hôte qui shoot à pleine vitesse (1 photo / 5s en pic). */
+const photoUploadLimiterDefault = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 60,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Trop d'uploads, réessayez dans quelques minutes." },
+});
+const photoUploadLimiterEvent = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Trop d'uploads pour cet événement, réessayez dans quelques minutes." },
 });
 
 /* ---- Upload photos ---- */
@@ -352,7 +401,16 @@ app.post("/api/process/score", processUpload.array("frames", 16), (req, res) => 
   }
 });
 
-app.post("/api/photos", upload.single("photo"), (req, res) => {
+app.post("/api/photos", (req, res, next) => {
+  // Si le client envoie un hostKey event valide, on lui applique la limite
+  // assouplie. Sinon, limite par défaut. La validation du hostKey est faite
+  // plus bas dans la chaîne (on ne fait que choisir le limiter ici).
+  const token = String(req.get("x-guest-token") || "");
+  const hostKey = String(req.get("x-guest-host-key") || "");
+  const session = token ? guestSessions.get(token) : null;
+  const limiter = session && session.hostKey === hostKey ? photoUploadLimiterEvent : photoUploadLimiterDefault;
+  limiter(req, res, next);
+}, upload.single("photo"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Fichier image requis" });
   const id = req.file.filename;
   const token = String(req.get("x-guest-token") || "");
@@ -369,23 +427,34 @@ app.post("/api/photos", upload.single("photo"), (req, res) => {
 });
 
 /* Galerie propriétaire historique : les invités passent par /api/guest/:token/gallery. */
+/* Helper : résout un id photo en chemin canonique sous PHOTOS_DIR.
+   Defense-in-depth : même si `path.basename` neutralise les `..`, on
+   vérifie que le chemin résolu reste bien dans PHOTOS_DIR (mitige les
+   findings Semgrep `express-res-sendfile`). */
+function safePhotoPath(id) {
+  const safe = path.basename(String(id || ""));
+  if (!safe || !/^[\w.\-]+$/.test(safe)) return null;
+  const resolved = path.resolve(PHOTOS_DIR, safe);
+  if (!resolved.startsWith(PHOTOS_DIR + path.sep) && resolved !== PHOTOS_DIR) return null;
+  return resolved;
+}
+
 app.get("/api/photos", (_req, res) => {
   const files = fs.readdirSync(PHOTOS_DIR).filter((f) => /\.(jpg|gif)$/i.test(f)).sort().reverse();
   res.set("Cache-Control", "no-store").json({ photos: files.map((f) => ({ id: f, url: `/api/photos/${f}` })) });
 });
 
 app.get("/api/photos/:id", (req, res) => {
-  const file = path.join(PHOTOS_DIR, path.basename(req.params.id));
-  if (!fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
+  const file = safePhotoPath(req.params.id);
+  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
   res.sendFile(file);
 });
 
 /* URL image scellée au QR : l'invité ne peut demander qu'une photo de sa session. */
 app.get("/api/guest/:token/photos/:id", (req, res) => {
   const session = getGuestSession(req.params.token);
-  const id = path.basename(req.params.id);
-  if (!session || !session.photoIds.has(id)) return res.status(404).json({ error: "Photo introuvable" });
-  const file = path.join(PHOTOS_DIR, id);
+  const file = safePhotoPath(req.params.id);
+  if (!session || !file || !session.photoIds.has(path.basename(file))) return res.status(404).json({ error: "Photo introuvable" });
   if (!fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
   res.sendFile(file);
 });
@@ -396,11 +465,10 @@ app.delete("/api/photos/:id", (req, res) => {
   const hasGuestHeaders = Boolean(token || hostKey);
   const session = token && hostKey && getGuestSession(token);
   if (hasGuestHeaders && (!session || session.hostKey !== hostKey)) return res.status(403).json({ error: "Session invitée invalide" });
-  const id = path.basename(req.params.id);
-  const file = path.join(PHOTOS_DIR, id);
-  if (!fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
+  const file = safePhotoPath(req.params.id);
+  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
   fs.unlinkSync(file);
-  session.photoIds.delete(id);
+  session.photoIds.delete(path.basename(file));
   saveGuestSessions();
   res.json({ ok: true });
 });
@@ -548,6 +616,83 @@ app.delete("/api/guest/:token/live", (req, res) => {
   res.status(204).end();
 });
 
+/* ---- Export ZIP d'un événement (protégé par hostKey) ----
+   Toutes les photos ajoutées à l'événement (upload avec x-guest-host-key) +
+   un manifest JSON (token, hostKey hash, dates, nb de photos) + un lisez-moi. */
+app.get("/api/guest/:token/export.zip", (req, res) => {
+  const session = requireGuestHost(req, res);
+  if (!session) return;
+  const entries = {};
+  const files = [...session.photoIds].filter((id) => fs.existsSync(path.join(PHOTOS_DIR, id))).sort();
+  for (const id of files) {
+    try {
+      entries[`photos/${id}`] = fs.readFileSync(path.join(PHOTOS_DIR, id));
+    } catch (error) {
+      console.error("[MomentoBooth] export zip, lecture photo", id, error);
+    }
+  }
+  const hostKeyHash = crypto.createHash("sha256").update(session.hostKey).digest("hex");
+  const manifest = {
+    event: "MomentoBooth",
+    token: session.token,
+    hostKeySha256: hostKeyHash,
+    createdAt: new Date(session.createdAt).toISOString(),
+    expiresAt: new Date(session.expiresAt).toISOString(),
+    photoCount: files.length,
+    exportedAt: new Date().toISOString(),
+  };
+  entries["momentobooth/manifest.json"] = strToU8(JSON.stringify(manifest, null, 2));
+  entries["momentobooth/lisez-moi.txt"] = strToU8(
+    `Photos de l'événement MomentoBooth\n` +
+      `Créé le : ${new Date(session.createdAt).toLocaleString("fr-FR")}\n` +
+      `Expiré le : ${new Date(session.expiresAt).toLocaleString("fr-FR")}\n` +
+      `Photos : ${files.length}\n` +
+      `\nVoir manifest.json pour les métadonnées (empreinte de la clé hôte, dates).\n`
+  );
+  try {
+    const zipped = zipSync(entries, { level: 6 });
+    const filename = `momentobooth-event-${session.token.slice(0, 8)}-${new Date(session.createdAt).toISOString().slice(0, 10)}.zip`;
+    res.set({
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    });
+    res.send(Buffer.from(zipped));
+  } catch (error) {
+    console.error("[MomentoBooth] /api/guest/:token/export.zip", error);
+    res.status(500).json({ error: "Création ZIP impossible" });
+  }
+});
+
+/* ---- Dry-run : teste qu'un event est joignable, qu'il y a de la place, et que le serveur répond.
+   Utilisable SANS hostKey (par l'hôte pour un pré-flight depuis son téléphone,
+   avant l'événement). Renvoie l'état + les capacités + le TTL. */
+app.get("/api/guest/:token/health", (req, res) => {
+  const session = getGuestSession(req.params.token);
+  if (!session) return res.status(404).json({ ok: false, error: "Lien invité expiré ou introuvable" });
+  const remaining = Math.max(0, session.expiresAt - Date.now());
+  const photoCount = [...session.photoIds].filter((id) => fs.existsSync(path.join(PHOTOS_DIR, id))).length;
+  res.json({
+    ok: true,
+    token: session.token,
+    createdAt: new Date(session.createdAt).toISOString(),
+    expiresAt: new Date(session.expiresAt).toISOString(),
+    remainingMs: remaining,
+    remainingHuman: humanDuration(remaining),
+    photoCount,
+    liveActive: Boolean(session.live && Date.now() - session.lastFrameAt <= GUEST_MAX_FRAME_AGE_MS),
+    server: { uptimeSec: Math.round(process.uptime()), nodeVersion: process.version },
+  });
+});
+function humanDuration(ms) {
+  if (ms <= 0) return "expiré";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  if (h > 0) return `${h} h ${m} min`;
+  if (m > 0) return `${m} min`;
+  return `${Math.floor(ms / 1000)} s`;
+}
+
 app.delete("/api/guest/:token", (req, res) => {
   const session = requireGuestHost(req, res);
   if (!session) return;
@@ -565,7 +710,7 @@ setInterval(() => {
     else if (session.live && now - session.lastFrameAt > GUEST_MAX_FRAME_AGE_MS) session.live = null;
   }
   if (changed) saveGuestSessions();
-}, 15 * 60 * 1000).unref?.();
+}, 15 * 60 * 1000).unref();
 
 /* =========================================================
    CAMÉRA DÉPORTÉE — un iPhone sert de caméra, une tablette

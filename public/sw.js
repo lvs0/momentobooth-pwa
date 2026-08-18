@@ -1,30 +1,31 @@
 /* MomentoBooth — Service Worker (offline-first PWA) */
-const CACHE = "momentobooth-v83";
-/* ⚠️ Les URLs versionnées (?v=76) doivent MATCHER celles de index.html ET les imports de app.js :
+const CACHE = "momentobooth-v84";
+/* ⚠️ Les URLs versionnées (?v=84) doivent MATCHER celles de index.html ET les imports de app.js :
    sinon l'iPhone peut servir un mélange de versions (HTML neuf + JS vieux)
    → crash de init() → plus de caméra. */
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/styles.css?v=76",
-  "/js/app.js?v=76",
-  "/js/filters.js?v=76",
-  "/js/masks.js?v=76",
-  "/js/frames.js?v=76",
-  "/js/animations.js?v=76",
-  "/mediapipe/vision_bundle.mjs?v=76",
+  "/event/runbook.html",
+  "/css/styles.css?v=84",
+  "/js/app.js?v=84",
+  "/js/filters.js?v=84",
+  "/js/masks.js?v=84",
+  "/js/frames.js?v=84",
+  "/js/animations.js?v=84",
+  "/mediapipe/vision_bundle.mjs?v=84",
   "/mediapipe/wasm/vision_wasm_internal.js",
   "/mediapipe/wasm/vision_wasm_internal.wasm",
   "/mediapipe/face_landmarker.task",
   "/manifest.webmanifest",
-  "/icons/icon-192.png?v=76",
-  "/icons/icon-512.png?v=76",
-  "/icons/apple-touch-icon-180.png?v=76",
-  "/icons/logo-trim.png?v=76",
-  "/img/tuto-swipe-1.png?v=76",
-  "/img/tuto-swipe-2.png?v=76",
-  "/img/idle-swipe.gif?v=76",
-  "/img/idle-click.gif?v=76",
+  "/icons/icon-192.png?v=84",
+  "/icons/icon-512.png?v=84",
+  "/icons/apple-touch-icon-180.png?v=84",
+  "/icons/logo-trim.png?v=84",
+  "/img/tuto-swipe-1.png?v=84",
+  "/img/tuto-swipe-2.png?v=84",
+  "/img/idle-swipe.gif?v=84",
+  "/img/idle-click.gif?v=84",
 ];
 
 /* Préchargement de la navigation (réseau) — iOS 15.4+ / Safari */

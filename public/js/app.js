@@ -135,14 +135,26 @@ const PERF = {
   max: { cameraWidth: 2560, cameraHeight: 1440, detectMs: 260, overlayMs: 55, gifFps: 7, gifFrames: 14, gifSize: 480, prerollFps: 8, prerollSize: 240 },
 };
 function perfConfig() { return PERF[state.performanceMode] || PERF.eco; }
-const PREFERENCE_FIELDS = [
+/* Préférences persistantes : on NE PERSISTE PAS les clés d'authentification
+   (hostKey) ni les tokens d'event — un XSS les volerait et donnerait accès
+   total à l'event en cours. Les tokens sont gardés en mémoire, les hostKey
+   aussi ; si l'hôte recharge l'onglet, il doit re-saisir la clé (ou la
+   recréer). */
+const PERSISTED_PREFERENCE_FIELDS = [
   "qualityMax", "trackEnabled", "idleEnabled", "idleFaceWake", "prerollEnabled",
-  "filmBubbleEnabled", "lightFrameEnabled", "portraitMode", "burstMode", "timerSeconds", "captureCount", "logoEnabled", "flashMode", "performanceMode", "autoDelay", "remoteCamMode", "remoteCamToken", "remoteCamHostKey",
+  "filmBubbleEnabled", "lightFrameEnabled", "portraitMode", "burstMode",
+  "timerSeconds", "captureCount", "logoEnabled", "flashMode", "performanceMode",
+  "autoDelay", "remoteCamMode", "remoteCamToken",
+  // PAS : remoteCamHostKey, guestToken, guestHostKey — données sensibles
+];
+const PREFERENCE_FIELDS = [
+  ...PERSISTED_PREFERENCE_FIELDS,
+  "remoteCamHostKey", // présent dans state, jamais écrit en storage
 ];
 function loadPreferences() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
-    for (const field of PREFERENCE_FIELDS) {
+    for (const field of PERSISTED_PREFERENCE_FIELDS) {
       if (field === "logoEnabled") continue;
       if (Object.prototype.hasOwnProperty.call(saved, field)) state[field] = saved[field];
     }
@@ -153,11 +165,27 @@ function loadPreferences() {
     state.timerSeconds = [5, 10, 15, 20].includes(Number(state.timerSeconds)) ? Number(state.timerSeconds) : 5;
     state.captureCount = Math.max(1, Math.min(6, Number(state.captureCount) || 1));
     state.autoDelay = [0.5, 1.5, 3].includes(Number(state.autoDelay)) ? Number(state.autoDelay) : 1.5;
+    // Sécurité : si une vieille version avait stocké le hostKey dans localStorage,
+    // on l'ignore (la session est invalidée à l'ouverture, l'hôte recrée).
+    state.remoteCamHostKey = "";
+    // Purge défensive : un localStorage laissé par une ancienne version peut
+    // contenir momentobooth-guest-session avec hostKey. On l'efface, l'hôte
+    // recrée la session (l'URL seule ne suffit pas à un attaquant).
+    try {
+      const legacy = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
+      if (legacy && legacy.hostKey) localStorage.removeItem("momentobooth-guest-session");
+      // Et toute entrée "momentobooth" PREF_KEY ne doit plus contenir de hostKey.
+      const prefs = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
+      if (prefs.remoteCamHostKey) {
+        delete prefs.remoteCamHostKey;
+        localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
+      }
+    } catch { /* rien à purger */ }
   } catch { /* stockage indisponible ou préférence corrompue : defaults sûrs */ }
 }
 function savePreferences() {
   try {
-    const saved = Object.fromEntries(PREFERENCE_FIELDS.map((field) => [field, state[field]]));
+    const saved = Object.fromEntries(PERSISTED_PREFERENCE_FIELDS.map((field) => [field, state[field]]));
     saved.logoPreferenceVersion = LOGO_PREF_VERSION;
     localStorage.setItem(PREF_KEY, JSON.stringify(saved));
   } catch { /* mode privé iOS ou quota atteint : l'app continue */ }
@@ -2959,8 +2987,12 @@ async function uploadPhoto(blob, localId = state.lastLocalId, mediaType = "photo
   const form = new FormData();
   form.append("photo", blob, `${id}.${extension}`);
   try {
-    const guestHeaders = state.guestToken && state.guestHostKey
-      ? { "x-guest-token": state.guestToken, "x-guest-host-key": state.guestHostKey }
+    // Si l'hôte a re-saisi la clé dans le panneau (cas reload), on l'utilise
+    // avant la requête. Sans clé valide, on n'envoie PAS les headers (=> 403
+    // propre côté serveur, l'UI explique pourquoi).
+    const hostKey = liveGuestHostKey();
+    const guestHeaders = state.guestToken && hostKey
+      ? { "x-guest-token": state.guestToken, "x-guest-host-key": hostKey }
       : {};
     const response = await fetch("/api/photos", { method: "POST", headers: guestHeaders, body: form });
     if (response.ok) {
@@ -3020,19 +3052,34 @@ function openGuestSharePanel(autoCreate = true) {
   panel.setAttribute("aria-hidden", "false");
   $("gallery-title")?.setAttribute("aria-label", "Galerie — partage invités ouvert");
   if (!autoCreate) return;
-  // Réutilise une session encore valide : QR + lien affichés immédiatement,
-  // sans recréer un lien à chaque ouverture.
+  // Réutilise une session encore valide : on garde token+url en sessionStorage
+  // (limité à l'onglet courant, inaccessible aux autres onglets) mais on NE
+  // stocke JAMAIS le hostKey — il reste uniquement en RAM, et l'hôte doit le
+  // re-saisir (ou recréer la session) s'il recharge l'onglet. Vol par XSS
+  // ⇒ accès uniquement à la session de l'onglet courant, et l'attaquant
+  // doit de toute façon être dans le même origin.
   try {
-    const saved = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
+    const saved = JSON.parse(sessionStorage.getItem("momentobooth-guest-session") || "null");
     if (saved && saved.url && saved.token && Date.now() < (saved.expiresAt || 0)) {
       state.guestToken = saved.token;
-      state.guestHostKey = saved.hostKey;
+      // hostKey volontairement non restauré — l'hôte en a une copie dans
+      // l'UI à la création, et il peut la re-saisir via le champ masqué.
+      state.guestHostKey = "";
       state.guestLiveEnabled = Boolean($("guest-live-toggle")?.checked);
-      $("guest-share-url").value = saved.url;
+        $("guest-share-url").value = saved.url;
       $("guest-share-link-row").classList.remove("hidden");
       $("guest-share-qr").src = guestQrUrl(saved.url);
       $("guest-share-qr-box").classList.remove("hidden");
-      guestShareStatus(`Lien actif jusqu’au ${new Date(saved.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`);
+      // hostKey n'est pas restauré → on affiche le champ éditable (l'hôte
+      // colle sa clé conservée pour reprendre le contrôle).
+      const hostKeyInput = $("guest-share-hostkey");
+      if (hostKeyInput) {
+        hostKeyInput.readOnly = false;
+        hostKeyInput.placeholder = "Coller votre clé hôte pour reprendre le contrôle";
+        hostKeyInput.value = "";
+        $("guest-share-hostkey-block")?.classList.remove("hidden");
+      }
+      guestShareStatus(`Lien actif jusqu’au ${new Date(saved.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Collez votre clé hôte pour publier / supprimer.`);
       return;
     }
   } catch { /* session corrompue → en créer une neuve */ }
@@ -3063,12 +3110,24 @@ async function createGuestLink() {
     state.guestToken = data.token;
     state.guestHostKey = data.hostKey;
     state.guestLiveEnabled = Boolean($("guest-live-toggle")?.checked);
-    localStorage.setItem("momentobooth-guest-session", JSON.stringify({ token: state.guestToken, hostKey: state.guestHostKey, url: data.url, expiresAt: data.expiresAt }));
+    // Stockage limité à l'onglet — on ne persiste PAS le hostKey (sécurité).
+    // L'hôte garde une copie via l'UI (copie-clipboard / affichage) ; s'il
+    // recharge, il doit re-saisir la clé ou recréer la session.
+    sessionStorage.setItem("momentobooth-guest-session", JSON.stringify({ token: state.guestToken, url: data.url, expiresAt: data.expiresAt }));
     $("guest-share-url").value = data.url;
     $("guest-share-link-row").classList.remove("hidden");
     $("guest-share-qr").src = guestQrUrl(data.url);
     $("guest-share-qr-box").classList.remove("hidden");
-    guestShareStatus(`Lien actif jusqu’au ${new Date(data.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`);
+    // Affichage initial de la clé à l'hôte (readonly + bouton copier).
+    // Si l'hôte recharge l'onglet, ce bloc apparaît en mode éditable.
+    const hostKeyInput = $("guest-share-hostkey");
+    if (hostKeyInput) {
+      hostKeyInput.readOnly = true;
+      hostKeyInput.placeholder = "Clé hôte (créée automatiquement)";
+      hostKeyInput.value = data.hostKey;
+      $("guest-share-hostkey-block")?.classList.remove("hidden");
+    }
+    guestShareStatus(`Lien actif jusqu’au ${new Date(data.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Copiez votre clé hôte (affichée ci-dessous).`);
     startGuestLivePublisher();
   } catch {
     guestShareStatus("Impossible de créer le lien. Vérifiez la connexion du serveur.");
@@ -3083,6 +3142,21 @@ async function copyGuestUrl() {
   catch { input.select(); document.execCommand("copy"); }
   guestShareStatus("URL copiée ✓");
 }
+async function copyGuestHostKey() {
+  const input = $("guest-share-hostkey");
+  if (!input?.value) return;
+  try { await navigator.clipboard.writeText(input.value); }
+  catch { input.select(); document.execCommand("copy"); }
+  guestShareStatus("Clé hôte copiée ✓");
+}
+/* Lue par les requêtes sortantes : si le panneau a re-saisi la clé, on l'utilise. */
+function liveGuestHostKey() {
+  const input = $("guest-share-hostkey");
+  if (input && !input.readOnly && input.value.trim()) {
+    state.guestHostKey = input.value.trim();
+  }
+  return state.guestHostKey;
+}
 async function shareGuestUrl() {
   const url = $("guest-share-url")?.value;
   if (!url) return guestShareStatus("Créez d’abord le lien invité.");
@@ -3090,6 +3164,61 @@ async function shareGuestUrl() {
     try { await navigator.share({ title: "Galerie MomentoBooth", text: "Accéder à la galerie de l’événement", url }); }
     catch { /* fermeture du panneau natif */ }
   } else copyGuestUrl();
+}
+/* Pré-flight : vérifie que l'event répond et qu'il a de la marge.
+   Utilisable SANS hostKey. Affiche l'état dans le bloc debug. */
+async function testGuestEvent() {
+  const token = state.guestToken;
+  if (!token) return guestShareStatus("Créez d’abord le lien invité.");
+  const debug = $("guest-share-debug");
+  if (debug) { debug.classList.remove("hidden"); debug.textContent = "Test en cours…"; }
+  try {
+    const res = await fetch(`/api/guest/${encodeURIComponent(token)}/health`);
+    const data = await res.json();
+    if (!res.ok) {
+      if (debug) debug.textContent = `❌ ${data.error || res.status}`;
+      return;
+    }
+    const lines = [
+      `✓ Événement joignable`,
+      `  Expire dans : ${data.remainingHuman} (${new Date(data.expiresAt).toLocaleString("fr-FR")})`,
+      `  Photos : ${data.photoCount}`,
+      `  Aperçu caméra actif : ${data.liveActive ? "oui" : "non"}`,
+      `  Serveur : Node ${data.server.nodeVersion}, uptime ${data.server.uptimeSec}s`,
+    ];
+    if (debug) debug.textContent = lines.join("\n");
+  } catch (error) {
+    if (debug) debug.textContent = `❌ Réseau : ${error.message}`;
+  }
+}
+/* Export ZIP de l'event courant. Demande le hostKey si pas en mémoire. */
+async function exportGuestEvent() {
+  const token = state.guestToken;
+  const hostKey = liveGuestHostKey();
+  if (!token) return guestShareStatus("Créez d’abord le lien invité.");
+  if (!hostKey) return guestShareStatus("Collez votre clé hôte avant d’exporter.");
+  const debug = $("guest-share-debug");
+  if (debug) { debug.classList.remove("hidden"); debug.textContent = "Préparation du ZIP…"; }
+  try {
+    const res = await fetch(`/api/guest/${encodeURIComponent(token)}/export.zip`, { headers: { "x-guest-host-key": hostKey } });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (debug) debug.textContent = `❌ ${data.error || res.status}`;
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `momentobooth-event-${token.slice(0, 8)}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    if (debug) debug.textContent = `✓ ZIP téléchargé (${(blob.size / 1024).toFixed(1)} ko)`;
+  } catch (error) {
+    if (debug) debug.textContent = `❌ ${error.message}`;
+  }
 }
 function stopGuestLivePublisher() {
   if (state.guestLiveTimer) clearInterval(state.guestLiveTimer);
@@ -3112,7 +3241,7 @@ function startGuestLivePublisher() {
       if (!blob) return;
       const form = new FormData();
       form.append("frame", blob, "preview.jpg");
-      const response = await fetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, { method: "POST", headers: { "x-guest-host-key": state.guestHostKey }, body: form });
+      const response = await fetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, { method: "POST", headers: { "x-guest-host-key": liveGuestHostKey() }, body: form });
       if (response.status === 404) {
         stopGuestLivePublisher();
         localStorage.removeItem("momentobooth-guest-session");
@@ -3363,8 +3492,9 @@ async function renderGallery() {
   grid.innerHTML = "";
   const photos = await loadLocal();
   let serverPhotos = [];    try {
-      const headers = state.guestToken && state.guestHostKey
-        ? { "x-guest-token": state.guestToken, "x-guest-host-key": state.guestHostKey }
+      const hostKey = liveGuestHostKey();
+      const headers = state.guestToken && hostKey
+        ? { "x-guest-token": state.guestToken, "x-guest-host-key": hostKey }
         : {};
       const response = await fetch("/api/photos", { cache: "no-store", headers });
       if (response.ok) serverPhotos = (await response.json()).photos ?? [];
@@ -3488,8 +3618,9 @@ async function deletePhoto(localId, serverId = null, isServer = false) {
   // Serveur
   if (isServer) {
     try {
-      const headers = state.guestToken && state.guestHostKey
-        ? { "x-guest-token": state.guestToken, "x-guest-host-key": state.guestHostKey }
+      const hostKey = liveGuestHostKey();
+      const headers = state.guestToken && hostKey
+        ? { "x-guest-token": state.guestToken, "x-guest-host-key": hostKey }
         : {};
       await fetch(`/api/photos/${serverId || localId}`, { method: "DELETE", headers });
     } catch { /* serveur optionnel */ }
@@ -3964,14 +4095,17 @@ on("btn-gallery", "click", async () => {
 on("guest-share-close", "click", closeGuestSharePanel);
 on("guest-create-link", "click", createGuestLink);
 on("guest-copy-url", "click", copyGuestUrl);
+on("guest-copy-hostkey", "click", copyGuestHostKey);
 on("guest-native-share", "click", shareGuestUrl);
+on("guest-test-event", "click", testGuestEvent);
+on("guest-export-event", "click", exportGuestEvent);
 on("guest-live-toggle", "change", (event) => {
   state.guestLiveEnabled = event.target.checked;
   if (state.guestLiveEnabled) startGuestLivePublisher();
   else {
     stopGuestLivePublisher();
-    if (state.guestToken && state.guestHostKey) {
-      fetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, { method: "DELETE", headers: { "x-guest-host-key": state.guestHostKey } }).catch(() => {});
+    if (state.guestToken && liveGuestHostKey()) {
+      fetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, { method: "DELETE", headers: { "x-guest-host-key": liveGuestHostKey() } }).catch(() => {});
     }
   }
   guestShareStatus(state.guestLiveEnabled ? "Aperçu activé — le lien doit déjà être créé." : "Aperçu désactivé.");
@@ -4309,12 +4443,14 @@ async function init() {
     if (!state.stream) showCameraWaiting();
   }, 6000);
 
-  /* 9) Reprise silencieuse de la session hôte pour le partage caméra optionnel. */
+  /* 9) Reprise silencieuse de la session hôte pour le partage caméra optionnel.
+     On ne restaure QUE le token (sessionStorage = limité à l'onglet). Le hostKey
+     reste en RAM : si l'hôte recharge, il doit le re-saisir dans le panneau. */
   try {
-    const savedGuest = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
-    if (savedGuest?.token && savedGuest?.hostKey && savedGuest.expiresAt > Date.now()) {
+    const savedGuest = JSON.parse(sessionStorage.getItem("momentobooth-guest-session") || "null");
+    if (savedGuest?.token && savedGuest.expiresAt > Date.now()) {
       state.guestToken = savedGuest.token;
-      state.guestHostKey = savedGuest.hostKey;
+      state.guestHostKey = "";
     }
   } catch {}
 }

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MomentoBooth — Runbook événement</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f1a;
+    --card: rgba(255,255,255,.04);
+    --line: rgba(255,255,255,.12);
+    --text: #e7ecf3;
+    --muted: #97a3b6;
+    --accent: #7dd3fc;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --good: #86efac;
+  }
+  html, body { background: var(--bg); color: var(--text); margin: 0; }
+  body {
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 24px 20px 80px;
+    max-width: 780px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 28px; letter-spacing: -.03em; margin: 0 0 4px; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 19px; margin: 36px 0 8px; letter-spacing: -.02em; border-top: 1px solid var(--line); padding-top: 22px; }
+  h2:first-of-type { border: 0; padding: 0; }
+  h3 { font-size: 15px; margin: 18px 0 6px; color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; margin: 12px 0; }
+  ol, ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 6px 0; }
+  kbd, code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    background: rgba(255,255,255,.07);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1px 6px;
+  }
+  pre {
+    background: rgba(0,0,0,.35);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 12.5px;
+    overflow-x: auto;
+    margin: 8px 0;
+  }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+  .pill-warn { background: rgba(251,191,36,.16); color: var(--warn); }
+  .pill-good { background: rgba(134,239,172,.16); color: var(--good); }
+  .pill-bad  { background: rgba(248,113,113,.16); color: var(--bad); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 540px) { .grid-2 { grid-template-columns: 1fr; } body { padding: 18px 14px 60px; } }
+  .checklist { list-style: none; padding: 0; }
+  .checklist li { padding: 6px 0 6px 28px; position: relative; }
+  .checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--muted); font-size: 18px; line-height: 1; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 8px 0; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin: 18px 0; font-size: 13.5px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .print-btn { position: fixed; top: 12px; right: 12px; background: var(--accent); color: #0b0f1a; border: 0; border-radius: 999px; padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
+  @media print {
+    .print-btn { display: none; }
+    body { padding: 0; max-width: none; }
+    .card, details { break-inside: avoid; }
+    h2 { break-before: auto; }
+  }
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">Imprimer / PDF</button>
+<h1>Momento<span>Booth</span></h1>
+<p class="sub">Runbook clé en main pour un événement sans couac. Imprime cette page, garde-la dans la poche.</p>
+
+<nav class="toc">
+  <strong>Sommaire</strong>
+  <ol style="margin: 6px 0 0; padding-left: 22px;">
+    <li><a href="#pre-flight">Pré-flight (à faire 1–3 jours avant)</a></li>
+    <li><a href="#jour-j">Jour J — installation de la borne</a></li>
+    <li><a href="#pendant">Pendant l'événement</a></li>
+    <li><a href="#apres">Après l'événement</a></li>
+    <li><a href="#depannage">Dépannage express</a></li>
+    <li><a href="#limites">Limites connues</a></li>
+  </ol>
+</nav>
+
+<h2 id="pre-flight">1. Pré-flight <span class="pill pill-warn">J−1 à J−3</span></h2>
+
+<p>Le but : vérifier que tout marche <em>avant</em> d'avoir 80 personnes devant la borne.</p>
+
+<div class="card">
+  <h3>Matériel à prévoir</h3>
+  <ul>
+    <li>iPhone (ou Android) avec Safari/Chrome à jour, chargeur, batterie externe</li>
+    <li>Support/trépied pour la borne (vue à hauteur des visages)</li>
+    <li>Wi-Fi ou 4G stable sur le lieu (tester la 4G <em>du lieu</em>, pas celle de ta maison)</li>
+    <li>Un second téléphone pour servir de "guest test"</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>Checklist technique (à cocher)</h3>
+  <ul class="checklist">
+    <li>Serveur lancé et joignable : <code>curl -I http://TON_IP:8787/</code> renvoie 200 + les headers CSP</li>
+    <li>URL publique fonctionne depuis l'extérieur (tester depuis le second téléphone, en 4G)</li>
+    <li>Créer un event test : <code>curl -X POST http://TON_IP:8787/api/guest/sessions -H 'Content-Type: application/json' -d '{}'</code> → tu reçois <code>token</code>, <code>hostKey</code>, <code>url</code></li>
+    <li>Ouvrir l'URL sur le second téléphone : la galerie s'affiche (vide OK)</li>
+    <li>Uploader une photo test depuis la borne, vérifier qu'elle apparaît sur le second téléphone en moins de 3 s</li>
+    <li>Activer l'aperçu caméra depuis la borne, vérifier qu'une image apparaît sur le second téléphone</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>Trouver ton IP publique locale</h3>
+  <p>Si tu es sur le même Wi-Fi que ton téléphone, c'est l'IP LAN de ta machine :</p>
+  <pre>ip -4 addr show | grep -oP 'inet \K[\d.]+' | grep -v 127.0.0.1</pre>
+  <p>Si tu veux un accès depuis l'extérieur (réseau 4G des invités), il te faut un tunnel :</p>
+  <pre>cloudflared tunnel --url http://localhost:8787</pre>
+  <p>→ tu reçois une URL <code>https://xxx.trycloudflare.com</code> que tu donnes aux invités.</p>
+</div>
+
+<h2 id="jour-j">2. Jour J — installation de la borne <span class="pill pill-good">30 min avant</span></h2>
+
+<div class="card">
+  <h3>Installation physique</h3>
+  <ol>
+    <li>Poser le trépied, fixer l'iPhone (orientation paysage ou portrait, au choix)</li>
+    <li>Brancher le chargeur (une event de 4 h vide une batterie)</li>
+    <li>Régler la luminosité au max, mode "ne pas déranger" activé</li>
+    <li>Safari (ou PWA installée) → ouvrir l'URL de la borne</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>Préparer l'event (sur la borne)</h3>
+  <ol>
+    <li>Appuyer longuement sur « Galerie » dans la barre du bas → ouvrir le panneau « Accès invités »</li>
+    <li>Cliquer sur « Créer le QR + lien » → un QR apparaît + une URL + une <strong>clé hôte</strong></li>
+    <li><strong>Copier la clé hôte</strong> dans un gestionnaire de mots de passe (ou la noter sur papier) — c'est elle qui te permet de publier/supprimer des photos pendant l'event, et d'exporter l'event à la fin</li>
+    <li>Cliquer « Partager » pour envoyer le lien par message aux invités (ou imprimer le QR en A4)</li>
+  </ol>
+  <p>Si tu actives « Aperçu caméra périodique », les invités voient une image de la caméra actualisée ~1×/s. <strong>Désactivé par défaut</strong> pour ne pas exposer la caméra sans consentement explicite.</p>
+</div>
+
+<div class="card">
+  <h3>Test minute zéro</h3>
+  <ol>
+    <li>Prendre une photo test depuis la borne</li>
+    <li>Vérifier qu'elle arrive dans la galerie de l'invité test</li>
+    <li>Si OK : le bouton « ⚙︎ Test » du panneau affiche « ✓ Événement joignable, expire dans 7h59, 1 photo »</li>
+  </ol>
+</div>
+
+<h2 id="pendant">3. Pendant l'événement</h2>
+
+<div class="card">
+  <h3>Mode normal</h3>
+  <ul>
+    <li>Les invités scannent le QR, voient la galerie (lecture seule)</li>
+    <li>Tu shoot depuis la borne, les invités reçoivent la photo automatiquement</li>
+    <li>Tu peux activer l'aperçu caméra dans le panneau pour montrer un flux discret aux invités</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>Problème réseau</h3>
+  <p>Si la borne perd le Wi-Fi :</p>
+  <ol>
+    <li>Vérifier le Wi-Fi (l'iPhone tombe sur la 4G en partage, mais ça sature vite)</li>
+    <li>Si l'event est down > 5 min : créer un nouvel event, prévenir les invités qu'ils doivent rescanner</li>
+    <li>Les sessions invitées survivent à un redémarrage du serveur (fichier <code>photos/.sessions.json</code>) — mais pas à un scale-to-zero serverless (Modal)</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>Suppression d'une photo inappropriée</h3>
+  <p>Dans la galerie de la borne, ouvrir la photo → supprimer. La galerie de l'invité est mise à jour à la prochaine consultation (cache local, quelques secondes).</p>
+</div>
+
+<h2 id="apres">4. Après l'événement <span class="pill pill-warn">J+1</span></h2>
+
+<div class="card">
+  <h3>Exporter l'event</h3>
+  <ol>
+    <li>Sur la borne, ouvrir le panneau « Accès invités »</li>
+    <li>Cliquer « 📦 Exporter l'event » → un ZIP se télécharge avec toutes les photos + un manifest JSON + un lisez-moi</li>
+    <li>Si tu as rechargé la borne : colle ta clé hôte dans le champ du panneau, puis clique « Exporter l'event »</li>
+  </ol>
+  <p>Le ZIP contient : <code>photos/*.jpg</code>, <code>momentobooth/manifest.json</code> (empreinte SHA-256 de la clé hôte, dates, nombre), <code>momentobooth/lisez-moi.txt</code>.</p>
+</div>
+
+<div class="card">
+  <h3>Nettoyer</h3>
+  <p>L'event expire tout seul après 8 h, mais les photos uploadées restent sur le disque.</p>
+  <p>Pour purger un event manuellement (et toutes ses photos) :</p>
+  <pre>curl -X DELETE -H "x-guest-host-key: TA_CLE" http://localhost:8787/api/guest/TOKEN</pre>
+  <p>Pour purger TOUT (attention, irréversible) :</p>
+  <pre>rm ~/Projets/momentobooth-pwa/photos/*.jpg
+rm ~/Projets/momentobooth-pwa/photos/.sessions.json
+sudo systemctl restart momentobooth</pre>
+</div>
+
+<h2 id="depannage">5. Dépannage express</h2>
+
+<details>
+<summary>L'invité voit "Lien expiré ou introuvable"</summary>
+<p>Token invalide ou session expirée (8 h). L'invité doit rescanner le QR, ou l'hôte doit recréer un event.</p>
+</details>
+
+<details>
+<summary>La galerie de l'invité ne se met pas à jour</summary>
+<p>Cache côté navigateur. Tirer pour rafraîchir. Le serveur met <code>Cache-Control: no-store</code> sur la galerie, c'est Safari qui peut s'entêter.</p>
+</details>
+
+<details>
+<summary>"Trop d'uploads" (429)</summary>
+<p>Rate limit atteint : 60 photos / 5 min par IP sans event, 300 / 5 min avec un event. Attendre 5 min, ou réduire la cadence.</p>
+</details>
+
+<details>
+<summary>Le serveur ne démarre pas (systemd)</summary>
+<pre>sudo journalctl -u momentobooth -n 30 --no-pager</pre>
+<p>Cause typique : port 8787 déjà pris. <code>sudo lsof -i :8787</code> pour voir qui.</p>
+</details>
+
+<details>
+<summary>Caméra ne s'active pas sur Safari iOS</summary>
+<p>HTTPS obligatoire pour la caméra. En local (<code>http://localhost:8787</code>) : Safari demande, mais en HTTP sur le réseau : non. Passez par un tunnel Cloudflare (voir §1).</p>
+</details>
+
+<details>
+<summary>La borne recharge l'onglet et la clé hôte est perdue</summary>
+<p>C'est normal, par design (sécurité) : la clé hôte n'est plus jamais persistée. L'hôte doit re-saisir sa clé dans le panneau « Accès invités » pour reprendre le contrôle (publier, supprimer, exporter). La clé a été affichée à la création avec un bouton « Copier ».</p>
+</details>
+
+<h2 id="limites">6. Limites connues</h2>
+
+<div class="card">
+  <ul>
+    <li><strong>8 h de TTL max</strong> par event. Au-delà, recréer un event.</li>
+    <li><strong>~300 photos / 5 min</strong> par IP (limite d'event). Au-delà, attente 5 min.</li>
+    <li><strong>Pas de vidéo</strong>, seulement des photos + un aperçu JPEG périodique (1×/s).</li>
+    <li><strong>Pas de comptes</strong> : la clé hôte est le seul secret. Si tu la perds, tu perds le contrôle de l'event.</li>
+    <li><strong>Serveur serverless (Modal)</strong> : scale-to-zero invalide les sessions à froid. À éviter pour les events > 30 min sans trafic.</li>
+  </ul>
+</div>
+
+<p class="sub" style="margin-top: 36px;">MomentoBooth · v83+ · Runbook régénéré automatiquement à partir du code. En cas de doute, le code est dans <code>server/server.js</code> (recherche <code>app.get/post</code> pour la liste des routes).</p>
+
+</body>
+</html>

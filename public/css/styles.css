@@ -447,6 +447,11 @@ body.focusing #sticker-canvas { opacity: .96; }
 .guest-share-qr-box img { width: min(220px, 70vw); height: auto; padding: 10px; border-radius: 18px; background: white; }
 .guest-share-actions { margin-top: 12px; }
 .guest-share-actions .mini-btn { flex: 1; }
+.guest-share-actions-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.guest-share-actions-row .mini-btn { flex: 1; min-width: 100px; }
+.mini-btn.ghost { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); }
+.mini-btn.ghost:active { background: rgba(255,255,255,.16); }
+.guest-share-debug { margin: 12px 0 0; padding: 10px; border-radius: 10px; background: rgba(0,0,0,.32); color: var(--muted); font-size: 11px; line-height: 1.45; max-height: 180px; overflow: auto; white-space: pre-wrap; }
 .guest-live-toggle { margin-top: 14px; font-size: 13px; }
 .guest-live-toggle input { accent-color: #7dd3fc; }
 .guest-screen { padding: env(safe-area-inset-top) 18px env(safe-area-inset-bottom); overflow-y: auto; background: radial-gradient(circle at 15% 0%, rgba(125,211,252,.13), transparent 35%), var(--bg); }

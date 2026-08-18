@@ -304,6 +304,14 @@
       <input id="guest-share-url" type="url" readonly aria-label="URL de la galerie invités">
       <button id="guest-copy-url" class="mini-btn" type="button">Copier</button>
     </div>
+    <div id="guest-share-hostkey-block" class="guest-share-hostkey-block hidden">
+      <label for="guest-share-hostkey" class="guest-share-hostkey-label">Clé hôte <small>(à conserver pour reprendre le contrôle de l’event)</small></label>
+      <div class="guest-share-link-row">
+        <input id="guest-share-hostkey" type="password" readonly autocomplete="off" placeholder="Clé hôte (créée automatiquement)">
+        <button id="guest-copy-hostkey" class="mini-btn" type="button">Copier</button>
+      </div>
+      <small class="guest-share-hostkey-note">Cette clé n’est jamais sauvegardée dans l’app. Notez-la (gestionnaire de mots de passe) ou copiez-la. En cas de rechargement, vous devrez la re-saisir pour publier ou supprimer des photos.</small>
+    </div>
     <div id="guest-share-qr-box" class="guest-share-qr-box hidden"><img id="guest-share-qr" alt="QR code de la galerie invités"></div>
     <div class="guest-share-actions">
       <button id="guest-create-link" class="mini-btn primary" type="button">Créer le QR + lien</button>
@@ -311,6 +319,12 @@
     </div>
     <label class="guest-live-toggle"><input id="guest-live-toggle" type="checkbox"><span>Autoriser l’aperçu caméra périodique</span></label>
     <small class="guest-share-note">Désactivé par défaut. Le lien expire après 8 h et est invalidé si le serveur redémarre. L’aperçu est une image JPEG mise à jour environ toutes les 1,2 s — pas une vidéo WebRTC — et aucune caméra n’est demandée à l’invité.</small>
+    <div class="guest-share-actions-row">
+      <button id="guest-test-event" class="mini-btn ghost" type="button">⚙︎ Test</button>
+      <button id="guest-export-event" class="mini-btn ghost" type="button">📦 Exporter l’event</button>
+      <a id="guest-runbook-link" class="mini-btn ghost" href="/event/runbook.html" target="_blank" rel="noopener">📖 Runbook</a>
+    </div>
+    <pre id="guest-share-debug" class="guest-share-debug hidden" aria-live="polite"></pre>
   </div>
   <div id="gallery-grid" class="gallery-grid"></div>
 </section>
@@ -327,9 +341,9 @@
   <div id="guest-gallery-grid" class="guest-gallery-grid"></div>
 </section>
 
-<script type="module" src="/js/filters.js?v=83"></script>
-<script type="module" src="/js/masks.js?v=83"></script>
-<script type="module" src="/js/animations.js?v=83"></script>
-<script type="module" src="/js/app.js?v=83"></script>
+<script type="module" src="/js/filters.js?v=84"></script>
+<script type="module" src="/js/masks.js?v=84"></script>
+<script type="module" src="/js/animations.js?v=84"></script>
+<script type="module" src="/js/app.js?v=84"></script>
 </body>
 </html>

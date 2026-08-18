@@ -69,3 +69,37 @@ lit `render.yaml`. L'option A (Cloudflare tunnel) garde les photos sur ton PC.
 - iPhone en kiosk (verrouiller Safari, mode lecture guidée)
 - Ou tablette Android/iPad branchée sur un support
 - Imprimante photo optionnelle (export depuis la galerie)
+
+## Sécurité (post-audit v83+)
+
+Headers HTTP par défaut (toutes les routes) :
+
+- `Content-Security-Policy` : strict, compatible MediaPipe WASM (`worker-src 'self' blob:`)
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Permissions-Policy: camera=(self), microphone=(), geolocation=()`
+- `X-Frame-Options: DENY`
+
+Autres protections :
+
+- **Rate limit** `/api/photos` : 60 uploads / 5 min par IP (`express-rate-limit`)
+- **Path canonicalisation** sur toutes les routes photos (`safePhotoPath`) — bloque les `..` et les caractères hors whitelist
+- **`hostKey` non persisté** : la clé hôte du mode event n'est plus jamais écrite en `localStorage`. Elle reste en RAM ; si l'hôte recharge l'onglet, il doit la re-saisir dans le panneau (la clé lui a été affichée à la création avec un bouton Copier). Vol par XSS ⇒ accès limité à la session de l'onglet courant, l'attaquant doit déjà être dans le même origin
+- **Purge défensive** au chargement : tout ancien `localStorage` contenant un `hostKey` est effacé
+
+## Mode event (v84+)
+
+Pour utiliser MomentoBooth à un événement réel (mariage, soirée, team-building) :
+
+1. **Pré-flight** (J-1) : voir [`public/event/runbook.html`](public/event/runbook.html) — checklist matériel + technique
+2. **Jour J** : appui long sur « Galerie » → « Accès invités » → « Créer le QR + lien » → copier la clé hôte → partager le QR
+3. **Pendant** : les invités scannent, voient la galerie en direct
+4. **Après** : « 📦 Exporter l'event » dans le panneau → ZIP avec photos + manifest
+
+Endpoints clés :
+
+- `GET /api/guest/:token/health` : dry-run (TTL, photoCount, server info) — sans clé
+- `GET /api/guest/:token/export.zip` : ZIP de l'event (photos + manifest + lisez-moi) — avec `x-guest-host-key`
+- Rate limit assoupli à **300 uploads / 5 min** quand un `x-guest-host-key` valide est envoyé
+
+Voir [`SPEC.md`](SPEC.md) pour la spec complète.
