@@ -23,12 +23,14 @@ image = (
         "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
         "apt-get install -y nodejs",
     )
-    .run_commands("echo 'cache-bust-v85c-'$(date +%s)", "touch /app/public/index.html")
+    .run_commands("echo 'cache-bust-v85d-'$(date +%s)")
     .workdir("/app")
     .add_local_file("server/package.json", "/app/server/package.json", copy=True)
     .run_commands(
         "cd /app/server && npm install --omit=dev --no-audit --no-fund",
     )
+    # Forcer Modal à réinjecter le contenu de index.html (sinon il sert la version cachée)
+    .add_local_file("public/index.html", "/app/public/index.html", copy=True)
     .add_local_dir(".", "/app", ignore=[".git", "node_modules", "photos", "__pycache__", ".venv", "server/node_modules"])
 )
 
