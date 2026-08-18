@@ -23,13 +23,42 @@
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=83">
+<link rel="stylesheet" href="/css/styles.css?v=85">
 </head>
-<body data-app-version="83"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
+<body data-app-version="85"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
 <script>setTimeout(function(){var s=document.getElementById("app-splash");if(s){s.classList.add("done");setTimeout(function(){s.remove();},1100);}},8000);</script>
 
+<!-- ═════════ PORTRAIL DE RÔLE (P0 du cahier des charges) ═════════
+     Premier écran visible au chargement, sauf si un rôle est déjà mémorisé.
+     Toucher une carte ouvre directement le mode correspondant (1 seul toucher,
+     pas de bouton "Continuer" séparé). -->
+<main id="screen-role" class="screen screen-role active" aria-labelledby="role-title">
+  <div class="role-card">
+    <h1 id="role-title" class="role-title">MomentoBooth</h1>
+    <p class="role-sub">Choisissez votre mode</p>
+    <div class="role-grid">
+      <button class="role-tile" data-role="camera" type="button" aria-describedby="role-camera-desc">
+        <span class="role-tile-emoji" aria-hidden="true">📷</span>
+        <span class="role-tile-name">Caméra</span>
+        <span class="role-tile-desc" id="role-camera-desc">Je filme, je ne touche à rien d'autre.</span>
+      </button>
+      <button class="role-tile" data-role="interface" type="button" aria-describedby="role-interface-desc">
+        <span class="role-tile-emoji" aria-hidden="true">🎛️</span>
+        <span class="role-tile-name">Interface</span>
+        <span class="role-tile-desc" id="role-interface-desc">Je reçois le flux d'un iPhone et je commande la borne.</span>
+      </button>
+      <button class="role-tile" data-role="mixed" type="button" aria-describedby="role-mixed-desc">
+        <span class="role-tile-emoji" aria-hidden="true">🎉</span>
+        <span class="role-tile-name">Mixte</span>
+        <span class="role-tile-desc" id="role-mixed-desc">Tout-en-un : je filme et je commande depuis cet écran.</span>
+      </button>
+    </div>
+    <p class="role-footnote">Un seul toucher suffit — vous pourrez changer de mode depuis les paramètres plus tard.</p>
+  </div>
+</main>
+
 <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
-<main id="screen-capture" class="screen active">
+<main id="screen-capture" class="screen">
 
   <!-- Accès principal aux accessoires et animations -->
   <button id="btn-fx-top" class="fx-top-btn" aria-label="Ouvrir Effets" aria-controls="fx-panel" aria-expanded="false">
@@ -185,6 +214,10 @@
   <!-- Sheet paramètres avancés -->
   <div id="sheet-settings" class="sheet">
     <div class="sheet-head">⚙️ Paramètres<span class="sheet-close">✕</span></div>
+    <div class="settings-group" data-group="role">
+      <button type="button" class="settings-group-title" aria-expanded="true"><span>Mode de la borne</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Mode actuel<small class="row-sub" id="role-current-label">Mixte</small></span><button id="btn-change-role" class="mini-btn primary">Changer</button></div>
+    </div>
     <div class="settings-group" data-group="photo"><button type="button" class="settings-group-title" aria-expanded="true"><span>Photo</span><i class="group-chevron" aria-hidden="true">▾</i></button>
       <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox"><span class="slider"></span></label></div>
       <div class="settings-row"><span>Rafale Flash+<small class="row-sub">flash blanc + meilleure prise auto</small></span><label class="switch"><input id="set-burst" type="checkbox"><span class="slider"></span></label></div>
@@ -341,9 +374,9 @@
   <div id="guest-gallery-grid" class="guest-gallery-grid"></div>
 </section>
 
-<script type="module" src="/js/filters.js?v=84"></script>
-<script type="module" src="/js/masks.js?v=84"></script>
-<script type="module" src="/js/animations.js?v=84"></script>
-<script type="module" src="/js/app.js?v=84"></script>
+<script type="module" src="/js/filters.js?v=85"></script>
+<script type="module" src="/js/masks.js?v=85"></script>
+<script type="module" src="/js/animations.js?v=85"></script>
+<script type="module" src="/js/app.js?v=85"></script>
 </body>
 </html>

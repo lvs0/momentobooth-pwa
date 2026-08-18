@@ -84,7 +84,7 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "83"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
+const APP_VERSION = "85"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -4062,6 +4062,27 @@ on("btn-fx-top", "click", () => {
   if (fxPanel.classList.contains("open")) closeFxPanel();
   else openFxPanel();
 });
+
+/* Changer de mode (P0 du cahier des charges) : efface le rôle mémorisé,
+   ferme le sheet Réglages, et rouvre le portail. L'utilisateur n'a plus
+   qu'à toucher la nouvelle carte — un seul toucher. */
+on("btn-change-role", "click", () => {
+  try { localStorage.removeItem(ROLE_STORAGE_KEY); } catch {}
+  // Ferme le sheet Réglages proprement
+  const sheet = $("sheet-settings");
+  if (sheet) sheet.classList.remove("open");
+  // Stoppe l'éventuelle session remote en cours
+  try { stopRemoteCamera(); } catch {}
+  state.remoteCamMode = "off";
+  // Relit le portail
+  const portal = $("screen-role");
+  if (portal) portal.classList.remove("hidden");
+  showScreen("screen-role");
+  // Met à jour le label "Mode actuel"
+  const label = $("role-current-label");
+  if (label) label.textContent = "— choisissez —";
+  toast("Choisissez un nouveau mode");
+});
 on("fx-close", "click", closeFxPanel);
 /* Catégories : uniquement Accessoires visage / Animations.
    Les filtres photo sont volontairement absents de ce panneau. */
@@ -4226,6 +4247,10 @@ async function init() {
     }
     sessionStorage.removeItem("mb-force-reload");
   } catch { /* on continue normalement */ }
+
+  /* Portail de rôle : si l'utilisateur n'a pas encore choisi, on lui demande
+     EN PREMIER (avant la caméra), sinon on saute directement à l'écran capture. */
+  try { initRolePortal(); } catch (e) { console.warn("[init] role portal", e); }
   // iOS envoie plusieurs resize de visualViewport quand ses barres
   // apparaissent/disparaissent. On accepte les changements réels, mais avec
   // une petite hystérésis pour éviter que la caméra ne saute sur un micro-resize.
@@ -4453,6 +4478,118 @@ async function init() {
       state.guestHostKey = "";
     }
   } catch {}
+}
+
+/* ════════════════════════════════════════════════════════════
+   PORTAIL DE RÔLE (P0 du cahier des charges)
+   Premier écran visible au chargement. Sélection DIRECTE en 1 seul toucher :
+   pas de case, pas de bouton "Continuer", pas de popup qui s'ouvre puis se ferme.
+   - "camera"   : l'appareil publie son flux (mode Borne = iPhone)
+   - "interface": l'appareil attend un flux distant (mode Tablette = contrôle)
+   - "mixed"    : tout-en-un, capture locale + tout le reste
+   Le rôle est mémorisé en localStorage pour ne pas le redemander.
+   On peut le changer à tout moment via #btn-change-role (à venir dans Réglages).
+   ════════════════════════════════════════════════════════════ */
+const ROLE_STORAGE_KEY = "momentobooth-role";
+const VALID_ROLES = new Set(["camera", "interface", "mixed"]);
+
+function getStoredRole() {
+  try {
+    const r = localStorage.getItem(ROLE_STORAGE_KEY);
+    if (r && VALID_ROLES.has(r)) return r;
+  } catch {}
+  return null;
+}
+function setStoredRole(role) {
+  if (!VALID_ROLES.has(role)) return;
+  try { localStorage.setItem(ROLE_STORAGE_KEY, role); } catch {}
+}
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  const el = document.getElementById(id);
+  if (el) el.classList.add("active");
+}
+function applyRoleBehavior(role) {
+  // Cohérent avec le code existant : state.remoteCamMode = 'camera' | 'controller' | 'off'
+  // et le mode 'off' = mixte (capture locale).
+  // L'attribut data-role sur <body> permet au CSS de verrouiller l'UI en mode Caméra
+  // (cacher bottom-bar, rail filtres, panneaux — l'iPhone Borne n'a qu'à filmer).
+  document.body.setAttribute("data-role", role);
+  if (role === "camera") {
+    state.remoteCamMode = "camera";
+    // L'iPhone publie : on lance startRemoteCamera()
+    try { startRemoteCamera(); } catch (e) { console.warn("[role] startRemoteCamera", e); }
+  } else if (role === "interface") {
+    state.remoteCamMode = "controller";
+    // L'interface attend un flux : on ne capture PAS en local
+    toast("Recherche d'une caméra…");
+  } else {
+    // mixed : comportement par défaut, capture locale
+    state.remoteCamMode = "off";
+  }
+  // Met à jour le label dans Réglages
+  const label = document.getElementById("role-current-label");
+  if (label) {
+    const txt = role === "camera" ? "Caméra (iPhone)" : role === "interface" ? "Interface (tablette)" : "Mixte";
+    label.textContent = txt;
+  }
+  try { savePreferences(); } catch {}
+}
+function chooseRole(role) {
+  if (!VALID_ROLES.has(role)) return;
+  setStoredRole(role);
+  // Cache le portail
+  const portal = document.getElementById("screen-role");
+  if (portal) portal.classList.add("hidden");
+  showScreen("screen-capture");
+  applyRoleBehavior(role);
+  // Si l'utilisateur était en mode Interface, on tente de rejoindre la session
+  if (role === "interface") {
+    setTimeout(() => { try { startRemotePolling?.(); } catch {} }, 200);
+  }
+  // Si on était en mode Caméra, le splash peut enfin s'effacer
+  try { hideSplash(); } catch {}
+}
+function initRolePortal() {
+  const stored = getStoredRole();
+  // URL ?role=force le portail (?role=choisir pour le faire revenir)
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("role")) {
+    const forced = params.get("role");
+    if (forced === "choisir" || !VALID_ROLES.has(forced)) {
+      // Affiche le portail, ne touche pas au storage
+      showScreen("screen-role");
+      return;
+    }
+    setStoredRole(forced);
+  }
+  if (stored) {
+    // Rôle déjà mémorisé : on saute le portail et on montre directement la capture
+    const portal = document.getElementById("screen-role");
+    if (portal) portal.classList.add("hidden");
+    showScreen("screen-capture");
+    // Comportement asynchrone pour ne pas bloquer init()
+    queueMicrotask(() => { try { applyRoleBehavior(stored); } catch (e) { console.warn("[role] apply", e); } });
+    return;
+  }
+  // Pas de rôle : on montre le portail
+  showScreen("screen-role");
+  const tiles = document.querySelectorAll(".role-tile");
+  tiles.forEach((tile) => {
+    tile.addEventListener("click", (e) => {
+      e.preventDefault();
+      const role = tile.dataset.role;
+      if (!role) return;
+      chooseRole(role);
+    });
+  });
+  // Permet aussi le clavier (Enter / Space) — accessibilité
+  document.getElementById("screen-role")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      const target = e.target.closest(".role-tile");
+      if (target) { e.preventDefault(); target.click(); }
+    }
+  });
 }
 
 /* ════════════════════════════════════════════════════════════
