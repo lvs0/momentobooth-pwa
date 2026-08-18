@@ -2127,8 +2127,9 @@ function drawLogo(_ctx, _W, _H) {
    `opts.skipFilter` omet le filtre couleur (pour l'Original du pack lens) tout
    en conservant accessoires, masque et fond. Utilisé par le pack, la RAFALE
    et les captures simples. */
-  if (state.remoteCamMode === "controller" && state._remoteCaptureCanvas) { const c = state._remoteCaptureCanvas; state._remoteCaptureCanvas = null; return Promise.resolve(c); }
 function grabFrameCanvas(maxDimension = null, opts = {}) {
+  // Si on est en mode contrôleur (caméra déportée), on récupère le canvas capturé par la caméra distante
+  if (state.remoteCamMode === "controller" && state._remoteCaptureCanvas) { const c = state._remoteCaptureCanvas; state._remoteCaptureCanvas = null; return Promise.resolve(c); }
   const skipFilter = !!opts?.skipFilter;
   return new Promise((resolve) => {
     const video = camera;
@@ -4540,8 +4541,9 @@ function chooseRole(role) {
   setStoredRole(role);
   // Cache le portail
   const portal = document.getElementById("screen-role");
-  if (portal) portal.classList.add("hidden");
-  showScreen("screen-capture");
+  if (portal) { portal.classList.remove("active"); portal.classList.add("hidden"); }
+  // Affiche l'écran capture (showCapture() existe déjà dans le code)
+  showCapture();
   applyRoleBehavior(role);
   // Si l'utilisateur était en mode Interface, on tente de rejoindre la session
   if (role === "interface") {
@@ -4550,7 +4552,14 @@ function chooseRole(role) {
   // Si on était en mode Caméra, le splash peut enfin s'effacer
   try { hideSplash(); } catch {}
 }
+// Exposé sur window pour les tests e2e (Playwright page.evaluate)
+window.chooseRole = chooseRole;
 function initRolePortal() {
+  // Sur le portail, on n'a pas besoin du splash (il est décoratif).
+  // On le retire tout de suite pour ne pas bloquer visuellement l'utilisateur
+  // ni intercepter les pointer events (Playwright + iOS Safari).
+  const splash = document.getElementById("app-splash");
+  if (splash) splash.remove();
   const stored = getStoredRole();
   // URL ?role=force le portail (?role=choisir pour le faire revenir)
   const params = new URLSearchParams(window.location.search);
