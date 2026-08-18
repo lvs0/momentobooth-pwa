@@ -23,7 +23,7 @@ image = (
         "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
         "apt-get install -y nodejs",
     )
-    .run_commands("echo 'cache-bust-v85b-'$(date +%s)")
+    .run_commands("echo 'cache-bust-v85c-'$(date +%s)", "touch /app/public/index.html")
     .workdir("/app")
     .add_local_file("server/package.json", "/app/server/package.json", copy=True)
     .run_commands(
