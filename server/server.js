@@ -4,13 +4,23 @@
    - POST /api/photos      → upload photo, stockage local
    - GET  /api/photos      → liste des photos
    - GET  /api/photos/:id  → image
-   - DELETE /api/photos/:id
+   - DELETE /api/photos/:id → DÉPLACE vers .trash/ (récupérable 30 j)
    - GET  /api/photos/:id/qr → QR code de la photo
    - GET  /api/qr?url=...  → QR générique
    - POST /api/guest/sessions → crée un lien invité temporaire
    - GET  /api/guest/:token/gallery → galerie publique en lecture seule
    - GET  /api/guest/:token/live → dernière image de l'aperçu opt-in
    - POST /api/guest/:token/live → publie une image (clé hôte requise)
+
+   Module organizer (P0 du cahier des charges) :
+   - POST /api/organizer/verify       → PIN → token de session (4 h)
+   - GET  /api/organizer/status        → état (PIN configuré, mode démo)
+   - DELETE /api/organizer/session     → logout
+   - GET  /api/photos/trash            → liste corbeille (token requis)
+   - POST /api/photos/trash/:id/restore → restaure (token requis)
+   - DELETE /api/photos/trash/:id      → purge définitive (token requis)
+   - GET  /api/event-gallery            → galerie permanente par eventId
+   - POST /api/event-gallery            → enregistre un asset (variant)
    ========================================================= */
 import express from "express";
 import multer from "multer";
@@ -20,6 +30,23 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import rateLimit from "express-rate-limit";
+import {
+  setupOrganizer,
+  isOrganizerPinConfigured,
+  setOrganizerPin,
+  createOrganizerSession,
+  isOrganizerAuthorized,
+  revokeOrganizerSession,
+  getOrCreateEventId,
+  listEventGallery,
+  addToEventGallery,
+  removeFromEventGallery,
+  moveToTrash,
+  listTrash,
+  restoreFromTrash,
+  purgeFromTrash,
+  cleanupExpiredTrash,
+} from "./organizer.js";
 
 /* Traitement délégué par le téléphone (allège le CPU/RAM de l'iPhone) :
    - gifenc   : encodeur GIF pur JS (l'encodage local gif.js coûte cher sur mobile)
@@ -35,7 +62,9 @@ const { GIFEncoder, quantize, applyPalette } = gifenc;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
-const PHOTOS_DIR = path.join(__dirname, "..", "photos");
+/* PHOTOS_DIR peut être surchargé par l'env (utile pour les tests ou un
+   déploiement qui veut un volume séparé). */
+const PHOTOS_DIR = process.env.PHOTOS_DIR || path.join(__dirname, "..", "photos");
 fs.mkdirSync(PHOTOS_DIR, { recursive: true });
 
 /* URL publique de base : env PUBLIC_BASE_URL ou header x-forwarded-* (tunnel/Modal).
@@ -444,6 +473,35 @@ app.get("/api/photos", (_req, res) => {
   res.set("Cache-Control", "no-store").json({ photos: files.map((f) => ({ id: f, url: `/api/photos/${f}` })) });
 });
 
+/* IMPORTANT : les routes spécifiques /api/photos/trash* doivent être déclarées
+   AVANT /api/photos/:id, sinon Express route "trash" comme un :id. */
+app.get("/api/photos/trash", (req, res) => {
+  if (!isOrganizerAuthorized({ photosDir: PHOTOS_DIR }, req)) return res.status(401).json({ error: "PIN organisateur requis" });
+  const items = listTrash({ photosDir: PHOTOS_DIR }).map((item) => {
+    const file = path.join(PHOTOS_DIR, ".trash", item.id);
+    let size = 0;
+    try { size = fs.statSync(file).size; } catch {}
+    return { ...item, size, exists: fs.existsSync(file) };
+  });
+  res.json({ items });
+});
+
+app.post("/api/photos/trash/:id/restore", (req, res) => {
+  if (!isOrganizerAuthorized({ photosDir: PHOTOS_DIR }, req)) return res.status(401).json({ error: "PIN organisateur requis" });
+  const r = restoreFromTrash({ photosDir: PHOTOS_DIR }, req.params.id);
+  if (!r.ok) {
+    const code = r.reason === "missing" ? 404 : r.reason === "collision" ? 409 : 500;
+    return res.status(code).json({ error: "Restauration impossible", detail: r.reason });
+  }
+  res.json({ ok: true, id: r.id });
+});
+
+app.delete("/api/photos/trash/:id", (req, res) => {
+  if (!isOrganizerAuthorized({ photosDir: PHOTOS_DIR }, req)) return res.status(401).json({ error: "PIN organisateur requis" });
+  purgeFromTrash({ photosDir: PHOTOS_DIR }, req.params.id);
+  res.json({ ok: true });
+});
+
 app.get("/api/photos/:id", (req, res) => {
   const file = safePhotoPath(req.params.id);
   if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
@@ -460,6 +518,9 @@ app.get("/api/guest/:token/photos/:id", (req, res) => {
 });
 
 app.delete("/api/photos/:id", (req, res) => {
+  // Suppression = DÉPLACEMENT VERS LA CORBEILLE (récupérable 30 j).
+  // Si un organizer-token est fourni, on flag deletedBy='organizer'.
+  // Sinon on flag deletedBy='self' (auto-suppression, ex: bouton ✕ sur vignette).
   const token = String(req.get("x-guest-token") || "");
   const hostKey = String(req.get("x-guest-host-key") || "");
   const hasGuestHeaders = Boolean(token || hostKey);
@@ -467,9 +528,80 @@ app.delete("/api/photos/:id", (req, res) => {
   if (hasGuestHeaders && (!session || session.hostKey !== hostKey)) return res.status(403).json({ error: "Session invitée invalide" });
   const file = safePhotoPath(req.params.id);
   if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
-  fs.unlinkSync(file);
-  session.photoIds.delete(path.basename(file));
+  const who = isOrganizerAuthorized({ photosDir: PHOTOS_DIR }, req) ? "organizer" : "self";
+  const r = moveToTrash({ photosDir: PHOTOS_DIR }, path.basename(file), who);
+  if (!r.ok) return res.status(500).json({ error: "Suppression impossible", detail: r.reason });
+  if (session) session.photoIds.delete(path.basename(file));
   saveGuestSessions();
+  res.json({ ok: true, trashed: true, id: r.id, restoreUntil: r.restoreUntil });
+});
+
+/* (les routes corbeille sont déclarées plus haut, AVANT /api/photos/:id,
+   pour éviter qu'Express ne route "trash" comme un :id. Voir bloc lignes 478.) */
+
+/* ---- Organizer (PIN) ---- */
+app.get("/api/organizer/status", (_req, res) => {
+  const pinConfigured = isOrganizerPinConfigured({ photosDir: PHOTOS_DIR });
+  const eventId = getOrCreateEventId({ photosDir: PHOTOS_DIR });
+  res.json({ pinConfigured, eventId, demoPin: process.env.MOMENTOBOOTH_ORGANIZER_PIN_DEMO === "1" });
+});
+
+const organizerVerifyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 12,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Trop d'essais, réessayez dans une minute." },
+});
+app.post("/api/organizer/verify", organizerVerifyLimiter, (req, res) => {
+  const pin = String(req.body?.pin || "");
+  const ip = String(req.ip || req.headers["x-forwarded-for"] || "unknown");
+  const r = createOrganizerSession({ photosDir: PHOTOS_DIR }, { ip, plain: pin });
+  if (!r.ok) {
+    if (r.reason === "locked") {
+      res.setHeader("Retry-After", String(Math.ceil(r.retryAfterMs / 1000)));
+      return res.status(429).json({ error: "Trop d'essais, réessayez plus tard.", retryAfterMs: r.retryAfterMs });
+    }
+    if (r.reason === "no-pin") return res.status(503).json({ error: "PIN organisateur non configuré" });
+    return res.status(401).json({ error: "PIN incorrect" });
+  }
+  res.json({ ok: true, token: r.token, expiresInMs: r.expiresInMs });
+});
+
+app.delete("/api/organizer/session", (req, res) => {
+  const token = String(req.get("x-organizer-token") || "");
+  if (token) revokeOrganizerSession({ photosDir: PHOTOS_DIR }, token);
+  res.json({ ok: true });
+});
+
+/* ---- Galerie événementielle permanente (par eventId) ---- */
+app.get("/api/event-gallery", (_req, res) => {
+  const eventId = getOrCreateEventId({ photosDir: PHOTOS_DIR });
+  const photos = listEventGallery({ photosDir: PHOTOS_DIR });
+  res.json({ eventId, count: photos.length, photos });
+});
+
+app.post("/api/event-gallery", express.json({ limit: "32kb" }), (req, res) => {
+  // Enregistre un asset déjà présent sur le disque. Le client doit d'abord
+  // faire un POST /api/photos (multipart) pour pousser le binaire, puis POST
+  // /api/event-gallery pour l'indexer avec ses métadonnées.
+  const eventId = getOrCreateEventId({ photosDir: PHOTOS_DIR });
+  const { id, captureId, variant, mime, sourceOriginalId, filterId, accessoryId, frameId, createdAt } = req.body || {};
+  if (!id || !/^[\w.\-]+$/.test(String(id))) return res.status(400).json({ error: "id invalide" });
+  const file = safePhotoPath(id);
+  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "Photo introuvable" });
+  addToEventGallery({ photosDir: PHOTOS_DIR }, {
+    id: path.basename(file), eventId, captureId, variant, mime,
+    sourceOriginalId, filterId, accessoryId, frameId, createdAt,
+  });
+  res.status(201).json({ ok: true, eventId, id: path.basename(file) });
+});
+
+app.delete("/api/event-gallery/:id", (req, res) => {
+  // Dé-tracker d'un fichier de la galerie événementielle (sans toucher au fichier lui-même)
+  const safe = path.basename(String(req.params.id || ""));
+  if (!safe || !/^[\w.\-]+$/.test(safe)) return res.status(400).json({ error: "id invalide" });
+  removeFromEventGallery({ photosDir: PHOTOS_DIR }, safe);
   res.json({ ok: true });
 });
 
@@ -806,6 +938,22 @@ app.use((req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 /* ---- Lancement ---- */
 const PORT = process.env.PORT || 8787;
+
+/* Bootstrap organizer : initialise la corbeille, l'eventId permanent et
+   configure un PIN par défaut en mode démo si demandé. Idempotent. */
+setupOrganizer({ photosDir: PHOTOS_DIR });
+if (process.env.MOMENTOBOOTH_ORGANIZER_PIN && !isOrganizerPinConfigured({ photosDir: PHOTOS_DIR })) {
+  setOrganizerPin({ photosDir: PHOTOS_DIR }, process.env.MOMENTOBOOTH_ORGANIZER_PIN);
+  console.log("[MomentoBooth] PIN organisateur initialisé depuis l'env");
+}
+const initialPurged = cleanupExpiredTrash({ photosDir: PHOTOS_DIR });
+if (initialPurged) console.log(`[MomentoBooth] corbeille nettoyée : ${initialPurged} élément(s) expiré(s)`);
+setInterval(() => {
+  const n = cleanupExpiredTrash({ photosDir: PHOTOS_DIR });
+  if (n) console.log(`[MomentoBooth] corbeille nettoyée : ${n} élément(s) expiré(s)`);
+}, 6 * 60 * 60 * 1000).unref?.();
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[MomentoBooth] http://0.0.0.0:${PORT} — photos: ${PHOTOS_DIR}`);
+  console.log(`[MomentoBooth] eventId: ${getOrCreateEventId({ photosDir: PHOTOS_DIR })}`);
 });
