@@ -84,7 +84,7 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "85"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
+const APP_VERSION = "86"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -2925,18 +2925,10 @@ async function shareMethod(method) {
 /* =========================================================
    GALERIE
    ========================================================= */
-function db() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open("momentobooth", 2);
-    req.onupgradeneeded = () => {
-      const d = req.result;
-      if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
-      if (!d.objectStoreNames.contains("moments")) d.createObjectStore("moments", { keyPath: "id" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+// db() est défini plus bas (l. 5163) avec la version unifiée qui gère aussi
+// le store uploadQueue. On garde un stub commentaire ici pour la lecture du
+// fichier, mais l'unique implémentation vivante est la version async plus bas
+// (avec upgrade onupgradeneeded qui inclut uploadQueue).
 async function saveLocal(blob, metadata = {}) {
   if (!blob) throw new Error("blob manquant");
   const id = metadata.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3004,8 +2996,14 @@ async function uploadPhoto(blob, localId = state.lastLocalId, mediaType = "photo
       if (generation === state.resultGeneration) {
         state.publicUrl = data.publicUrl || data.url || "";
       }
+    } else {
+      // Erreur HTTP (403, 413, 500…) : on met en file pour réessayer plus tard
+      await addToUploadQueue({ blob, localId: id, mediaType, filename: `${id}.${extension}`, guestToken: state.guestToken || null, guestHostKey: liveGuestHostKey() || null });
     }
-  } catch { /* serveur optionnel : la copie locale reste valide */ }
+  } catch {
+    // Réseau indisponible : on met en file pour réessayer plus tard
+    await addToUploadQueue({ blob, localId: id, mediaType, filename: `${id}.${extension}`, guestToken: state.guestToken || null, guestHostKey: liveGuestHostKey() || null });
+  }
   return id;
 }
 
@@ -4252,6 +4250,10 @@ async function init() {
   /* Portail de rôle : si l'utilisateur n'a pas encore choisi, on lui demande
      EN PREMIER (avant la caméra), sinon on saute directement à l'écran capture. */
   try { initRolePortal(); } catch (e) { console.warn("[init] role portal", e); }
+  
+  /* File d'upload persistante : démarre le processeur qui rejoue les uploads
+     en attente quand le réseau revient (P0 offline-safe). */
+  try { startUploadQueueProcessor(); } catch (e) { console.warn("[init] upload queue", e); }
   // iOS envoie plusieurs resize de visualViewport quand ses barres
   // apparaissent/disparaissent. On accepte les changements réels, mais avec
   // une petite hystérésis pour éviter que la caméra ne saute sur un micro-resize.
@@ -4547,7 +4549,8 @@ function chooseRole(role) {
   applyRoleBehavior(role);
   // Si l'utilisateur était en mode Interface, on tente de rejoindre la session
   if (role === "interface") {
-    setTimeout(() => { try { startRemotePolling?.(); } catch {} }, 200);
+  // Recherche automatique d'une caméra sur le réseau local
+  setTimeout(() => { try { autoDiscoverRemoteCamera?.(); } catch {} }, 200);
   }
   // Si on était en mode Caméra, le splash peut enfin s'effacer
   try { hideSplash(); } catch {}
@@ -5052,6 +5055,173 @@ async function savePrerollClip() {
       tx.onerror = () => reject(tx.error);
     });
   } catch { releasePrerollFrames(frames); /* silencieux : opt-in */ }
+}
+
+/* ════════════════════════════════════════════════════════════
+   AUTO-DÉCOUVERTE CAMÉRA (P0 — Mode Interface)
+   Scanne le réseau local pour trouver une caméra MomentoBooth active.
+   ════════════════════════════════════════════════════════════ */
+async function autoDiscoverRemoteCamera() {
+  if (state.remoteCamMode !== 'controller') return;
+  if (state.remoteCamToken) { startRemotePolling(); return; }
+  
+  toast("Recherche d'une caméra MomentoBooth…");
+  
+  // 1. Vérifier si on a un token sauvegardé (même session)
+  const savedToken = localStorage.getItem("momentobooth-remote-token");
+  if (savedToken) {
+    state.remoteCamToken = savedToken;
+    startRemotePolling();
+    return;
+  }
+  
+  // 2. Scanner le réseau local (192.168.x.x et 10.x.x.x) pour trouver une caméra
+  const bases = [];
+  const hostname = location.hostname;
+  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    // On est sur un réseau : déduire le préfixe
+    const parts = hostname.split('.');
+    if (parts.length === 4) {
+      bases.push(`${parts[0]}.${parts[1]}.${parts[2]}`);
+    }
+  }
+  // Bases par défaut courantes
+  if (!bases.includes('192.168.1')) bases.push('192.168.1');
+  if (!bases.includes('192.168.0')) bases.push('192.168.0');
+  if (!bases.includes('10.0.0')) bases.push('10.0.0');
+  
+  // Test rapide : est-ce que notre propre serveur a une caméra active ?
+  try {
+    const res = await fetch('/api/remote-camera/active', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.token) {
+        state.remoteCamToken = data.token;
+        localStorage.setItem("momentobooth-remote-token", data.token);
+        startRemotePolling();
+        toast("Caméra trouvée !");
+        return;
+      }
+    }
+  } catch {}
+  
+  // Scan réseau (limité à 20 hôtes pour ne pas surcharger)
+  let found = false;
+  for (const base of bases) {
+    if (found) break;
+    const promises = [];
+    for (let i = 1; i <= 20; i++) {
+      const ip = `${base}.${i}`;
+      if (ip === hostname) continue;
+      promises.push(
+        fetch(`http://${ip}:8787/api/remote-camera/active`, { 
+          signal: AbortSignal.timeout(1500),
+          cache: 'no-store'
+        }).then(r => r.ok ? r.json() : null).catch(() => null)
+      );
+    }
+    const results = await Promise.allSettled(promises);
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value?.token) {
+        state.remoteCamToken = r.value.token;
+        localStorage.setItem("momentobooth-remote-token", r.value.token);
+        startRemotePolling();
+        toast(`Caméra trouvée sur ${base}.x !`);
+        found = true;
+        break;
+      }
+    }
+  }
+  
+  if (!found) {
+    toast("Aucune caméra trouvée. Entrez le token manuellement.");
+    // Afficher le champ de saisie manuelle
+    const tokenInput = document.getElementById("remote-connect-token");
+    if (tokenInput) {
+      tokenInput.focus();
+      tokenInput.placeholder = "Entrez le token de la caméra";
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   FILE D'UPLOAD PERSISTANTE (P0 — PWA offline-safe)
+   Stocke les uploads échoués dans IndexedDB et les rejoue quand
+   le réseau revient.
+   ════════════════════════════════════════════════════════════ */
+const UPLOAD_QUEUE_STORE = "uploadQueue";
+let _uploadQueueTimer = null;
+
+async function db() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("momentobooth", 2);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("moments")) d.createObjectStore("moments", { keyPath: "id" });
+      if (!d.objectStoreNames.contains(UPLOAD_QUEUE_STORE)) d.createObjectStore(UPLOAD_QUEUE_STORE, { keyPath: "id", autoIncrement: true });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function addToUploadQueue(item) {
+  try {
+    const d = await db();
+    return new Promise((resolve, reject) => {
+      const tx = d.transaction(UPLOAD_QUEUE_STORE, "readwrite");
+      tx.objectStore(UPLOAD_QUEUE_STORE).add({ ...item, queuedAt: Date.now() });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* quota ou IDB indisponible : on perd l'upload (logué) */ }
+}
+
+async function processUploadQueue() {
+  try {
+    const d = await db();
+    const items = await new Promise((resolve, reject) => {
+      const tx = d.transaction(UPLOAD_QUEUE_STORE, "readonly");
+      const req = tx.objectStore(UPLOAD_QUEUE_STORE).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+    if (!items.length) return;
+    
+    for (const item of items) {
+      try {
+        const form = new FormData();
+        form.append("photo", item.blob, item.filename || "photo.jpg");
+        const headers = {};
+        if (item.guestToken) headers["x-guest-token"] = item.guestToken;
+        if (item.guestHostKey) headers["x-guest-host-key"] = item.guestHostKey;
+        
+        const res = await fetch("/api/photos", { method: "POST", headers, body: form });
+        if (res.ok) {
+          // Succès : retirer de la queue
+          const d2 = await db();
+          await new Promise((resolve, reject) => {
+            const tx = d2.transaction(UPLOAD_QUEUE_STORE, "readwrite");
+            tx.objectStore(UPLOAD_QUEUE_STORE).delete(item.id);
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+        }
+      } catch { /* réseau toujours down : on réessaiera plus tard */ }
+    }
+  } catch { /* lecture queue impossible */ }
+}
+
+function startUploadQueueProcessor() {
+  if (_uploadQueueTimer) return;
+  _uploadQueueTimer = setInterval(() => { void processUploadQueue(); }, 10000);
+  // Traiter immédiatement au démarrage
+  void processUploadQueue();
+}
+
+function stopUploadQueueProcessor() {
+  if (_uploadQueueTimer) { clearInterval(_uploadQueueTimer); _uploadQueueTimer = null; }
 }
 
 /* ════════════════════════════════════════════════════════════

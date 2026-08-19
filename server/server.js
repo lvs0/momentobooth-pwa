@@ -902,6 +902,18 @@ app.get("/api/remote-camera/:token/frame", (req, res) => {
   res.send(session.frame.buffer);
 });
 
+/* GET /api/remote-camera/active — retourne la session caméra active la plus récente
+   (utilisé par l'auto-découverte du mode Interface pour trouver l'iPhone sur le réseau) */
+app.get("/api/remote-camera/active", (req, res) => {
+  let best = null;
+  for (const [token, session] of remoteCamSessions) {
+    if (session.expiresAt <= Date.now()) continue;
+    if (!best || session.createdAt > best.createdAt) best = { token, createdAt: session.createdAt, lastFrameAt: session.lastFrameAt };
+  }
+  if (!best) return res.status(404).json({ error: "Aucune caméra active" });
+  res.json({ token: best.token, createdAt: best.createdAt, lastFrameAt: best.lastFrameAt });
+});
+
 /* Nettoyage des sessions caméra déportée expirées */
 setInterval(() => {
   const now = Date.now();
