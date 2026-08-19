@@ -7690,18 +7690,48 @@ async function populateIdleWallScene() {
   _idleWallUrls = [];
   let entries = [];
   try { entries = await loadLocal(); } catch { entries = []; }
-  const photosOnly = entries.filter((entry) => entry.mediaType !== "gif" && entry.blob);
+  let photosOnly = entries.filter((entry) => entry.mediaType !== "gif" && entry.blob);
+  // Fallback serveur : si l'appareil n'a pas assez de photos locales (cas de
+  // l'iPad invité qui n'a jamais capturé), on tire depuis /api/gallery pour
+  // peupler le mur avec les vraies photos de l'événement.
+  if (photosOnly.length < 3) {
+    try {
+      const res = await fetch("/api/gallery", { cache: "no-store" });
+      if (res.ok) {
+        const body = await res.json();
+        const remoteCaptures = Array.isArray(body.captures) ? body.captures : [];
+        const remotePhotos = [];
+        for (const cap of remoteCaptures) {
+          // Préfère la variante "filtered" (plus parlante visuellement), sinon "original".
+          const variants = cap.variants || {};
+          const variantUrl = variants.filtered || variants.original;
+          if (variantUrl) remotePhotos.push({ url: variantUrl, date: cap.createdAt || 0 });
+        }
+        if (remotePhotos.length >= 3) {
+          // Remplace la pool locale par les photos serveur — on a une vraie soirée.
+          photosOnly = remotePhotos
+            .sort((a, b) => (b.date || 0) - (a.date || 0))
+            .slice(0, 5)
+            .map((p) => ({ label: "remote", blob: null, remoteUrl: p.url, date: p.date }));
+        }
+      }
+    } catch { /* serveur injoignable : on garde la pool locale */ }
+  }
   // Préfère les variantes stylées (plus parlantes en vignette) ; si la
   // soirée n'a que des originaux sauvegardés, on les affiche quand même.
-  const styled = photosOnly.filter((entry) => entry.label !== "Original");
+  const styled = photosOnly.filter((entry) => entry.label !== "Original" && entry.label !== "remote");
   const pool = (styled.length ? styled : photosOnly).sort((a, b) => (b.date || 0) - (a.date || 0));
   const recent = pool.slice(0, 5);
   grid.innerHTML = "";
   recent.forEach((entry) => {
-    const url = URL.createObjectURL(entry.blob);
-    _idleWallUrls.push(url);
     const img = document.createElement("img");
-    img.src = url;
+    if (entry.remoteUrl) {
+      img.src = entry.remoteUrl;
+    } else {
+      const url = URL.createObjectURL(entry.blob);
+      _idleWallUrls.push(url);
+      img.src = url;
+    }
     img.alt = "";
     grid.appendChild(img);
   });
