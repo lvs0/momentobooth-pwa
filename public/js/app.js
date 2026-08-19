@@ -147,6 +147,18 @@ function syncCameraPresentation(stream = state.stream) {
   if (!camera) return;
   camera.dataset.facing = state.facing === "user" ? "user" : "environment";
   if (stream && camera.srcObject !== stream) camera.srcObject = stream;
+  // Aspect-ratio adaptatif : évite le crop/étirement quand l'iPhone filme en
+  // portrait (9:16) sur un écran paysage. On conserve object-fit: cover mais
+  // en fixant l'aspect-ratio du conteneur sur celui du flux caméra réel, de
+  // sorte que le cover se comporte comme un contain sans bandes noires.
+  const applyAspectRatio = () => {
+    const w = camera.videoWidth, h = camera.videoHeight;
+    if (w > 0 && h > 0 && camera.parentElement) {
+      camera.parentElement.style.aspectRatio = `${w} / ${h}`;
+    }
+  };
+  if (camera.videoWidth > 0) applyAspectRatio();
+  else camera.addEventListener("loadedmetadata", applyAspectRatio, { once: true });
 }
 window.addEventListener("mb-camera-ready", () => {
   if (!state.stream && camera?.srcObject) state.stream = camera.srcObject;
