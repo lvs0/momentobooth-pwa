@@ -3878,6 +3878,21 @@ async function shareMethod(method) {
     if (method === "whatsapp") {
       window.open(`https://wa.me/?text=${encodeURIComponent(text + " " + publicUrl)}`, "_blank");
       status.textContent = "WhatsApp ouvert ✓";
+    } else if (method === "snapchat") {
+      // Snapchat n'expose pas d'URL scheme public de partage.
+      // On tente navigator.share (iOS/Android récents) qui liste Snap
+      // dans la feuille système, sinon on guide vers la caméra Snap.
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: "MomentoBooth", text, url: publicUrl });
+          status.textContent = "Snap ouvert ✓";
+        } catch (e) { status.textContent = "Partage annulé"; }
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(publicUrl);
+        status.textContent = "Lien copié — collez dans Snap 📋";
+      } else {
+        status.textContent = "Ouvrez Snap et collez le lien";
+      }
     } else if (method === "sms") {
       window.open(`sms:?&body=${encodeURIComponent(text + " " + publicUrl)}`, "_blank");
       status.textContent = "SMS ouvert ✓";
@@ -3977,6 +3992,9 @@ async function loadLocal() {
     req.onerror = () => resolve([]);
   });
 }
+// Expose pour les modules lazy (idle-wall) qui ont besoin de la pool
+// photo locale sans dupliquer la logique IndexedDB.
+window.mbLoadLocal = loadLocal;
 async function setLocalServerId(localId, serverId, deleteToken = "") {
   try {
     const d = await db();
@@ -4633,6 +4651,7 @@ function waitForDeviceRole() {
     // Le module a réellement initialisé le sélecteur : le secours inline ne
     // doit plus ajouter de handlers concurrents après ce point.
     window.__mbAppBooted = true;
+    window.dispatchEvent(new Event("mb-app-booted"));
     document.querySelectorAll("#role-gate .role-option").forEach((button) => {
       button.addEventListener("click", () => {
         const role = button.dataset.role;
@@ -7676,75 +7695,9 @@ function initIdleMode() {
 }
 
 
-/* Scène de veille « Mur des photos » : anime la borne avec les vrais derniers
-   souvenirs de la soirée au lieu d'un écran d'attente statique. Se met à
-   jour à chaque entrée en veille — pas besoin de rafraîchir plus souvent,
-   la scène n'est visible que quelques secondes par cycle de rotation. */
-let _idleWallUrls = [];
-async function populateIdleWallScene() {
-  const grid = $("idle-wall-grid");
-  const countEl = $("idle-wall-count");
-  const scene = document.querySelector('.idle-scene[data-idle-scene="5"]');
-  if (!grid) return;
-  _idleWallUrls.forEach((url) => URL.revokeObjectURL(url));
-  _idleWallUrls = [];
-  let entries = [];
-  try { entries = await loadLocal(); } catch { entries = []; }
-  let photosOnly = entries.filter((entry) => entry.mediaType !== "gif" && entry.blob);
-  // Fallback serveur : si l'appareil n'a pas assez de photos locales (cas de
-  // l'iPad invité qui n'a jamais capturé), on tire depuis /api/gallery pour
-  // peupler le mur avec les vraies photos de l'événement.
-  if (photosOnly.length < 3) {
-    try {
-      const res = await fetch("/api/gallery", { cache: "no-store" });
-      if (res.ok) {
-        const body = await res.json();
-        const remoteCaptures = Array.isArray(body.captures) ? body.captures : [];
-        const remotePhotos = [];
-        for (const cap of remoteCaptures) {
-          // Préfère la variante "filtered" (plus parlante visuellement), sinon "original".
-          const variants = cap.variants || {};
-          const variantUrl = variants.filtered || variants.original;
-          if (variantUrl) remotePhotos.push({ url: variantUrl, date: cap.createdAt || 0 });
-        }
-        if (remotePhotos.length >= 3) {
-          // Remplace la pool locale par les photos serveur — on a une vraie soirée.
-          photosOnly = remotePhotos
-            .sort((a, b) => (b.date || 0) - (a.date || 0))
-            .slice(0, 5)
-            .map((p) => ({ label: "remote", blob: null, remoteUrl: p.url, date: p.date }));
-        }
-      }
-    } catch { /* serveur injoignable : on garde la pool locale */ }
-  }
-  // Préfère les variantes stylées (plus parlantes en vignette) ; si la
-  // soirée n'a que des originaux sauvegardés, on les affiche quand même.
-  const styled = photosOnly.filter((entry) => entry.label !== "Original" && entry.label !== "remote");
-  const pool = (styled.length ? styled : photosOnly).sort((a, b) => (b.date || 0) - (a.date || 0));
-  const recent = pool.slice(0, 5);
-  grid.innerHTML = "";
-  recent.forEach((entry) => {
-    const img = document.createElement("img");
-    if (entry.remoteUrl) {
-      img.src = entry.remoteUrl;
-    } else {
-      const url = URL.createObjectURL(entry.blob);
-      _idleWallUrls.push(url);
-      img.src = url;
-    }
-    img.alt = "";
-    grid.appendChild(img);
-  });
-  const total = photosOnly.length;
-  if (countEl) {
-    countEl.textContent = total === 0
-      ? "Soyez les premiers à immortaliser la soirée !"
-      : `Déjà ${total} photo${total > 1 ? "s" : ""} prise${total > 1 ? "s" : ""} ce soir`;
-  }
-  // Rien à montrer en tout début de soirée : la scène reste dans la
-  // rotation (le message d'invitation ci-dessus suffit) mais sans grille vide.
-  if (scene) scene.classList.toggle("idle-scene-wall-empty", total === 0);
-}
+/* Scène de veille « Mur des photos » : déplacée dans
+   public/js/modules/idle-wall.js (v122) — import dynamique uniquement
+   à la première entrée en veille. Voir enterIdle() plus bas. */
 function enterIdle() {
   if (!state.idleEnabled || state.counting || state.autoMode || !screens.capture.classList.contains("active")) return;
   document.body.classList.add("idle");
@@ -7780,7 +7733,17 @@ function enterIdle() {
       stage.appendChild(img);
     });
   }
-  void populateIdleWallScene();
+  // Scène Mur des photos : import dynamique — le module ne se charge
+  // qu'au premier passage en veille. Économise ~70 lignes de parse au
+  // démarrage (significatif sur tablette Huawei / iPhone).
+  if (!window.__mbIdleWallReady) {
+    window.__mbIdleWallReady = true;
+    import(`./modules/idle-wall.js?v=${window.APP_VERSION || 122}`)
+      .then((mod) => mod.populateIdleWallScene())
+      .catch(() => {});
+  } else if (typeof window.mbPopulateIdleWall === "function") {
+    window.mbPopulateIdleWall();
+  }
   clearInterval(_idlePhotosTimer);
   if (photos.length > 1) {
     let index = 0;

@@ -2357,3 +2357,166 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   v122 — Boutons de partage icônes-only (Snap/WhatsApp/Save/QR)
+   ============================================================ */
+.share-row {
+  --touch-target: 64px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--touch-target), 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.share-chip.icon-only {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  padding: 8px 6px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.18);
+  color: var(--text, #fff);
+  font-size: 11px;
+  line-height: 1.1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .14s ease, background .14s ease;
+  contain: layout style;
+}
+.share-chip.icon-only:hover { background: rgba(255,255,255,.14); }
+.share-chip.icon-only:active { transform: scale(.94); background: rgba(255,255,255,.2); }
+.share-chip.icon-only svg { display: block; }
+.share-chip-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  opacity: .85;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ============================================================
+   v122 — Tablette paysage (iPad, Huawei Tab)
+   Écran de résultat plein écran + photo agrandie en arrière-plan
+   ============================================================ */
+@media (min-width: 1024px) and (orientation: landscape) {
+  #screen-result {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 0;
+    padding: 0;
+  }
+  .result-topbar {
+    grid-column: 1 / -1;
+    height: 64px;
+    padding: 0 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(10,18,38,.85);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .result-topbar .result-title { font-size: 20px; }
+  .result-meta-card {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 12px 32px;
+    background: transparent;
+    border: 0;
+  }
+  .result-meta-card small { display: none; } /* texte redondant caché sur tablette */
+  #result-grid {
+    grid-column: 1 / 2;
+    padding: 24px 32px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 18px;
+    align-content: start;
+    max-height: calc(100dvh - 200px);
+    overflow-y: auto;
+  }
+  #result-grid img { width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 16px; }
+  .result-actions {
+    grid-column: 2 / 3;
+    grid-row: 3 / 4;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px 32px 24px 0;
+  }
+  .result-actions .result-btn { min-height: 60px; font-size: 17px; }
+  #share-box {
+    grid-column: 2 / 3;
+    grid-row: 4 / 5;
+    margin: 0 32px 32px 0;
+    padding: 20px;
+    background: rgba(10,18,38,.78);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 24px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .share-title { font-size: 18px; }
+  .share-subtitle { display: none; } /* résumé inutile sur tablette */
+  .share-row {
+    --touch-target: 80px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .share-chip.icon-only { min-width: 80px; min-height: 80px; padding: 10px 6px; border-radius: 18px; }
+  .share-chip.icon-only svg { width: 32px; height: 32px; }
+  .share-chip-label { font-size: 12px; }
+}
+
+/* ============================================================
+   v122 — iPhone portrait (compact)
+   ============================================================ */
+@media (max-width: 480px) {
+  .share-row { --touch-target: 56px; gap: 6px; }
+  .share-chip.icon-only { min-width: 56px; min-height: 56px; padding: 6px 4px; border-radius: 12px; }
+  .share-chip.icon-only svg { width: 22px; height: 22px; }
+  .share-chip-label { font-size: 9px; }
+  .share-title { font-size: 14px; }
+  .share-subtitle { display: none; }
+}
+
+/* ============================================================
+   v122 — Handshake mode Interface : feedback visuel instantané
+   Premier affichage < 500 ms (placeholder "Réception…")
+   ============================================================ */
+.remote-connecting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(20,30,55,.95), rgba(8,14,28,.95));
+  color: #fff;
+  font: 600 16px/1.2 system-ui, sans-serif;
+  text-align: center;
+  padding: 24px;
+}
+.remote-connecting-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(255,255,255,.18);
+  border-top-color: #4d8bff;
+  border-radius: 50%;
+  animation: spin .9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.remote-connecting-sub { font-size: 12px; opacity: .7; }
