@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>Momento</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a1633">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,67 +13,209 @@
 
 <link rel="manifest" href="/manifest.webmanifest">
 <!-- Icônes Apple Touch -->
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png?v=86">
-<link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png?v=86">
-<link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png?v=86">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=86">
-<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png?v=86">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png?v=121">
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png?v=121">
+<link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png?v=121">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=121">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png?v=121">
 <!-- Splash screens iOS -->
 <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12mini.png">
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=86">
+<link rel="stylesheet" href="/css/styles.css?v=121">
 </head>
-<body data-app-version="86"><!-- ⚠️ ne PAS retirer cet attribut : la porte anti-cache de app.js (APP_VERSION) s'en sert pour détecter un vieux cache SW -->
-<script>setTimeout(function(){var s=document.getElementById("app-splash");if(s){s.classList.add("done");setTimeout(function(){s.remove();},1100);}},8000);</script>
+<body data-app-version="121"><!-- v88 : sélecteur de rôle Caméra / Interface / Mixte avant toute permission -->
+<script>
+window.__mbBootStartedAt = performance.now();
+(function () {
+  /* Le choix du rôle est prioritaire : le secours caméra ne doit jamais
+     afficher/demander une caméra avant la décision de l'utilisateur. */
+  window.mbDeviceRole = "pending";
+  var recoveryKey = "mb-boot-recovery-v121";
+  var fallbackRoleBound = false;
+  var bindFallbackRoleGate = function () {
+    if (fallbackRoleBound) return;
+    var gate = document.getElementById("role-gate");
+    if (!gate) return;
+    fallbackRoleBound = true;
+    var status = document.getElementById("role-gate-status");
+    var openInterface = function () {
+      window.mbDeviceRole = "interface";
+      var video = document.getElementById("camera");
+      gate.classList.remove("open");
+      gate.setAttribute("aria-hidden", "true");
+      if (video) { video.srcObject = null; video.style.visibility = "hidden"; }
+    };
+    var openCameraOrMixed = function (role) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (status) status.textContent = "Caméra indisponible dans ce navigateur.";
+        return;
+      }
+      if (status) status.textContent = "Demande d’accès caméra…";
+      var video = document.getElementById("camera");
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false }).then(function (stream) {
+        window.mbDeviceRole = role;
+        window.__mbFallbackStream = stream;
+        if (video) { video.srcObject = stream; video.style.visibility = "visible"; video.play().catch(function () {}); }
+        gate.classList.remove("open");
+        gate.setAttribute("aria-hidden", "true");
+        var error = document.getElementById("camera-error");
+        if (error) error.classList.add("hidden");
+      }).catch(function (error) {
+        if (status) status.textContent = error && error.name === "NotAllowedError" ? "Accès refusé : autorisez la caméra puis réessayez." : "Impossible d’ouvrir la caméra.";
+      });
+    };
+    // Secours inline : un seul toucher suffit, comme dans le parcours normal
+    // — pas de bouton « Continuer » séparé à côté du choix du rôle.
+    gate.querySelectorAll(".role-option").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var role = button.getAttribute("data-role") === "camera" || button.getAttribute("data-role") === "interface" ? button.getAttribute("data-role") : "mixed";
+        gate.querySelectorAll(".role-option").forEach(function (b) {
+          var active = b === button;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-checked", String(active));
+        });
+        if (role === "interface") openInterface(); else openCameraOrMixed(role);
+      });
+    });
+  };
+  var splashFallback = function () {
+    var s = document.getElementById("app-splash");
+    if (s) { s.classList.add("done"); setTimeout(function () { s.remove(); }, 900); }
+    /* Si le module principal est bloqué, le sélecteur reste récupérable. */
+    if (window.mbDeviceRole === "pending" && !window.__mbAppBooted) {
+      var gate = document.getElementById("role-gate");
+      if (gate) {
+        gate.classList.add("open");
+        gate.setAttribute("aria-hidden", "false");
+        bindFallbackRoleGate();
+      }
+      return;
+    }
+    var video = document.getElementById("camera");
+    var error = document.getElementById("camera-error");
+    if (error && !(video && video.srcObject && video.videoWidth > 0 && video.srcObject.getVideoTracks && video.srcObject.getVideoTracks().some(function (track) { return track.readyState === "live"; })) && (window.mbDeviceRole === "camera" || window.mbDeviceRole === "mixed")) {
+      error.classList.remove("hidden");
+      error.setAttribute("aria-hidden", "false");
+      var title = error.querySelector(".camera-error-title");
+      var text = error.querySelector(".camera-error-text");
+      var button = document.getElementById("btn-retry-camera");
+      if (title) title.textContent = "Caméra à activer";
+      if (text) text.textContent = "Touchez le bouton pour demander l'accès caméra. Si rien ne s'ouvre : autorisez la caméra pour ce site dans Réglages Safari.";
+      if (button) { button.hidden = false; button.disabled = false; button.textContent = "📷 Activer la caméra"; }
+    }
+  };
+  /* iOS peut conserver un ancien contrôleur SW même après un nouveau Modal deploy.
+     On purge une seule fois puis recharge l'URL réseau avec un cache-bust. */
+  try {
+    if ("serviceWorker" in navigator && !sessionStorage.getItem(recoveryKey)) {
+      sessionStorage.setItem(recoveryKey, "1");
+      Promise.all([
+        navigator.serviceWorker.getRegistrations().then(function (regs) { return Promise.all(regs.map(function (r) { return r.unregister(); })); }),
+        "caches" in window ? caches.keys().then(function (keys) { return Promise.all(keys.map(function (key) { return caches.delete(key); })); }) : Promise.resolve()
+      ]).then(function () {
+        var u = new URL(location.href);
+        u.searchParams.set("mb-recover", "121");
+        location.replace(u.toString());
+      }).catch(function () {
+        try { sessionStorage.removeItem(recoveryKey); } catch (_) {}
+        splashFallback();
+      });
+    }
+  } catch (e) {
+    try { sessionStorage.removeItem(recoveryKey); } catch (_) {}
+    splashFallback();
+  }
+  /* Même si un module est bloqué, le contenu ne doit jamais rester sous un rideau. */
+  window.setTimeout(splashFallback, 4500);
+  window.addEventListener("error", splashFallback, { once: true });
+  window.addEventListener("unhandledrejection", splashFallback, { once: true });
+})();
+</script>  <!-- ═════════ SÉLECTION DU RÔLE AU DÉMARRAGE ═════════ -->
+  <section id="role-gate" class="role-gate" aria-hidden="true" aria-labelledby="role-gate-title">
+    <div class="role-card" role="dialog" aria-modal="true">
+      <div class="role-brandline"><span class="role-kicker">By Hope</span><span class="role-signature">By l-vs</span></div>
+      <div class="role-mark" aria-hidden="true">✦</div>
+      <h1 id="role-gate-title">Votre borne, votre moment</h1>
+      <p class="role-intro">Choisissez le rôle de cet appareil. Vous pourrez le modifier plus tard dans les paramètres.</p>
+      <div class="role-options" role="radiogroup" aria-label="Rôle de l'appareil">
+        <button type="button" class="role-option" data-role="camera" role="radio" aria-checked="false">
+          <span class="role-option-icon" aria-hidden="true">📷</span>
+          <span><strong>Caméra</strong><small>Filme avec cet appareil.</small></span>
+        </button>
+        <button type="button" class="role-option" data-role="interface" role="radio" aria-checked="false">
+          <span class="role-option-icon" aria-hidden="true">🖥️</span>
+          <span><strong>Interface</strong><small>Contrôle le photobooth.</small></span>
+        </button>
+        <button type="button" class="role-option" data-role="mixed" role="radio" aria-checked="false">
+          <span class="role-option-icon" aria-hidden="true">✨</span>
+          <span><strong>Mixte</strong><small>Filme et contrôle ici.</small></span>
+        </button>
+      </div>
+      <div id="role-remote-fields" class="role-remote-fields hidden">
+        <div id="role-camera-list-wrap" class="role-camera-list-wrap">
+          <div class="role-list-label">📱 Caméras disponibles</div>
+          <div id="role-camera-list" class="role-camera-list" role="list" aria-label="Caméras disponibles" aria-live="polite"></div>
+        </div>
+        <div class="role-divider"><span>ou avec un code</span></div>
+        <label for="role-remote-token">Ou entrez le code affiché sur la caméra</label>
+        <div class="role-token-row">
+          <input id="role-remote-token" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="8" placeholder="Ex. 7K4M2Q">
+          <button id="role-paste-token" type="button" class="role-small-btn">Coller</button>
+        </div>
+      </div>
+      <p id="role-gate-status" class="role-gate-status" aria-live="polite"></p>
+      <label class="role-remember"><input id="role-remember" type="checkbox" checked> <span>Mémoriser</span></label>
+      <button id="btn-customize-access" type="button" class="role-customize-access">Personnaliser l’interface</button>
+    </div>
+  </section>
 
-<!-- ═════════ PORTRAIL DE RÔLE (P0 du cahier des charges) ═════════
-     Premier écran visible au chargement, sauf si un rôle est déjà mémorisé.
-     Toucher une carte ouvre directement le mode correspondant (1 seul toucher,
-     pas de bouton "Continuer" séparé). -->
-<main id="screen-role" class="screen screen-role active" aria-labelledby="role-title">
-  <div class="role-card">
-    <h1 id="role-title" class="role-title">MomentoBooth</h1>
-    <p class="role-sub">Choisissez votre mode</p>
-    <div class="role-grid">
-      <button class="role-tile" data-role="camera" type="button" aria-describedby="role-camera-desc">
-        <span class="role-tile-emoji" aria-hidden="true">📷</span>
-        <span class="role-tile-name">Caméra</span>
-        <span class="role-tile-desc" id="role-camera-desc">Je filme, je ne touche à rien d'autre.</span>
-      </button>
-      <button class="role-tile" data-role="interface" type="button" aria-describedby="role-interface-desc">
-        <span class="role-tile-emoji" aria-hidden="true">🎛️</span>
-        <span class="role-tile-name">Interface</span>
-        <span class="role-tile-desc" id="role-interface-desc">Je reçois le flux d'un iPhone et je commande la borne.</span>
-      </button>
-      <button class="role-tile" data-role="mixed" type="button" aria-describedby="role-mixed-desc">
-        <span class="role-tile-emoji" aria-hidden="true">🎉</span>
-        <span class="role-tile-name">Mixte</span>
-        <span class="role-tile-desc" id="role-mixed-desc">Tout-en-un : je filme et je commande depuis cet écran.</span>
+  <main id="screen-capture" class="screen active">
+  <div id="capture-loading-overlay" class="mb-loading-overlay" aria-hidden="true"><div class="mb-spinner large" role="status" aria-label="Traitement en cours"></div><span>Traitement…</span></div>
+
+  <!-- ═════════ ÉCRAN CAPTURE ═════════ -->
+  <!-- En-tête unifiée de l'écran capture -->
+  <header class="capture-header">
+    <div class="brand-lockup" aria-label="MomentoBooth par By Hope">
+      <strong>Momento<span>Booth</span></strong>
+      <small>by Hope</small>
+    </div>
+
+    <div id="tablet-qr-access" class="tablet-qr-access" aria-live="polite">
+      <button id="tablet-qr-open" type="button" aria-label="Ouvrir la galerie invités">
+        <img id="tablet-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code pour accéder à la galerie">
+        <span>Galerie invités&nbsp;↗</span>
       </button>
     </div>
-    <p class="role-footnote">Un seul toucher suffit — vous pourrez changer de mode depuis les paramètres plus tard.</p>
-  </div>
-</main>
 
-<!-- ═════════ ÉCRAN CAPTURE ═════════ -->
-<main id="screen-capture" class="screen">
+    <button id="btn-fx-top" class="fx-top-btn" aria-label="Ouvrir Effets" aria-controls="fx-panel" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5.5z" opacity="0.8"/><path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z" opacity="0.8"/></svg>
+      <span>Effets</span>
+    </button>
 
-  <!-- Accès principal aux accessoires et animations -->
-  <button id="btn-fx-top" class="fx-top-btn" aria-label="Ouvrir Effets" aria-controls="fx-panel" aria-expanded="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z" fill="currentColor"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9L18.5 21l-.9-2.6-2.6-.9z" fill="currentColor" opacity=".78"/></svg>
-    <span>Effets</span>
-  </button>
+    <button id="btn-gallery-top" class="gallery-top-btn" type="button" aria-label="Ouvrir la galerie">
+      <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+      <span>Galerie</span>
+    </button>
+  </header>
 
   <!-- Carrousel vertical des filtres photo : uniquement les filtres d'image -->
   <div class="window-stack filter-rail" id="photo-filter-rail" aria-label="Filtres photo rapides">
     <div class="rail-caption">PHOTO</div>
+    <video id="filter-wheel-live" class="filter-wheel-live" autoplay playsinline muted aria-hidden="true"></video>
     <div id="photo-filter-rail-list" class="filter-rail-list"></div>
   </div>
 
   <!-- Indicateur mode AUTO -->
   <div id="auto-status" class="auto-status hidden"><span class="auto-dot"></span><span id="auto-status-text">Détection en cours…</span></div>
+  <!-- Mode Caméra : aperçu épuré + code si nécessaire. -->
+  <div id="camera-monitor-controls" class="camera-monitor-controls" aria-live="polite">
+    <div id="camera-monitor-badge" class="camera-monitor-badge hidden" data-state="waiting"><span class="camera-monitor-dot"></span><span id="camera-monitor-status"></span></div>
+    <strong id="camera-pair-code" class="camera-pair-code"></strong>
+    <div class="camera-pair-hint" id="camera-pair-hint">Entrez ce code sur l'écran Interface</div>
+    <button id="btn-camera-stop" type="button" class="camera-stop-btn">Arrêter</button>
+  </div>
 
   <!-- Zone caméra -->
   <div id="camera-zone" class="camera-zone">
@@ -84,9 +226,9 @@
   <!-- Écran erreur caméra (au lieu d'un écran noir silencieux) -->
   <div id="camera-error" class="camera-error hidden">
     <div class="camera-error-icon">📷</div>
-    <div class="camera-error-title">Caméra indisponible</div>
-    <div class="camera-error-text">Autorisez l'accès à la caméra dans Safari : Réglages &gt; Safari &gt; Caméra, puis rechargez.</div>
-    <button id="btn-retry-camera" class="result-btn primary">🔄 Réessayer</button>
+    <div class="camera-error-title">Caméra à activer</div>
+    <div class="camera-error-text">Touchez le bouton pour demander l'accès caméra. Si la demande n'apparaît pas : Réglages &gt; Safari &gt; Caméra.</div>
+    <button id="btn-retry-camera" class="result-btn primary" type="button">📷 Activer la caméra</button>
   </div>
 
   <!-- Flash -->
@@ -122,65 +264,98 @@
   <div id="countdown" class="countdown hidden">
     <div class="countdown-ring"><span id="countdown-number" class="countdown-number">5</span><span id="countdown-pause" class="countdown-pause hidden">⏸</span></div>
     <div class="countdown-hint">Touchez pour mettre en pause</div>
+    <button id="countdown-cancel" class="countdown-cancel" type="button" aria-label="Annuler le compte à rebours" title="Annuler">
+      <span aria-hidden="true">×</span><small>Annuler</small>
+    </button>
   </div>
 
   <!-- Tutoriel swipe : animation fournie par l'utilisateur + fenêtres qui reviennent -->
   <div id="swipe-tuto" class="swipe-tuto" aria-hidden="true">
-    <img class="tuto-swipe-animation" src="/img/idle-swipe.gif?v=86" alt="Animation : balayez l'écran pour changer de filtre">
-    <div class="tuto-hand" aria-hidden="true"><img src="/img/tuto-swipe-1.png?v=86" alt=""><img class="f2" src="/img/tuto-swipe-2.png?v=86" alt=""></div>
+    <img class="tuto-swipe-animation" src="/img/idle-swipe.gif?v=121" alt="Animation : balayez l'écran pour changer de filtre">
+    <div class="tuto-hand" aria-hidden="true"><img src="/img/tuto-swipe-1.png?v=121" alt=""><img class="f2" src="/img/tuto-swipe-2.png?v=121" alt=""></div>
     <div class="tuto-text">Swipez pour changer de filtre</div>
   </div>
 
   <!-- Veille : plusieurs écrans d'accueil tournants, caméra floutée et heure -->
   <div id="idle-overlay" class="idle-overlay" aria-hidden="true">
+    <div id="idle-photos-stage" class="idle-photos-stage" aria-hidden="true"></div>
     <div class="idle-card">
       <div class="idle-scenes" aria-live="polite">
         <section class="idle-scene active" data-idle-scene="0">
           <div class="idle-party-orb" aria-hidden="true"><span>🪩</span></div>
-          <img class="idle-click-animation" src="/img/idle-click.gif?v=86" alt="Animation : touchez l'écran" aria-hidden="true">
+                  <img class="idle-click-animation" src="/img/idle-click.gif?v=121" alt="Animation : touchez l'écran" aria-hidden="true">
           <div class="idle-title">Profiter, c'est la fête !</div>
           <div class="idle-sub idle-party-copy">Je suis là — c'est l'heure de danser !!!</div>
-          <div class="idle-tap"><span class="idle-cam">📷</span></div>
+          <div class="idle-tap"><img class="idle-click-visual" src="/img/idle-click.gif?v=121" alt="Animation de clic" aria-hidden="true"></div>
           <div class="idle-cta">Touchez pour prendre une photo</div>
         </section>
         <section class="idle-scene" data-idle-scene="1" aria-hidden="true">
-          <div class="idle-scene-icon gradient-icon" aria-hidden="true">✨</div>
+          <img class="idle-scene-click-visual" src="/img/idle-click.gif?v=121" alt="Animation de clic" aria-hidden="true">
           <div class="idle-title">Votre moment vous attend</div>
           <div class="idle-sub idle-party-copy">Un souvenir, une pose, une belle histoire.</div>
           <div class="idle-scene-prompt"><span>✦</span><span>✦</span><span>✦</span></div>
           <div class="idle-cta">Touchez pour commencer</div>
         </section>
         <section class="idle-scene" data-idle-scene="2" aria-hidden="true">
-          <div class="idle-style-orbit" aria-hidden="true"><span>🎨</span><i>✦</i><b>◌</b></div>
+          <img class="idle-scene-click-visual" src="/img/idle-click.gif?v=121" alt="Animation de clic" aria-hidden="true">
           <div class="idle-title">Trouvez votre style</div>
           <div class="idle-sub idle-party-copy">Filtres photo, accessoires et animations vous attendent.</div>
           <div class="idle-style-pills" aria-hidden="true"><span>Vif</span><span>Vintage</span><span>✨</span></div>
           <div class="idle-cta">Touchez pour explorer</div>
         </section>
         <section class="idle-scene" data-idle-scene="3" aria-hidden="true">
-          <div class="idle-ready-mark" aria-hidden="true"><span>✓</span></div>
+          <img class="idle-scene-click-visual" src="/img/idle-click.gif?v=121" alt="Animation de clic" aria-hidden="true">
           <div class="idle-title">Prêt pour un souvenir ?</div>
           <div class="idle-sub idle-party-copy">La caméra se réveille en un toucher.</div>
-          <div class="idle-tap idle-tap-small"><span class="idle-cam">📸</span></div>
-          <div class="idle-cta">Touchez pour vous prendre en photo</div>
+          <div class="idle-tap idle-tap-small"><img class="idle-click-visual" src="/img/idle-click.gif?v=121" alt="Animation de clic" aria-hidden="true"></div>
+          <div class="idle-cta">Cliquer pour vous prendre en photo</div>
+        </section>
+        <section class="idle-scene idle-scene-faces" data-idle-scene="4" aria-hidden="true">
+          <div class="idle-faces-stage" aria-hidden="true">
+            <div class="idle-face-bubble bubble-kenza"><img src="/assets/faces/kenza.png?v=121" alt=""><span>Kenza</span></div>
+            <div class="idle-face-bubble bubble-lilou"><img src="/assets/faces/lilou.jpg?v=121" alt=""><span>Lilou</span></div>
+            <div class="idle-face-spark" aria-hidden="true">✦</div>
+          </div>
+          <div class="idle-title">Les hôtes vous regardent ✨</div>
+          <div class="idle-sub idle-party-copy">Kenza &amp; Lilou — posez, c'est l'instant souvenir !</div>
+          <div class="idle-cta">Touchez pour prendre une photo</div>
+        </section>
+        <section class="idle-scene idle-scene-wall" data-idle-scene="5" aria-hidden="true">
+          <div id="idle-wall-grid" class="idle-wall-grid" aria-hidden="true"></div>
+          <div class="idle-title">Déjà de beaux souvenirs ✨</div>
+          <div class="idle-sub idle-party-copy" id="idle-wall-count">Les premières photos de la soirée</div>
+          <div class="idle-cta">Touchez pour ajouter la vôtre</div>
         </section>
       </div>
       <div id="idle-clock" class="idle-clock">--:--</div>
-      <div class="idle-scene-dots" aria-hidden="true"><i class="active"></i><i></i><i></i><i></i></div>
+      <div class="idle-scene-dots" aria-hidden="true"><i class="active"></i><i></i><i></i><i></i><i></i><i></i></div>
     </div>
   </div>
-</div>
+
+  <!-- Barre outils bas -->
   <div class="bottom-bar">
-    <button id="btn-auto" class="tool-btn auto-btn" aria-label="Capture automatique"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>
-    <button id="btn-backdrop" class="tool-btn" aria-label="Fond"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 11l-8.5 8.5a2.1 2.1 0 0 1-3 0L3.6 15.6a2.1 2.1 0 0 1 0-3L12 4"/><path d="M15.5 6.5 20 11"/><path d="M2.5 15h15"/><path d="M21 17.3c0 1.2-1 2.2-2.2 2.2s-2.3-1-2.3-2.2c0-1.2 1.1-2.6 2.3-3.5 1.2.9 2.2 2.3 2.2 3.5z"/></svg></button>
-    <button id="btn-flip" class="tool-btn" aria-label="Retourner"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M4 7h10a4 4 0 0 1 0 8H4M8 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
-    <button id="btn-settings" class="tool-btn" aria-label="Paramètres"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M12 2.8l1.2 2.4 2.6-.7 1.2 2.4 2.6.5-.4 2.6 2 1.8-1.5 2.2 1 2.4-2.5 1-.3 2.6-2.6-.3-1.7 2-2-1.2-2.4 1-1.3-2.3-2.5.2-.6-2.6-2.3-.9 1.2-2.3-1.9-1.7 1.8-1.9-.3-2.6 2.5-.6.4-2.6 2.4.5 1.5-2.2z" fill="none" stroke="currentColor" stroke-width="1.4" transform="rotate(0 12 12)"/></svg></button>
-    <button id="btn-gallery" class="tool-btn" aria-label="Galerie"><svg viewBox="0 0 24 24" width="26" height="26"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-4 3 3 4-4 4 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <button id="btn-auto" class="tool-btn auto-btn" aria-label="Capture automatique">
+      <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+    </button>
+    <button id="btn-backdrop" class="tool-btn" aria-label="Choisir un fond" aria-controls="sheet-backdrop" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 11l-8.5 8.5a2.1 2.1 0 0 1-3 0L3.6 15.6a2.1 2.1 0 0 1 0-3L12 4"/><path d="M15.5 6.5 20 11"/><path d="M2.5 15h15"/><path d="M21 17.3c0 1.2-1 2.2-2.2 2.2s-2.3-1-2.3-2.2c0-1.2 1.1-2.6 2.3-3.5 1.2.9 2.2 2.3 2.2 3.5z"/></svg>
+    </button>
+
+    <button id="btn-shutter" class="shutter-btn" aria-label="Prendre une photo">
+      <div class="shutter-btn-inner"></div>
+    </button>
+
+    <button id="btn-timer-trigger" class="tool-btn" aria-label="Régler le minuteur" aria-controls="sheet-timer" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    </button>
+    <button id="btn-settings" class="tool-btn" aria-label="Ouvrir les paramètres" aria-controls="sheet-settings" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M12 2.8l1.2 2.4 2.6-.7 1.2 2.4 2.6.5-.4 2.6 2 1.8-1.5 2.2 1 2.4-2.5 1-.3 2.6-2.6-.3-1.7 2-2-1.2-2.4 1-1.3-2.3-2.5.2-.6-2.6-2.3-.9 1.2-2.3-1.9-1.7 1.8-1.9-.3-2.6 2.5-.6.4-2.6 2.4.5 1.5-2.2z" fill="none" stroke="currentColor" stroke-width="1.4" transform="rotate(0 12 12)"/></svg>
+    </button>
   </div>
 
   <!-- Sheet minuteur + nombre de photos -->
-  <div id="sheet-timer" class="sheet sheet-timer">
-    <div class="sheet-head">⏱️ Capture<span id="timer-close" class="sheet-close">✕</span></div>
+  <div id="sheet-timer" class="sheet sheet-timer" role="dialog" aria-modal="true" aria-labelledby="sheet-timer-title" aria-hidden="true">
+    <div class="sheet-head"><span id="sheet-timer-title">⏱️ Capture</span><button id="timer-close" type="button" class="sheet-close" aria-label="Fermer le minuteur">✕</button></div>
     <div class="capture-choice-label">Délai avant la prise</div>
     <div id="timer-options" class="timer-options big"></div>
     <div class="capture-choice-label">Nombre de prises</div>
@@ -190,8 +365,8 @@
   </div>
 
   <!-- Sheet cadres anniversaire -->
-  <div id="sheet-frames" class="sheet">
-    <div class="sheet-head">🎂 Cadres anniversaire<span class="sheet-close">✕</span></div>
+  <div id="sheet-frames" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-frames-title" aria-hidden="true">
+    <div class="sheet-head"><span id="sheet-frames-title">🎂 Cadres anniversaire</span><button type="button" class="sheet-close" aria-label="Fermer les cadres">✕</button></div>
     <div id="frame-options" class="frame-options"></div>
     <div class="frame-text-edit">
       <input id="frame-text-1" type="text" maxlength="22" placeholder="Titre ligne 1 (ex. 18 ANS)">
@@ -202,66 +377,100 @@
   </div>
 
   <!-- Sheet fond -->
-  <div id="sheet-backdrop" class="sheet">
-    <div class="sheet-head">🎨 Fond<span class="sheet-close">✕</span></div>
+  <div id="sheet-backdrop" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-backdrop-title" aria-hidden="true">
+    <div class="sheet-head"><span id="sheet-backdrop-title">🎨 Fond</span><button type="button" class="sheet-close" aria-label="Fermer le choix du fond">✕</button></div>
     <div id="backdrop-options" class="backdrop-options"></div>
-    <button id="btn-frames" class="upload-fond">🎂 Cadres anniversaire</button>
+    <button id="btn-frames" class="upload-fond" type="button" aria-controls="sheet-frames" aria-expanded="false">🎂 Cadres anniversaire</button>
     <label class="upload-fond">🖼️ Choisir une image<input id="backdrop-file" type="file" accept="image/*"></label>
     <div class="chroma-toggle"><input id="chroma-check" type="checkbox"><label for="chroma-check">Fond vert magique (chroma)</label></div>
   </div>
 
   <!-- Sheet paramètres avancés -->
-  <div id="sheet-settings" class="sheet">
-    <div class="sheet-head">⚙️ Paramètres<span class="sheet-close">✕</span></div>
-    <div class="settings-group" data-group="role">
-      <button type="button" class="settings-group-title" aria-expanded="true"><span>Mode de la borne</span><i class="group-chevron" aria-hidden="true">▾</i></button>
-      <div class="settings-row"><span>Mode actuel<small class="row-sub" id="role-current-label">Mixte</small></span><button id="btn-change-role" class="mini-btn primary">Changer</button></div>
-    </div>
+  <div id="sheet-settings" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-settings-title" aria-hidden="true">
+    <div class="sheet-head"><span id="sheet-settings-title">⚙️ Paramètres</span><button type="button" class="sheet-close" aria-label="Fermer les paramètres">✕</button></div>
     <div class="settings-group" data-group="photo"><button type="button" class="settings-group-title" aria-expanded="true"><span>Photo</span><i class="group-chevron" aria-hidden="true">▾</i></button>
-      <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox"><span class="slider"></span></label></div>
-      <div class="settings-row"><span>Rafale Flash+<small class="row-sub">flash blanc + meilleure prise auto</small></span><label class="switch"><input id="set-burst" type="checkbox"><span class="slider"></span></label></div>
-      <div class="settings-row"><span>Qualité maximale<small class="row-sub">4K si l'appareil le permet</small></span><label class="switch"><input id="set-quality" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Mode portrait (flou)</span><label class="switch"><input id="set-portrait" type="checkbox" aria-label="Activer le mode portrait"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Rafale Flash+<small class="row-sub">flash blanc + meilleure prise auto</small></span><label class="switch"><input id="set-burst" type="checkbox" aria-label="Activer la rafale Flash plus"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Qualité maximale<small class="row-sub">4K si l'appareil le permet</small></span><label class="switch"><input id="set-quality" type="checkbox" aria-label="Activer la qualité maximale"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Logo MomentoBooth<small class="row-sub">ajouter le logo sur les photos exportées</small></span><label class="switch"><input id="set-logo" type="checkbox" aria-label="Ajouter le logo MomentoBooth aux photos"><span class="slider"></span></label></div>
       <div class="settings-row"><span>Mode thermique<small class="row-sub">Éco recommandé pour éviter la chauffe</small></span><select id="set-performance" aria-label="Mode thermique"><option value="eco">Éco — 720p</option><option value="balanced">Équilibré — 1080p</option><option value="max">Max</option></select></div>
     </div>
     <div class="settings-group" data-group="camera"><button type="button" class="settings-group-title" aria-expanded="true"><span>Caméra</span><i class="group-chevron" aria-hidden="true">▾</i></button>
       <div class="settings-row"><span>Objectif</span><div id="lens-options" class="lens-options"></div></div>
       <div class="settings-row"><span>Flash<small class="row-sub">Auto : torche si dispo, sinon bord lumineux</small></span><div id="flash-modes" class="segmented"><button data-flash="on" class="active">On</button><button data-flash="auto">Auto</button><button data-flash="off">Off</button></div></div>
-      <div class="settings-row"><span>Track visage<small class="row-sub">cadre + accessoires</small></span><label class="switch"><input id="set-track" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Track visage<small class="row-sub">cadre + accessoires</small></span><label class="switch"><input id="set-track" type="checkbox" aria-label="Activer le suivi du visage"><span class="slider"></span></label></div>
     </div>
     <div class="settings-group collapsed" data-group="idle"><button type="button" class="settings-group-title" aria-expanded="false"><span>Veille &amp; auto</span><i class="group-chevron" aria-hidden="true">▾</i></button>
-      <div class="settings-row"><span>Veille / accueil<small class="row-sub">écrans d'accueil animés</small></span><label class="switch"><input id="set-idle" type="checkbox"><span class="slider"></span></label></div>
-      <div class="settings-row"><span>Réveil par visage<small class="row-sub">nécessite veille + track</small></span><label class="switch"><input id="set-idle-face" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Veille / accueil<small class="row-sub">écrans d'accueil animés</small></span><label class="switch"><input id="set-idle" type="checkbox" aria-label="Activer la veille et l’accueil"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Réveil par visage<small class="row-sub">nécessite veille + track</small></span><label class="switch"><input id="set-idle-face" type="checkbox" aria-label="Activer le réveil par visage"><span class="slider"></span></label></div>
       <div class="settings-row"><span>Délai AUTO<small class="row-sub">stabilité avant la prise auto</small></span><div id="auto-delay-modes" class="segmented"><button data-delay="0.5">0,5 s</button><button data-delay="1.5" class="active">1,5 s</button><button data-delay="3">3 s</button></div></div>
     </div>
     <div class="settings-group collapsed" data-group="fx"><button type="button" class="settings-group-title" aria-expanded="false"><span>Effets &amp; vie privée</span><i class="group-chevron" aria-hidden="true">▾</i></button>
-      <div class="settings-row"><span>Contour basse lumière<small class="row-sub">anneau lumineux si scène sombre</small></span><label class="switch"><input id="set-light-frame" type="checkbox"><span class="slider"></span></label></div>
-      <div class="settings-row"><span>Préfilmage moments<small class="row-sub">séquences avant la photo</small></span><label class="switch"><input id="set-preroll" type="checkbox"><span class="slider"></span></label></div>
-      <div class="settings-row"><span>Bulle « Vous êtes filmé »<small class="row-sub">message si détection</small></span><label class="switch"><input id="set-film-bubble" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Contour basse lumière<small class="row-sub">anneau lumineux si scène sombre</small></span><label class="switch"><input id="set-light-frame" type="checkbox" aria-label="Activer le contour basse lumière"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Préfilmage moments<small class="row-sub">séquences avant la photo</small></span><label class="switch"><input id="set-preroll" type="checkbox" aria-label="Activer le préfilmage des moments"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Bulle « Vous êtes filmé »<small class="row-sub">message si détection</small></span><label class="switch"><input id="set-film-bubble" type="checkbox" aria-label="Afficher la bulle vous êtes filmé"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Emojis par visage 😜<small class="row-sub">rigolo TikTok — analyse serveur, stable par personne</small></span><label class="switch"><input id="set-emoji-faces" type="checkbox" aria-label="Afficher les emojis par visage"><span class="slider"></span></label></div>
     </div>
     <div class="settings-group collapsed" data-group="clean"><button type="button" class="settings-group-title" aria-expanded="false"><span>Nettoyage</span><i class="group-chevron" aria-hidden="true">▾</i></button>
       <div class="settings-row"><span>Désactiver le fond</span><button id="btn-clear-backdrop" class="mini-btn">Retirer</button></div>
-      <div class="settings-row"><span>Supprimer les photos</span><label class="switch"><input id="set-delete" type="checkbox"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Supprimer les photos<small class="row-sub">bouton 🗑️ dans la galerie, code organisateur requis</small></span><label class="switch"><input id="set-delete" type="checkbox" aria-label="Autoriser la suppression des photos"><span class="slider"></span></label></div>
     </div>
-    <div class="settings-group collapsed" data-group="remote"><button type="button" class="settings-group-title" aria-expanded="false"><span>Camera deportee</span><i class="group-chevron" aria-hidden="true">▾</i></button>
-      <div class="settings-row"><span>Diffuser ma camera<small class="row-sub">iPhone envoie son flux</small></span><label class="switch"><input id="set-remote-camera" type="checkbox"><span class="slider"></span></label></div>
-      <div class="settings-row" id="remote-token-row" style="display:none"><span>Token<small class="row-sub">Afficher sur la tablette</small></span><input id="remote-token-display" type="text" readonly class="mini-input"><button id="btn-remote-qr" class="mini-btn">QR</button></div>
-      <div class="settings-row" id="remote-qr-row" style="display:none"><img id="remote-qr-img" alt="QR camera deportee" style="max-width:160px;border-radius:12px"></div>
-      <div class="settings-row"><span>Utiliser camera distante<small class="row-sub">Connecter un iPad a un iPhone camera</small></span><input id="remote-connect-token" type="text" placeholder="Token" class="mini-input"><button id="btn-remote-connect" class="mini-btn primary">Connecter</button></div>
-      <div class="settings-row" id="remote-controller-status" style="display:none"><span id="remote-status-text">Connecte...</span><button id="btn-remote-disconnect" class="mini-btn">Deconnecter</button></div>
+    <div class="settings-group collapsed" data-group="remote"><button type="button" class="settings-group-title" aria-expanded="false"><span>Appareils</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Rôle de cet appareil<small id="device-role-status" class="row-sub hidden" aria-live="polite"></small></span><div class="settings-row-right"><span id="settings-device-role" class="settings-value"></span><div class="segmented"><button data-device-role="camera">Caméra</button><button data-device-role="interface">Interface</button><button data-device-role="mixed" class="active">Mixte</button></div></div></div>
+      <div class="settings-row"><span>Nom de cet appareil<small class="row-sub">visible sur les autres écrans</small></span><input id="device-name-input" type="text" maxlength="40" placeholder="iPhone de Léa" class="mini-input" aria-label="Nom de cet appareil"></div>
+      <div class="settings-row"><span>Partager cette caméra<small class="row-sub">la rendre visible pour une Interface</small></span><label class="switch"><input id="set-remote-camera" type="checkbox" aria-label="Partager cette caméra avec une Interface"><span class="slider"></span></label></div>
+      <div class="settings-row"><span>Caméras détectées</span><div id="settings-camera-list" class="settings-camera-list"></div></div>
+      <div class="settings-row" id="remote-token-row" style="display:none"><span>Code</span><input id="remote-token-display" type="text" readonly class="mini-input" aria-label="Code"><button id="btn-remote-qr" class="mini-btn">QR</button></div>
+      <div class="settings-row" id="remote-qr-row" style="display:none"><img id="remote-qr-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR" style="max-width:160px;border-radius:12px"></div>
+      <div class="settings-row"><span>Rejoindre une caméra<small class="row-sub">code affiché sur la borne caméra</small></span><input id="remote-connect-token" type="text" maxlength="8" inputmode="text" placeholder="Code" class="mini-input" aria-label="Code de la caméra"><button id="btn-remote-connect" class="mini-btn primary">OK</button></div>
+      <div class="settings-row" id="remote-controller-status" style="display:none"><span id="remote-status-text" role="status" aria-live="polite"></span><button id="btn-remote-disconnect" class="mini-btn">Déconnecter</button></div>
     </div>
-    <div class="sheet-sub">Le mode portrait prend une photo + un flou + un GIF anime</div>
-    <div class="sheet-sub">Le mode portrait prend une photo + un flou + un GIF animé</div>
+    <div class="settings-group collapsed" data-group="appearance"><button type="button" class="settings-group-title" aria-expanded="false"><span>Apparence</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Identité<small class="row-sub">MomentoBooth · By Hope · By l-vs</small></span><span class="settings-value">Premium</span></div>
+      <div class="settings-row"><span>Animations<small class="row-sub">respecte les préférences du système</small></span><span class="settings-value">Fluides</span></div>
+      <div class="settings-row" id="donation-setting-row"><span>Soutenir By l-vs<small class="row-sub">option disponible selon la configuration</small></span><button id="btn-open-donation" class="mini-btn" type="button" hidden>Voir</button></div>
+    </div>
+    <div class="settings-group collapsed" data-group="advanced"><button type="button" class="settings-group-title" aria-expanded="false"><span>Avancé &amp; diagnostic</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>État PWA<small id="pwa-mode-detail" class="row-sub">Détection en cours…</small></span><span id="pwa-mode-status" class="settings-value">—</span></div>
+      <div class="settings-row"><span>Installer Momento<small class="row-sub">disponible si le navigateur le permet</small></span><button id="btn-install-pwa" class="mini-btn" type="button" hidden>Installer</button></div>
+      <div class="settings-row"><span>Diagnostic local<small class="row-sub">version, caméra, réseau et télémétrie</small></span><span class="settings-actions"><button id="btn-copy-diagnostic" class="mini-btn" type="button">Copier</button><button id="btn-download-diagnostic" class="mini-btn" type="button">Exporter</button></span></div>
+      <div id="diagnostic-status" class="settings-diagnostic-status" aria-live="polite"></div>
+      <div class="settings-row debug-mode-row"><span>Mode debug critique<small class="row-sub">états, timestamps et ressources — désactivé par défaut</small></span><label class="switch"><input id="set-debug-mode" type="checkbox" aria-label="Activer le mode debug critique"><span class="slider"></span></label></div>
+      <pre id="debug-panel" class="debug-panel" aria-live="polite" hidden></pre>
+    </div>
+    <div class="settings-group collapsed" data-group="pranks"><button type="button" class="settings-group-title" aria-expanded="false"><span>Trolls à distance 🎭</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row"><span>Écran cassé factice<small class="row-sub">la caméra affiche un bug, un toucher ferme</small></span><button id="btn-prank-bug" class="mini-btn" type="button">Lancer 🚨</button></div>
+      <div class="settings-row"><span>Texte plein écran<small class="row-sub">apparaît en flou puis grossit</small></span><input id="prank-text-input" type="text" maxlength="80" placeholder="Ex. SURPRISE ! 🎉" class="mini-input" aria-label="Texte du troll"></div>
+      <div class="settings-row"><span></span><button id="btn-prank-text" class="mini-btn primary" type="button">Afficher sur la caméra</button></div>
+      <div class="settings-row"><span>Envoyer un son<small class="row-sub">récupéré de MyInstants</small></span><input id="prank-sound-url" type="url" placeholder="URL .mp3" class="mini-input" aria-label="URL du son"><button id="btn-prank-sound" class="mini-btn" type="button">Jouer 🔊</button></div>
+    </div>
+
   </div>
 
 </main>
 
-<!-- ═════════ SPLASH : logo sur fond assorti au logo, puis fondu ═════════ -->
+<!-- ═════════ SPLASH : signature By Hope → By l-vs ═════════ -->
 <div id="app-splash" class="app-splash" aria-hidden="false">
-  <div class="splash-logo"><img src="/icons/logo-trim.png?v=86" alt="MomentoBooth"></div>
-  <div class="splash-name">MomentoBooth</div>
+  <div class="splash-signature" aria-label="By Hope, par l-vs">
+    <span class="splash-hope">By Hope</span>
+    <span class="splash-arrow" aria-hidden="true">✦</span>
+    <span class="splash-creator">By l-vs</span>
+  </div>
+  <div class="splash-rule" aria-hidden="true"></div>
+  <div class="splash-name">Momento<span>Booth</span></div>
   <div class="splash-tag">Capturez vos plus beaux moments</div>
 </div>
-<script src="/js/splash-kill.js?v=86"></script>
+
+<!-- Soutien opt-in : la configuration distante fournit uniquement des données texte/URL validées. -->
+<section id="donation-popup" class="donation-popup" aria-hidden="true" aria-labelledby="donation-title">
+  <div class="donation-card" role="dialog" aria-modal="true">
+    <button id="donation-close" class="donation-close" type="button" aria-label="Fermer">✕</button>
+    <span class="donation-kicker">Une petite signature</span>
+    <h2 id="donation-title">Soutenir By l-vs</h2>
+    <p id="donation-message">Si ce projet t’est utile, tu peux soutenir sa création.</p>
+    <div class="donation-actions"><button id="donation-cta" class="mini-btn primary" type="button">Soutenir le projet</button><button id="donation-later" class="mini-btn" type="button">Plus tard</button></div>
+  </div>
+</section>
 
 <!-- ═════════ FOCUS MANUEL : curseur de mise au point (appui long) ═════════ -->
 <div id="focus-cursor" class="focus-cursor hidden" aria-hidden="true"><span class="focus-lock" aria-hidden="true">⌾</span>
@@ -303,12 +512,12 @@
       <button class="share-chip" data-method="download">📥 Télécharger</button>
       <button class="share-chip" data-method="download-gif">📥 GIF</button>
       <button class="share-chip" data-method="photos">📸 Photos</button>
-      <button id="btn-reframe" class="share-chip no-method">🎨 Cadre & titre</button>
+      <button id="btn-reframe" class="share-chip no-method" type="button" aria-controls="sheet-frames" aria-expanded="false">🎨 Cadre &amp; titre</button>
     </div>
     <div id="share-status" class="share-status"></div>
-    <div id="share-qr-box" class="share-qr-box hidden"><img id="share-qr" alt="QR code"></div>
+    <div id="share-qr-box" class="share-qr-box hidden"><img id="share-qr" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code"></div>
     <div class="comment-box">
-      <input id="photo-comment" type="text" maxlength="120" placeholder="✏️ Ajouter un commentaire à la photo…">
+      <input id="photo-comment" type="text" maxlength="121" placeholder="✏️ Ajouter un commentaire à la photo…">
       <button id="btn-save-comment" class="mini-btn">OK</button>
     </div>
   </div>
@@ -325,6 +534,14 @@
     <button id="btn-export-zip" class="mini-btn">📦 Export ZIP</button>
     <button id="btn-save-all" class="mini-btn">📸 Enregistrer toutes</button>
     <button id="btn-guest-qr" class="mini-btn" type="button">◈ QR invités</button>
+    <button id="btn-gallery-select-delete" class="mini-btn" type="button" hidden>🗑️ Supprimer…</button>
+    <button id="btn-trash-access" class="mini-btn" type="button">🗑️ Corbeille</button>
+  </div>
+  <!-- Bandeau de sélection multiple (organisateur : code vérifié côté serveur) -->
+  <div id="gallery-select-bar" class="gallery-select-bar" hidden>
+    <span id="gallery-select-count">0 sélectionnée</span>
+    <button id="gallery-select-cancel" class="mini-btn" type="button">Annuler</button>
+    <button id="gallery-select-confirm" class="mini-btn danger" type="button">Supprimer</button>
   </div>
   <!-- Accès invités volontairement discret : appui long sur « Galerie » -->
   <div id="guest-share-panel" class="guest-share-panel" aria-hidden="true">
@@ -337,29 +554,68 @@
       <input id="guest-share-url" type="url" readonly aria-label="URL de la galerie invités">
       <button id="guest-copy-url" class="mini-btn" type="button">Copier</button>
     </div>
-    <div id="guest-share-hostkey-block" class="guest-share-hostkey-block hidden">
-      <label for="guest-share-hostkey" class="guest-share-hostkey-label">Clé hôte <small>(à conserver pour reprendre le contrôle de l’event)</small></label>
-      <div class="guest-share-link-row">
-        <input id="guest-share-hostkey" type="password" readonly autocomplete="off" placeholder="Clé hôte (créée automatiquement)">
-        <button id="guest-copy-hostkey" class="mini-btn" type="button">Copier</button>
-      </div>
-      <small class="guest-share-hostkey-note">Cette clé n’est jamais sauvegardée dans l’app. Notez-la (gestionnaire de mots de passe) ou copiez-la. En cas de rechargement, vous devrez la re-saisir pour publier ou supprimer des photos.</small>
-    </div>
-    <div id="guest-share-qr-box" class="guest-share-qr-box hidden"><img id="guest-share-qr" alt="QR code de la galerie invités"></div>
+    <div id="guest-share-qr-box" class="guest-share-qr-box hidden"><img id="guest-share-qr" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code de la galerie invités"></div>
     <div class="guest-share-actions">
       <button id="guest-create-link" class="mini-btn primary" type="button">Créer le QR + lien</button>
       <button id="guest-native-share" class="mini-btn" type="button">Partager</button>
     </div>
-    <label class="guest-live-toggle"><input id="guest-live-toggle" type="checkbox"><span>Autoriser l’aperçu caméra périodique</span></label>
-    <small class="guest-share-note">Désactivé par défaut. Le lien expire après 8 h et est invalidé si le serveur redémarre. L’aperçu est une image JPEG mise à jour environ toutes les 1,2 s — pas une vidéo WebRTC — et aucune caméra n’est demandée à l’invité.</small>
-    <div class="guest-share-actions-row">
-      <button id="guest-test-event" class="mini-btn ghost" type="button">⚙︎ Test</button>
-      <button id="guest-export-event" class="mini-btn ghost" type="button">📦 Exporter l’event</button>
-      <a id="guest-runbook-link" class="mini-btn ghost" href="/event/runbook.html" target="_blank" rel="noopener">📖 Runbook</a>
+    <label class="guest-live-toggle"><input id="guest-live-toggle" type="checkbox" checked><span>Aperçu caméra en direct pour les invités</span></label>      <small class="guest-share-note">Le lien expire après 8 h. L’aperçu utilise un flux vidéo continu léger — aucune caméra n’est demandée à l’invité.</small>
+  </div>
+  <div id="trash-panel" class="guest-share-panel" aria-hidden="true">
+    <div class="guest-share-head">
+      <div><strong>Corbeille</strong><small>Photos supprimées, récupérables 30 jours</small></div>
+      <button id="trash-close" class="sheet-close" type="button" aria-label="Fermer">✕</button>
     </div>
-    <pre id="guest-share-debug" class="guest-share-debug hidden" aria-live="polite"></pre>
+    <div id="trash-grid" class="trash-grid"></div>
   </div>
   <div id="gallery-grid" class="gallery-grid"></div>
+</section>
+
+<!-- Éditeur d’interface protégé : accessible depuis le chargement ou le bouton ✦ -->
+<section id="customizer" class="customizer" aria-hidden="true">
+  <div class="customizer-card" role="dialog" aria-modal="true" aria-labelledby="customizer-title">
+    <div class="customizer-head"><div><span class="customizer-kicker">MODE ORGANISATEUR</span><h2 id="customizer-title">Personnaliser la borne</h2></div><button id="customizer-close" class="sheet-close" type="button" aria-label="Fermer">✕</button></div>
+    <div id="customizer-lock" class="customizer-lock">
+      <p>Entrez le code organisateur pour modifier l’interface en direct.</p>
+      <div class="customizer-code-row"><input id="customizer-code" inputmode="numeric" maxlength="4" autocomplete="one-time-code" placeholder="••••" aria-label="Code organisateur"><button id="customizer-unlock" class="mini-btn primary" type="button">Ouvrir</button></div>
+      <small id="customizer-code-status" aria-live="polite"></small>
+    </div>
+    <div id="customizer-editor" class="customizer-editor hidden">
+      <div class="customizer-stage">
+        <div id="customizer-preview" class="customizer-preview"><video id="customizer-live-video" autoplay playsinline muted></video><div class="customizer-preview-shade"></div><div class="customizer-preview-frame"></div><div class="customizer-preview-border"></div><div class="customizer-preview-copy">Votre aperçu en direct</div><span class="customizer-preview-gallery">Galerie</span><div id="customizer-ghosts" class="customizer-ghosts"></div></div>
+        <div class="customizer-stage-hint">👆 Touchez un élément de l’aperçu (ou choisissez-le dans la liste) pour le personnaliser</div>
+      </div>
+      <div class="customizer-panel">
+        <div class="customizer-section">
+          <div class="customizer-section-title">Composants de la borne</div>
+          <div id="customizer-component-chips" class="customizer-component-chips" role="tablist"></div>
+          <div id="customizer-props" class="customizer-props" aria-live="polite"></div>
+        </div>
+        <details class="customizer-advanced" open>
+          <summary>Réglages généraux</summary>
+          <div class="customizer-advanced-body">
+            <div class="customizer-field"><label>Thème de l’écran</label><div id="customizer-themes" class="customizer-themes"><button type="button" data-theme="midnight">Minuit</button><button type="button" data-theme="studio">Studio</button><button type="button" data-theme="party">Fête</button><button type="button" data-theme="pearl">Lumière</button></div></div>
+            <div class="customizer-field"><label for="customizer-accent">Couleur d’accent <button id="customizer-accent-reset" class="customizer-accent-reset" type="button" hidden>Réinitialiser</button></label><input id="customizer-accent" type="color" value="#7dd3fc"></div>
+            <div class="customizer-field"><label for="customizer-text-scale">Taille du texte <output id="customizer-text-output">100%</output></label><input id="customizer-text-scale" type="range" min="90" max="145" step="5" value="100"></div>
+            <div class="customizer-field"><label for="customizer-button-scale">Taille des boutons <output id="customizer-button-output">100%</output></label><input id="customizer-button-scale" type="range" min="90" max="135" step="5" value="100"></div>
+            <div class="customizer-assets"><label class="customizer-upload"><span>Cadre personnalisé</span><b>＋</b><input id="custom-frame-file" type="file" accept="image/png,image/webp,image/jpeg"></label><label class="customizer-upload"><span>Rebord personnalisé</span><b>＋</b><input id="custom-border-file" type="file" accept="image/png,image/webp,image/jpeg"></label><label class="customizer-upload"><span>Photos de veille</span><b>＋</b><input id="custom-idle-photos-file" type="file" accept="image/png,image/webp,image/jpeg" multiple></label></div>
+            <div class="customizer-field"><label class="customizer-toggle"><input id="custom-idle-photos-toggle" type="checkbox"><span>Remplacer la veille par vos photos</span></label></div>
+          </div>
+        </details>
+        <details class="customizer-advanced">
+          <summary>Identité de l’événement</summary>
+          <div class="customizer-advanced-body">
+            <div class="customizer-field"><label for="customizer-host1">Prénom hôte 1</label><input id="customizer-host1" type="text" maxlength="24" placeholder="Kenza" autocomplete="off"></div>
+            <div class="customizer-field"><label for="customizer-host2">Prénom hôte 2</label><input id="customizer-host2" type="text" maxlength="24" placeholder="Lilou" autocomplete="off"></div>
+            <div class="customizer-field"><label for="customizer-welcome">Message d’accueil (écran de veille)</label><input id="customizer-welcome" type="text" maxlength="90" placeholder="Kenza & Lilou — posez, c’est l’instant souvenir !" autocomplete="off"></div>
+            <small class="customizer-note">Utilisés sur l’écran de veille et comme titre par défaut du cadre anniversaire. Laissez vide pour garder les noms d’origine.</small>
+          </div>
+        </details>
+        <div class="customizer-actions"><button id="customizer-reset" class="mini-btn" type="button">Réinitialiser tout</button><button id="customizer-save" class="mini-btn primary" type="button">💾 Enregistrer</button></div>
+        <small class="customizer-note">La croix ✕ ferme sans enregistrer (modifications annulées). Les réglages sont conservés sur cette borne.</small>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- Vue invitée : lecture seule, aucune permission caméra demandée -->
@@ -367,16 +623,49 @@
   <div class="guest-topbar"><span class="guest-brand">Momento<span>Booth</span></span><span class="guest-badge">Invités</span></div>
   <div class="guest-live-card">
     <div class="guest-live-head"><strong>Aperçu de la borne</strong><span id="guest-live-state">En attente</span></div>
-    <div class="guest-live-frame"><img id="guest-live-image" alt="Aperçu caméra de la borne" class="hidden"><div id="guest-live-empty">L’aperçu caméra n’est pas activé.</div></div>
-    <small>La caméra reste sur la borne ; cet écran reçoit seulement une image périodique si le propriétaire l’autorise.</small>
+    <div class="guest-live-frame"><img id="guest-live-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="Aperçu caméra de la borne" class="hidden"><div id="guest-live-empty">L’aperçu caméra n’est pas activé.</div></div>
+    <small>Flux vidéo continu de la borne — aucune caméra n’est demandée à l’invité.</small>
   </div>
   <div class="guest-gallery-head"><strong>Galerie</strong><span id="guest-gallery-count">0 photo</span></div>
   <div id="guest-gallery-grid" class="guest-gallery-grid"></div>
 </section>
 
-<script type="module" src="/js/filters.js?v=86"></script>
-<script type="module" src="/js/masks.js?v=86"></script>
-<script type="module" src="/js/animations.js?v=86"></script>
-<script type="module" src="/js/app.js?v=86"></script>
+<!-- Secours caméra indépendant du module principal : iOS peut afficher la demande même si une ancienne PWA a bloqué l'initialisation. -->
+<script>
+(function () {
+  var retry = document.getElementById("btn-retry-camera");
+  var video = document.getElementById("camera");
+  if (!retry || !video || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  retry.addEventListener("click", function () {
+    if (window.mbDeviceRole !== "camera" && window.mbDeviceRole !== "mixed") return;
+    retry.disabled = true;
+    retry.textContent = "⏳ Demande caméra…";
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      .then(function (stream) {
+        window.__mbFallbackStream = stream;
+        video.srcObject = stream;
+        return video.play().catch(function () {});
+      })
+      .then(function () {
+        var error = document.getElementById("camera-error");
+        if (error) { error.classList.add("hidden"); error.setAttribute("aria-hidden", "true"); }
+        window.dispatchEvent(new Event("mb-camera-ready"));
+        var splash = document.getElementById("app-splash");
+        if (splash) splash.classList.add("done");
+      })
+      .catch(function (err) {
+        retry.disabled = false;
+        retry.textContent = "📷 Réessayer la caméra";
+        var text = document.querySelector(".camera-error-text");
+        if (text) text.textContent = err && err.name === "NotAllowedError" ? "Accès refusé. Autorisez la caméra pour ce site dans Réglages, puis retouchez ici." : "Impossible d'ouvrir la caméra : " + ((err && err.message) || "vérifiez les réglages Safari");
+      });
+  }, { passive: true });
+})();
+</script>
+<script type="module" src="/js/filters.js?v=121"></script>
+<script type="module" src="/js/masks.js?v=121"></script>
+<script type="module" src="/js/animations.js?v=121"></script>
+<script type="module" src="/js/app.js?v=121"></script>
+<script type="module" src="/js/phase3.js?v=121"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 /* =========================================================
    MomentoBooth — Moteur de filtres photobooth v4
-   Couleurs CSSgram + masques visage (icônes SVG travaillées)
+   Looks photo légers + masques visage (icônes SVG travaillées)
    ========================================================= */
 
 /* Icônes SVG des masques (data-URI, style travaillé) */
@@ -19,6 +19,8 @@ export const MASK_ICONS = {
   catnose:  `<svg viewBox="0 0 64 64"><path d="M22 30 L32 42 L42 30 Z" fill="#e8799f"/><path d="M18 28 L26 30 M20 34 L30 34" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"/><path d="M46 28 L38 30 M44 34 L34 34" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"/><circle cx="30" cy="22" r="1.8" fill="#fff"/><circle cx="34" cy="22" r="1.8" fill="#fff"/></svg>`,
   horns:    `<svg viewBox="0 0 64 64"><path d="M14 30 Q4 16 8 4 Q18 8 20 22 Z" fill="#b3242a" stroke="#5a0d12" stroke-width="2"/><path d="M50 30 Q60 16 56 4 Q46 8 44 22 Z" fill="#b3242a" stroke="#5a0d12" stroke-width="2"/></svg>`,
   antennas: `<svg viewBox="0 0 64 64"><path d="M20 34 Q14 20 18 10" stroke="#2b6a4e" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="18" cy="10" r="5" fill="#ffd166" stroke="#b8860b" stroke-width="1.5"/><path d="M44 34 Q50 20 46 10" stroke="#2b6a4e" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="46" cy="10" r="5" fill="#ffd166" stroke="#b8860b" stroke-width="1.5"/></svg>`,
+  bunny:    `<svg viewBox="0 0 64 64"><path d="M15 35 Q8 18 13 5 Q16 0 21 7 L28 29" fill="#fff" stroke="#d8b7d0" stroke-width="2"/><path d="M49 35 Q56 18 51 5 Q48 0 43 7 L36 29" fill="#fff" stroke="#d8b7d0" stroke-width="2"/><path d="M17 29 Q13 16 17 9 Q19 7 21 12 L26 29" fill="#ffb6d9"/><path d="M47 29 Q51 16 47 9 Q45 7 43 12 L38 29" fill="#ffb6d9"/><path d="M23 38 Q32 30 41 38 Q42 49 32 54 Q22 49 23 38Z" fill="#fff" stroke="#d8b7d0" stroke-width="2"/><path d="M29 41 Q32 38 35 41 Q32 47 29 41Z" fill="#ff8fbd"/></svg>`,
+  starry:    `<svg viewBox="0 0 64 64"><path d="M18 24l2 5 5 2-5 2-2 5-2-5-5-2 5-2zM46 24l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="#fff7a6"/><circle cx="18" cy="31" r="4" fill="#8fe8ff" opacity=".8"/><circle cx="46" cy="31" r="4" fill="#d9a7ff" opacity=".8"/></svg>`,
 };
 
 export const MASKS = {
@@ -37,57 +39,43 @@ export const MASKS = {
   catnose:   { name: "Museau chat", icon: MASK_ICONS.catnose },
   horns:     { name: "Cornes", icon: MASK_ICONS.horns },
   antennas:  { name: "Antennes", icon: MASK_ICONS.antennas },
+  bunny:     { name: "Lapin", icon: MASK_ICONS.bunny },
+  starry:    { name: "Yeux étoilés", icon: MASK_ICONS.starry },
 };
 
-/* ─── 24 filtres CSSgram (MIT) + 8 maison ─── */
-const CSSGRAM = {
-  "1977":     { css: "contrast(1.1) brightness(1.1) saturate(1.3)", ops: [["contrast",1.1],["brightness",1.1],["saturate",1.3]] },
-  aden:       { css: "hue-rotate(-20deg) contrast(.9) saturate(.85) brightness(1.2)", ops: [["hueRotate",-20],["contrast",.9],["saturate",.85],["brightness",1.2]] },
-  brannan:    { css: "sepia(.5) contrast(1.4)", ops: [["sepia",.5],["contrast",1.4]] },
-  brooklyn:   { css: "contrast(.9) brightness(1.1)", ops: [["contrast",.9],["brightness",1.1]] },
-  clarendon:  { css: "contrast(1.2) saturate(1.35)", ops: [["contrast",1.2],["saturate",1.35]] },
-  earlybird:  { css: "contrast(.9) sepia(.2)", ops: [["contrast",.9],["sepia",.2]] },
-  gingham:    { css: "brightness(1.05) hue-rotate(-10deg)", ops: [["brightness",1.05],["hueRotate",-10]] },
-  hudson:     { css: "brightness(1.2) contrast(.9) saturate(1.1)", ops: [["brightness",1.2],["contrast",.9],["saturate",1.1]] },
-  inkwell:    { css: "sepia(.3) contrast(1.1) brightness(1.1) grayscale(1)", ops: [["sepia",.3],["contrast",1.1],["brightness",1.1],["grayscale"]] },
-  lark:       { css: "contrast(.9)", ops: [["contrast",.9]] },
-  lofi:       { css: "saturate(1.1) contrast(1.5)", ops: [["saturate",1.1],["contrast",1.5]] },
-  maven:      { css: "sepia(.25) brightness(.95) contrast(.95) saturate(1.5)", ops: [["sepia",.25],["brightness",.95],["contrast",.95],["saturate",1.5]] },
-  mayfair:    { css: "contrast(1.1) saturate(1.1)", ops: [["contrast",1.1],["saturate",1.1]] },
-  moon:       { css: "grayscale(1) contrast(1.1) brightness(1.1)", ops: [["grayscale"],["contrast",1.1],["brightness",1.1]] },
-  nashville:  { css: "sepia(.2) contrast(1.2) brightness(1.05) saturate(1.2)", ops: [["sepia",.2],["contrast",1.2],["brightness",1.05],["saturate",1.2]] },
-  reyes:      { css: "sepia(.22) brightness(1.1) contrast(.85) saturate(.75)", ops: [["sepia",.22],["brightness",1.1],["contrast",.85],["saturate",.75]] },
-  rise:       { css: "brightness(1.05) sepia(.2) contrast(.9) saturate(.9)", ops: [["brightness",1.05],["sepia",.2],["contrast",.9],["saturate",.9]] },
-  slumber:    { css: "saturate(.66) brightness(1.05)", ops: [["saturate",.66],["brightness",1.05]] },
-  stinson:    { css: "contrast(.75) saturate(.85) brightness(1.15)", ops: [["contrast",.75],["saturate",.85],["brightness",1.15]] },
-  toaster:    { css: "contrast(1.5) brightness(.9)", ops: [["contrast",1.5],["brightness",.9]] },
-  valencia:   { css: "contrast(1.08) brightness(1.08) sepia(.08)", ops: [["contrast",1.08],["brightness",1.08],["sepia",.08]] },
-  walden:     { css: "brightness(1.1) hue-rotate(-10deg) sepia(.3) saturate(1.6)", ops: [["brightness",1.1],["hueRotate",-10],["sepia",.3],["saturate",1.6]] },
-  willow:     { css: "grayscale(.5) contrast(.95) brightness(.9)", ops: [["grayscaleHalf"],["contrast",.95],["brightness",.9]] },
-  xpro2:      { css: "sepia(.3)", ops: [["sepia",.3]] },
-};
-const CSSGRAM_NAMES = { "1977":"1977", aden:"Aden", brannan:"Brannan", brooklyn:"Brooklyn", clarendon:"Clarendon", earlybird:"Earlybird", gingham:"Gingham", hudson:"Hudson", inkwell:"Inkwell", lark:"Lark", lofi:"Lo-Fi", maven:"Maven", mayfair:"Mayfair", moon:"Moon", nashville:"Nashville", reyes:"Reyes", rise:"Rise", slumber:"Slumber", stinson:"Stinson", toaster:"Toaster", valencia:"Valencia", walden:"Walden", willow:"Willow", xpro2:"X-Pro II" };
+/* Les anciens profils CSSgram (1977, Aden, Brannan…) et l'ancien set "HOME"
+   ont été remplacés par PRO_LOOKS ci-dessous. Leurs identifiants restent
+   pris en charge via LEGACY_FILTER_ALIASES (préférences déjà enregistrées
+   chez des utilisateurs), mais les anciennes définitions elles-mêmes ne
+   sont plus utilisées : elles ont été retirées pour ne pas garder ~2 Ko
+   de données mortes à chaque chargement. */
 
-const HOME = {
-  original: { name: "Original", css: "none", ops: [] },
-  mono:     { name: "N&B", css: "grayscale(1) contrast(1.05)", ops: [["grayscale"],["contrast",1.05]] },
-  vivid:    { name: "Vif", css: "saturate(1.6) contrast(1.12) brightness(1.02)", ops: [["saturate",1.6],["contrast",1.12],["brightness",1.02]] },
-  warm:     { name: "Chaud", css: "sepia(.28) saturate(1.35) hue-rotate(-12deg) brightness(1.05)", ops: [["sepia",.28],["saturate",1.35],["hueRotate",-12],["brightness",1.05]] },
-  vintage:  { name: "Vintage", css: "sepia(.5) contrast(.92) brightness(1.06) saturate(.85)", ops: [["sepia",.5],["contrast",.92],["brightness",1.06],["saturate",.85]] },
-  noir:     { name: "Noir+", css: "brightness(.72) contrast(1.45) saturate(.55)", ops: [["brightness",.72],["contrast",1.45],["saturate",.55]] },
-  neon:     { name: "Néon", css: "hue-rotate(85deg) saturate(1.8) contrast(1.05)", ops: [["hueRotate",85],["saturate",1.8],["contrast",1.05]] },
-  soft:     { name: "Douce", css: "brightness(1.08) contrast(.9) saturate(1.05)", ops: [["brightness",1.08],["contrast",.9],["saturate",1.05]] },
-  glow:     { name: "Glow", css: "brightness(1.15) contrast(1.08) saturate(1.2)", ops: [["brightness",1.15],["contrast",1.08],["saturate",1.2]] },
-  dream:    { name: "Dream", css: "brightness(1.25) contrast(.85) saturate(.9) blur(0.5px)", ops: [["brightness",1.25],["contrast",.85],["saturate",.9]] },
-  cinema:   { name: "Cinema", css: "contrast(1.3) saturate(1.4) brightness(.95)", ops: [["contrast",1.3],["saturate",1.4],["brightness",.95]] },
-  polaroid: { name: "Polaroid", css: "sepia(.35) contrast(1.12) brightness(1.08) saturate(.9)", ops: [["sepia",.35],["contrast",1.12],["brightness",1.08],["saturate",.9]] },
-  sun:      { name: "Soleil", css: "brightness(1.2) saturate(1.5) hue-rotate(15deg)", ops: [["brightness",1.2],["saturate",1.5],["hueRotate",15]] },
-  dusk:     { name: "Crépuscule", css: "brightness(.85) contrast(1.15) sepia(.15) saturate(1.3)", ops: [["brightness",.85],["contrast",1.15],["sepia",.15],["saturate",1.3]] },
-};
+/*
+ * Looks Momento — sélection courte et cohérente.
+ *
+ * Les anciens filtres CSSgram étaient nombreux mais assez interchangeables.
+ * Ces looks combinent une base CSS rapide pour la vidéo, les mêmes opérations
+ * pour l'export, puis une finition légère (teinte/vignette/grain). Les valeurs
+ * restent volontairement modérées : les visages gardent des tons naturels.
+ */
+const PRO_LOOKS = [
+  { id: "original", name: "Original", css: "none", ops: [], overlay: null },
+  { id: "studio", name: "Studio", css: "contrast(1.08) saturate(1.08) brightness(1.03)", ops: [["contrast",1.08],["saturate",1.08],["brightness",1.03]], overlay: { vignette: .08 } },
+  { id: "clean", name: "Clean", css: "contrast(1.04) saturate(1.06) brightness(1.05)", ops: [["contrast",1.04],["saturate",1.06],["brightness",1.05],["tint",[255,255,255,.025]]], overlay: { tint: "rgba(255,255,255,.025)" } },
+  { id: "golden", name: "Golden Hour", css: "brightness(1.06) contrast(1.05) saturate(1.16) sepia(.1)", ops: [["brightness",1.06],["contrast",1.05],["saturate",1.16],["sepia",.1],["tint",[255,166,64,.1]],["vignette",.14]], overlay: { tint: "rgba(255,166,64,.1)", vignette: .14 } },
+  { id: "rose", name: "Rose", css: "brightness(1.04) contrast(1.04) saturate(1.12) hue-rotate(-7deg)", ops: [["brightness",1.04],["contrast",1.04],["saturate",1.12],["hueRotate",-7],["tint",[255,66,145,.08]],["vignette",.1]], overlay: { tint: "rgba(255,66,145,.08)", vignette: .1 } },
+  { id: "ice", name: "Ice", css: "brightness(1.04) contrast(1.08) saturate(1.08) hue-rotate(8deg)", ops: [["brightness",1.04],["contrast",1.08],["saturate",1.08],["hueRotate",8],["tint",[88,196,255,.08]],["vignette",.12]], overlay: { tint: "rgba(88,196,255,.08)", vignette: .12 } },
+  { id: "cinema", name: "Cinéma", css: "brightness(.98) contrast(1.14) saturate(1.06) sepia(.05)", ops: [["brightness",.98],["contrast",1.14],["saturate",1.06],["sepia",.05],["tint",[28,78,92,.08]],["vignette",.24]], overlay: { tint: "rgba(28,78,92,.08)", vignette: .24 } },
+  { id: "film", name: "Film", css: "brightness(1.03) contrast(1.08) saturate(.9) sepia(.1)", ops: [["brightness",1.03],["contrast",1.08],["saturate",.9],["sepia",.1],["tint",[214,158,92,.06]],["vignette",.22],["grain",.016]], overlay: { tint: "rgba(214,158,92,.06)", vignette: .22, grain: .08 } },
+  { id: "soft", name: "Soft", css: "brightness(1.08) contrast(.93) saturate(1.03)", ops: [["brightness",1.08],["contrast",.93],["saturate",1.03],["tint",[255,190,208,.05]]], overlay: { tint: "rgba(255,190,208,.05)" } },
+  { id: "barbie", name: "Barbie", css: "brightness(1.05) contrast(1.07) saturate(1.28) hue-rotate(-8deg)", ops: [["brightness",1.05],["contrast",1.07],["saturate",1.28],["hueRotate",-8],["tint",[255,52,148,.11]],["vignette",.14]], overlay: { tint: "rgba(255,52,148,.11)", vignette: .14 } },
+  { id: "party", name: "Party", css: "brightness(1.04) contrast(1.1) saturate(1.3)", ops: [["brightness",1.04],["contrast",1.1],["saturate",1.3],["tint",[255,72,170,.09]],["vignette",.2],["grain",.008]], overlay: { tint: "rgba(255,72,170,.09)", vignette: .2, grain: .045 } },
+  { id: "mono", name: "N&B", css: "grayscale(1) contrast(1.12) brightness(1.04)", ops: [["grayscale"],["contrast",1.12],["brightness",1.04],["vignette",.2],["grain",.012]], overlay: { vignette: .2, grain: .06 } },
+  { id: "noir", name: "Noir", css: "grayscale(1) contrast(1.3) brightness(.96)", ops: [["grayscale"],["contrast",1.3],["brightness",.96],["vignette",.3],["grain",.01]], overlay: { vignette: .3, grain: .05 } },
+];
 
 export const FILTERS = [
-  ...Object.entries(HOME).map(([id, f]) => ({ id, name: f.name, css: f.css, ops: f.ops, mask: "none", color: true })),
-  ...Object.entries(CSSGRAM).map(([id, f]) => ({ id, name: CSSGRAM_NAMES[id], css: f.css, ops: f.ops, mask: "none", color: true })),
+  ...PRO_LOOKS.map((f) => ({ ...f, mask: "none", color: true })),
   // Masques photobooth (icônes travaillées, pas de filtre couleur)
   { id: "crown",     name: "La Reine",         css: "saturate(1.15) brightness(1.05)", ops: [["saturate",1.15],["brightness",1.05]], mask: "crown",     color: false, icon: MASK_ICONS.crown },
   { id: "glasses",   name: "Lunettes",         css: "none", ops: [], mask: "glasses",   color: false, icon: MASK_ICONS.glasses },
@@ -103,16 +91,31 @@ export const FILTERS = [
   { id: "catnose",   name: "Museau chat",      css: "saturate(1.2) brightness(1.03)", ops: [["saturate",1.2],["brightness",1.03]], mask: "catnose",   color: false, icon: MASK_ICONS.catnose },
   { id: "horns",     name: "Cornes",           css: "contrast(1.05)", ops: [["contrast",1.05]], mask: "horns",     color: false, icon: MASK_ICONS.horns },
   { id: "antennas",  name: "Antennes",         css: "saturate(1.1)", ops: [["saturate",1.1]], mask: "antennas",  color: false, icon: MASK_ICONS.antennas },
+  { id: "bunny",      name: "Lapin",            css: "brightness(1.04) saturate(1.12)", ops: [["brightness",1.04],["saturate",1.12]], mask: "bunny",      color: false, icon: MASK_ICONS.bunny },
+  { id: "starry",     name: "Yeux étoilés",     css: "brightness(1.03) saturate(1.16)", ops: [["brightness",1.03],["saturate",1.16]], mask: "starry",     color: false, icon: MASK_ICONS.starry },
 ];
 
+/* Compatibilité : les anciennes préférences restent valides, mais pointent
+   vers un look Momento actuel au lieu de disparaître silencieusement. */
+const LEGACY_FILTER_ALIASES = {
+  "1977": "party", aden: "soft", brannan: "film", brooklyn: "clean", clarendon: "studio",
+  earlybird: "film", gingham: "soft", hudson: "ice", inkwell: "mono", lark: "clean",
+  lofi: "cinema", maven: "rose", mayfair: "studio", moon: "mono", nashville: "golden",
+  reyes: "soft", rise: "golden", slumber: "soft", stinson: "soft", toaster: "cinema",
+  valencia: "golden", walden: "golden", willow: "mono", xpro2: "cinema",
+  vivid: "studio", warm: "golden", vintage: "film", neon: "party", glow: "clean",
+  dream: "soft", polaroid: "film", sun: "golden", dusk: "cinema", "noir+": "noir",
+};
+
 export function filterById(id) {
-  return FILTERS.find((f) => f.id === id) ?? FILTERS[0];
+  const resolved = LEGACY_FILTER_ALIASES[id] || id;
+  return FILTERS.find((f) => f.id === resolved) ?? FILTERS[0];
 }
 
 /* ---------- Opérations pixel (capture) ---------- */
 function clamp(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
-function applyOps(data, ops) {
+function applyOps(data, ops, width = 0, height = 0) {
   for (const [op, amount] of ops) {
     const n = data.length;
     for (let i = 0; i < n; i += 4) {
@@ -139,6 +142,33 @@ function applyOps(data, ops) {
           const nb = (lumR + c*(-lumR) + s*(-(1-lumR)))*r + (lumG + c*(-lumG) + s*lumG)*g + (lumB + c*(1-lumB) + s*lumB)*b;
           r = nr; g = ng; b = nb; break;
         }
+        case "tint": {
+          if (Array.isArray(amount)) {
+            const tr = Number(amount[0]) || 0, tg = Number(amount[1]) || 0, tb = Number(amount[2]) || 0;
+            const alpha = Math.max(0, Math.min(1, Number(amount[3]) || 0));
+            r = r * (1 - alpha) + tr * alpha;
+            g = g * (1 - alpha) + tg * alpha;
+            b = b * (1 - alpha) + tb * alpha;
+          }
+          break;
+        }
+        case "vignette": {
+          if (width > 0 && height > 0) {
+            const x = (i / 4) % width, y = Math.floor((i / 4) / width);
+            const dx = (x - width / 2) / (width / 2), dy = (y - height / 2) / (height / 2);
+            const edge = Math.max(0, Math.min(1, Math.sqrt(dx * dx + dy * dy) * .72));
+            const strength = Math.max(0, Math.min(.8, amount ?? .2));
+            const factor = 1 - strength * edge * edge;
+            r *= factor; g *= factor; b *= factor;
+          }
+          break;
+        }
+        case "grain": {
+          const amountByte = Math.max(0, Math.min(24, (amount ?? .01) * 255));
+          const noise = (Math.random() - .5) * amountByte;
+          r += noise; g += noise; b += noise;
+          break;
+        }
       }
       data[i] = clamp(r); data[i+1] = clamp(g); data[i+2] = clamp(b);
     }
@@ -150,6 +180,6 @@ export function applyPixelFilter(imageData, filterId) {
   if (!filterId || filterId === "original") return imageData;
   const filter = filterById(filterId);
   if (!filter.ops.length) return imageData;
-  applyOps(imageData.data, filter.ops);
+  applyOps(imageData.data, filter.ops, imageData.width, imageData.height);
   return imageData;
 }

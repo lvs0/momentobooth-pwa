@@ -375,7 +375,7 @@ function drawCopine(ctx, face, W, H) {
 }
 
 /* ─── Masque : Famille Verpoort (cœurs + couronne + texte) ─── */
-function drawFamily(ctx, face, W, H) {
+function drawFamily(ctx, face, W, H, faceIndex) {
   const nose = face[1], forehead = face[10], chin = face[152];
   const cx = px((nose.x + forehead.x) / 2, W);
   const topY = py(Math.min(forehead.y, nose.y), H);
@@ -385,15 +385,17 @@ function drawFamily(ctx, face, W, H) {
   const leftCheek = face[50], rightCheek = face[280];
   drawEmoji(ctx, "❤️", px(leftCheek.x, W), py(leftCheek.y, H) - 40, 44);
   drawEmoji(ctx, "💙", px(rightCheek.x, W), py(rightCheek.y, H) - 40, 44);
-  // Bandeau texte
-  ctx.save();
-  ctx.font = `bold ${Math.max(22, H * 0.032)}px -apple-system, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(240,201,106,.95)";
-  ctx.shadowColor = "rgba(0,0,0,.7)";
-  ctx.shadowBlur = 8;
-  ctx.fillText("FAMILLE VERPOORT", px(0.5, W), py(0.96, H));
-  ctx.restore();
+  // Bandeau texte : une seule fois (pas dupliqué quand plusieurs visages)
+  if (!faceIndex) {
+    ctx.save();
+    ctx.font = `bold ${Math.max(22, H * 0.032)}px -apple-system, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(240,201,106,.95)";
+    ctx.shadowColor = "rgba(0,0,0,.7)";
+    ctx.shadowBlur = 8;
+    ctx.fillText("FAMILLE VERPOORT", px(0.5, W), py(0.96, H));
+    ctx.restore();
+  }
   void chin;
 }
 
@@ -631,6 +633,70 @@ function drawAntennas(ctx, face, W, H) {
   ctx.restore();
 }
 
+/* ─── Lapin : oreilles souples, intérieur rose et nez positionné sur le nez réel ─── */
+function drawBunny(ctx, face, W, H) {
+  const nose = face[1], forehead = face[10], leftEar = face[234], rightEar = face[454];
+  const cx = px((nose.x + forehead.x) / 2, W);
+  const topY = py(Math.min(forehead.y, nose.y), H);
+  const headW = Math.abs(px(leftEar.x, W) - px(rightEar.x, W));
+  const s = Math.max(76, headW * .72);
+  const angle = headAngle(face);
+  ctx.save();
+  ctx.translate(cx, topY - s * .2);
+  ctx.rotate((angle * Math.PI) / 180);
+  const ear = ctx.createLinearGradient(0, -s * 1.35, 0, 0);
+  ear.addColorStop(0, "#fff"); ear.addColorStop(1, "#e9d7ed");
+  [-1, 1].forEach((dir) => {
+    ctx.beginPath();
+    ctx.moveTo(dir * s * .12, -s * .06);
+    ctx.bezierCurveTo(dir * s * .3, -s * .45, dir * s * .48, -s * 1.2, dir * s * .3, -s * 1.38);
+    ctx.bezierCurveTo(dir * s * .08, -s * 1.52, dir * s * .02, -s * .48, dir * s * .12, -s * .06);
+    ctx.fillStyle = ear; ctx.fill();
+    ctx.strokeStyle = "rgba(182,143,184,.8)"; ctx.lineWidth = Math.max(1.5, s * .018); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(dir * s * .17, -s * .18);
+    ctx.bezierCurveTo(dir * s * .28, -s * .54, dir * s * .37, -s * 1.02, dir * s * .3, -s * 1.2);
+    ctx.bezierCurveTo(dir * s * .2, -s * 1.05, dir * s * .13, -s * .56, dir * s * .17, -s * .18);
+    ctx.fillStyle = "rgba(255,157,201,.72)"; ctx.fill();
+  });
+  const nx = px(nose.x, W) - cx, ny = py(nose.y, H) - (topY - s * .2);
+  ctx.fillStyle = "#ff8fbd";
+  ctx.beginPath(); ctx.ellipse(nx, ny, s * .075, s * .055, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(133,53,91,.65)"; ctx.lineWidth = Math.max(1, s * .014);
+  ctx.beginPath(); ctx.moveTo(nx, ny + s * .04); ctx.quadraticCurveTo(nx - s * .08, ny + s * .12, nx - s * .16, ny + s * .08); ctx.moveTo(nx, ny + s * .04); ctx.quadraticCurveTo(nx + s * .08, ny + s * .12, nx + s * .16, ny + s * .08); ctx.stroke();
+  ctx.fillStyle = "rgba(255,113,164,.24)";
+  [-1, 1].forEach((dir) => { ctx.beginPath(); ctx.ellipse(nx + dir * s * .3, ny + s * .1, s * .12, s * .065, 0, 0, Math.PI * 2); ctx.fill(); });
+  ctx.restore();
+}
+
+/* ─── Yeux étoilés : étoiles centrées sur les coins internes, avec halo doux ─── */
+function drawStarry(ctx, face, W, H) {
+  // Les iris 468/473 donnent le centre réel de chaque œil ; les coins
+  // externes restent un fallback pour les modèles/landmarks plus anciens.
+  const left = face[468] || midpoint(face[33], face[133]);
+  const right = face[473] || midpoint(face[263], face[362]);
+  const eyeDist = Math.abs(px(face[33].x, W) - px(face[263].x, W));
+  const size = Math.max(16, eyeDist * .26);
+  const angle = headAngle(face);
+  const drawStar = (point, dir) => {
+    const x = px(point.x, W), y = py(point.y, H);
+    ctx.save(); ctx.translate(x, y); ctx.rotate((angle * Math.PI) / 180);
+    ctx.shadowColor = dir < 0 ? "rgba(125,231,255,.9)" : "rgba(221,163,255,.9)"; ctx.shadowBlur = size * .8;
+    ctx.fillStyle = dir < 0 ? "#a9f3ff" : "#f1c5ff";
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const r = i % 2 ? size * .28 : size; const a = i * Math.PI / 4 - Math.PI / 2; const sx = Math.cos(a) * r, sy = Math.sin(a) * r; i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); }
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(-size * .18, -size * .18, size * .16, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  };
+  drawStar(left, -1); drawStar(right, 1);
+}
+
+function midpoint(a, b) {
+  if (!a || !b) return a || b || { x: .5, y: .5, z: 0 };
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: ((a.z || 0) + (b.z || 0)) / 2 };
+}
+
 const DRAWERS = {
   crown: drawCrown,
   glasses: drawGlasses,
@@ -646,14 +712,16 @@ const DRAWERS = {
   catnose: drawCatNose,
   horns: drawHorns,
   antennas: drawAntennas,
+  bunny: drawBunny,
+  starry: drawStarry,
 };
 
-export function drawMask(ctx, W, H, face, maskId) {
+export function drawMask(ctx, W, H, face, maskId, faceIndex = 0) {
   if (!maskId || maskId === "none" || !face || face.length < 30) return;
   const drawer = DRAWERS[maskId];
   if (!drawer) return;
   ctx.save();
-  try { drawer(ctx, face, W, H); } catch { /* masque sauté */ }
+  try { drawer(ctx, face, W, H, faceIndex); } catch { /* masque sauté */ }
   ctx.restore();
 }
 

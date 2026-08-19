@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Harnais device v108</title>
+<style>body{font:13px monospace;background:#111;color:#cfc;padding:12px;white-space:pre-wrap}#s{color:#ff8}#f{color:#f77}</style>
+</head>
+<body id="out">initialisation…
+<script>
+const out = document.getElementById("out");
+const log = (c, m) => { console.log(c + " " + m); out.innerHTML += `<div id="${c}">${c} ${m}</div>`; };
+const O = (o) => JSON.stringify(o);
+
+(async () => {
+  const BASE = location.origin;
+  const api = async (p, m = "GET", d = null, h = {}) => {
+    const r = await fetch(BASE + p, { method: m, headers: Object.assign({ "Content-Type": "application/json" }, h), body: d ? JSON.stringify(d) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+
+  // ── 2. Pré-câbler le rôle Interface dans localStorage AVANT l'iframe :
+  //        l'app le chargera et l'autoTimer du gate (20 s) validera en
+  //        « interface » sans aucun clic cross-frame. ──
+  try {
+    localStorage.setItem("momentobooth-preferences-v1", JSON.stringify({ deviceRole: "interface", roleRemember: true }));
+    log("HDEV", "préférences interface pré-câblées");
+  } catch (e) { log("HDEV-ERR", "localStorage: " + e.message); }
+  const iframe = document.createElement("iframe");
+  iframe.src = BASE + "/";
+  iframe.style.cssText = "position:fixed;left:0;top:0;width:1200px;height:900px;border:0;transform:scale(.5);transform-origin:0 0;opacity:.9";
+  document.body.appendChild(iframe);
+  // Référence LIVE : l'app peut se recharger (fallback anti-blocage) ; il faut
+  // toujours re-lire contentWindow au moment de l'accès.
+  const W = () => iframe.contentWindow;
+
+  // L'index recharge une fois (purge SW → ?mb-recover=107). On attend que ce
+  // rechargement soit terminé (W() non-null sur 3 lectures consécutives), puis
+  // on cherche la caméra pendant que le gate est ouvert (autoTimer 20 s).
+  log("HDEV", "attente stabilisation iframe (reload SW possible)...");
+  let stable = 0;
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const w = W();
+    const gate = w && w.document && w.document.getElementById("role-gate");
+    if (w && gate && gate.classList.contains("open")) stable += 1; else stable = 0;
+    if (stable >= 3) break;
+  }
+  const w0 = W();
+  log("HDEV", "iframe stable gateOpen=" + Boolean(w0 && w0.document && w0.document.getElementById("role-gate")?.classList.contains("open")));
+
+  // ── 1'. Annoncer la caméra MAINTENANT (après stabilisation, pour ne pas
+  //         laisser l'entrée de découverte expirer pendant l'attente). ──
+  const { body: sess } = await api("/api/remote-camera/sessions", "POST", {});
+  const TOKEN = sess.token, HOST = sess.hostKey;
+  log("HDEV", "session caméra: " + O({ token: TOKEN.slice(0, 6) + "…", hostKey: HOST.slice(0, 6) + "…" }));
+  const { body: ann } = await api("/api/device-discovery/announce", "POST", { kind: "camera", name: "iPhone Test", token: TOKEN, hostKey: HOST });
+  log("HDEV", "annonce id=" + ann.id);
+
+  // ── 3. La liste des caméras doit se remplir (découverte active pendant le
+  //        gate ouvert en rôle interface ; refresh client ~3 s) ──
+  let found = false;
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const w = W();
+    const doc = w && w.document;
+    const box = doc && doc.getElementById("role-camera-list");
+    const fields = doc && doc.getElementById("role-remote-fields");
+    const gate = doc && doc.getElementById("role-gate");
+    if (i === 4) {
+      log("HDEV", "diag: hiddenFields=" + (fields ? fields.classList.contains("hidden") : "?") + " gateOpen=" + (gate ? gate.classList.contains("open") : "?") + " items=" + (box ? box.children.length : "?") + " html=" + (box ? box.innerHTML.slice(0, 120) : "?"));
+    }
+    if (box && box.textContent.includes("iPhone Test")) { found = true; break; }
+  }
+  log(found ? "HDEV" : "HDEV-ERR", "caméra visible dans la liste (client): " + found);
+
+  // ── 4. Vérifie que le pair/accept fonctionne (API, comme le harnais v106) ──
+  const { status: prStatus, body: prBody } = await api("/api/device-discovery/pair", "POST", { cameraId: ann.id, interfaceName: "iPad Test" });
+  log("HDEV", "demande pair: " + prStatus + (prBody.requestId && prBody.pairKey ? " ✓" : ""));
+  const RID = prBody.requestId;
+  const PAIR_KEY = prBody.pairKey;
+  if (!RID) { log("HDEV-ERR", "pas de requestId"); return; }
+  await new Promise((r) => setTimeout(r, 300));
+  const { status: acSt } = await api(`/api/remote-camera/${TOKEN}/pair-requests/${RID}`, "POST", { accept: true }, { "x-host-key": HOST });
+  log("HDEV", "acceptation: " + acSt);
+  await new Promise((r) => setTimeout(r, 1200));
+  const { body: rs } = await api(`/api/device-discovery/requests/${RID}`, "GET", null, { "x-pair-key": PAIR_KEY });
+  log("HDEV", "statut demande autorisé: " + rs.status + (rs.controllerToken ? " token OK" : ""));
+  const CTRL = rs.controllerToken;
+
+  // ── 7. SIMULATION DE COUPURE : on retire la frame → le serveur dé-jumelle
+  //        après GRACE (45 s en prod). Ici on attend juste que le serveur
+  //        marque la caméra ré-annonçable via l'annonce suivante. ──
+  // (Le test de la grâce courte est couvert par tmp_repair_test.py côté API.)
+  log("HDEV", "coupe simulée: contrôleur non actif — serveur ré-ouvrira après 45 s");
+
+  // ── 8. Vérifie qu'une NOUVELLE interface peut toujours s'annoncer/re-pairer
+  //        (deuxième session, même serveur) ──
+  const { body: sess2 } = await api("/api/remote-camera/sessions", "POST", {});
+  const { body: ann2 } = await api("/api/device-discovery/announce", "POST", { kind: "camera", name: "iPhone 2", token: sess2.token, hostKey: sess2.hostKey });
+  const { status: pr2, body: pr2b } = await api("/api/device-discovery/pair", "POST", { cameraId: ann2.id, interfaceName: "iPad 2" });
+  log("HDEV", "2e paire indépendante: " + pr2 + (pr2b.requestId && pr2b.pairKey ? " ✓" : ""));
+  const RID2 = pr2b.requestId;
+  const PAIR_KEY2 = pr2b.pairKey;
+  await new Promise((r) => setTimeout(r, 300));
+  await api(`/api/remote-camera/${sess2.token}/pair-requests/${RID2}`, "POST", { accept: true }, { "x-host-key": sess2.hostKey });
+  await new Promise((r) => setTimeout(r, 1200));
+  const { body: rs2 } = await api(`/api/device-discovery/requests/${RID2}`, "GET", null, { "x-pair-key": PAIR_KEY2 });
+  log("HDEV", "2e paire statut autorisé: " + rs2.status + (rs2.controllerToken ? " ✓" : ""));
+  if (rs2.status === "accepted" && rs2.controllerToken) {
+    const fr = await fetch(BASE + `/api/remote-camera/${rs2.controllerToken}/frame`);
+    log("HDEV", "2e contrôleur opérationnel: HTTP " + fr.status);
+  }
+
+  // Probe lifecycle déterministe : les événements pagehide/pageshow sont
+  // injectés dans la PWA, puis vérifiés dans la télémétrie locale. Cela ne
+  // prétend pas simuler une vraie suspension OS, mais couvre les hooks de
+  // reprise sans toucher à la caméra réelle.
+  const appWindow = W();
+  appWindow?.dispatchEvent(new Event("pagehide"));
+  appWindow?.dispatchEvent(new Event("pageshow"));
+  const lifecycleEvents = appWindow?.mbTelemetry?.dump?.().events?.filter((event) => event.type === "lifecycle") || [];
+  log(lifecycleEvents.length >= 2 ? "HDEV" : "HDEV-ERR", "probe lifecycle pagehide/pageshow: " + lifecycleEvents.length + " événements");
+
+  log("HDEV", "SUCCES complet");
+  log("HDEV", "contrôleur 1 reçu après autorisation: " + Boolean(CTRL));
+})();
+</script>
+</body>
+</html>

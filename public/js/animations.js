@@ -163,6 +163,7 @@ function loop(now = performance.now()) {
 export function startAnimation(id, drawHook) {
   stopAnimation();
   if (!CONFIG[id]) return null;
+  window.mbTelemetry?.resourceStart?.("activeAnimationLoops", { animation: id });
   _engine = new AnimationEngine(id, window.innerWidth, window.innerHeight);
   _drawHook = drawHook || null;
   _lastLoopAt = 0;
@@ -170,9 +171,11 @@ export function startAnimation(id, drawHook) {
   return _engine;
 }
 export function stopAnimation() {
+  const wasRunning = Boolean(_engine || _rafId != null);
   _engine = null; _drawHook = null;
   _lastLoopAt = 0;
   if (_rafId != null) cancelAnimationFrame(_rafId);
   _rafId = null;
+  if (wasRunning) window.mbTelemetry?.resourceStop?.("activeAnimationLoops", { animation: "decorative" });
 }
 export function isAnimationRunning() { return Boolean(_engine); }

@@ -3,10 +3,15 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js";
-import { drawMask } from "./masks.js";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js";
-import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=121";
+import { drawMask } from "./masks.js?v=121";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=121";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=121";
+import { telemetry } from "./telemetry.js?v=121";
+
+/* ---------- Sélection multiple de la galerie (organisateur, code vérifié côté serveur) ---------- */
+let _gallerySelecting = false;
+const _gallerySelection = new Set();
 
 /* ---------- État ---------- */  const state = {
   stream: null,
@@ -25,7 +30,7 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
   capturing: false,     // verrou distinct du compte à rebours (évite les captures portrait annulées)
   countingPaused: false,
   _resumeCountdown: null,
-  logoEnabled: false,     // conservé par compatibilité de préférences ; n'est plus dessiné
+  logoEnabled: false,     // désactivé par défaut ; activable dans Paramètres → Photo
   logoImage: null,
   autoMode: false,
   autoStableSince: 0,
@@ -54,13 +59,20 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
   frameText: { ...FRAME_TEXTS.default },   // titres éditables
   deleteEnabled: false,  // autoriser la suppression des photos
   landmarker: null,
-  face: null,  faceMask: null,
+  face: null,
+  faceMask: null,
   faces: [],                // tous les visages détectés (multi-face)
-  prerollEnabled: false,   // opt-in : séquence caméra + micro en arrière-plan
-  filmBubbleEnabled: false,// opt-in : bulle « Vous êtes filmé »
+  prerollEnabled: false,    // opt-in : séquence caméra + micro en arrière-plan
+  filmBubbleEnabled: false, // opt-in : bulle « Vous êtes filmé »
+  emojiFacesEnabled: false, // opt-in : emojis hilarants par visage (serveur, heuristique gratuite)
+  idlePhotos: [],              // photos de veille personnalisées (organisateur)
+  idlePhotosEnabled: false,    // opt-in : la veille affiche les photos organisateur
   idleEnabled: false,     // opt-in : veille et animation d'accueil (désactivé par défaut — nécessite MediaPipe)
   idleFaceWake: false,    // opt-in : réveil automatique par visage (désactivé par défaut)
   idleWakeHits: 0,         // détections consécutives nécessaires avant réveil (anti-passage furtif)
+  idlePromptShown: false,  // idle-click.gif déjà montré pour l'arrivée actuelle
+  idleFaceAbsentSince: 0,  // réarme le GIF seulement après une vraie absence
+  idlePromptAt: 0,         // garantit que le GIF reste visible avant le réveil
   lightFrameEnabled: false,// opt-in : analyse basse lumière
   focusing: false,         // focus manuel actif (appui long)
   focusX: 0, focusY: 0,
@@ -68,7 +80,25 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
   guestToken: "",
   guestHostKey: "",
   guestLiveEnabled: false,
-  remoteCamMode: "off",  remoteCamToken: "",  remoteCamHostKey: "",  remoteCamW: 640,  remoteCamH: 480,
+  remoteCamMode: "off",  remoteCamToken: "",  remoteCamHostKey: "",  remotePairCode: "",  remotePairUrl: "",  remotePairExpiresAt: 0,  remoteCamW: 640,  remoteCamH: 480,
+  remoteCommandCursor: 0,
+  remoteCommandTimer: null,
+  // L'existence d'une session et la santé de la connexion sont volontairement
+  // séparées. `connected` n'est autorisé qu'après preuve de vie réelle.
+  remoteConnectionState: "disconnected", // disconnected | connecting | connected | degraded | reconnecting | failed
+  remoteSessionState: "none", // none | created | paired | expired
+  remoteLastFramePublishedAt: 0,
+  remoteLastFrameReceivedAt: 0,
+  remoteLastControllerSeenAt: 0,
+  remoteLastCommandSentAt: 0,
+  remoteLastCommandAckAt: 0,
+  remotePendingCommands: [],
+  remoteFrameAgeMs: null,
+  remoteLastFrameId: "",
+  remoteApplying: false,
+  deviceRole: "mixed",      // camera | interface | mixed — choisi au démarrage
+  cameraStopRequested: false,
+  roleRemember: true,
   guestLiveTimer: null,
   guestLiveBusy: false,
   performanceMode: "eco",  // eco | balanced | max
@@ -76,26 +106,64 @@ import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./anim
   resultObjectUrls: [],     // URL blob à révoquer quand on quitte l'aperçu
   resultTimers: [],         // timers du démarrage différé des GIF
   lastGifLocalId: null,
+  latestRaw: null,
   resultPersistencePromise: null,
   resultGeneration: 0,
   selectedResultKind: null,   // null = proposer photo + GIF au premier partage
   backdropGeneration: 0,
+  uiTheme: "midnight",
+  uiTextScale: 100,
+  uiButtonScale: 100,
+  customFrameSrc: "",
+  customBorderSrc: "",
+  customFrameImage: null,
+  customBorderImage: null,
+  uiComponents: {},
+  uiAccent: "",       // couleur d'accent personnalisée ("" = thème natif)
+  eventHost1: "",     // identité événement : prénom hôte 1 ("" = défaut "Kenza")
+  eventHost2: "",     // identité événement : prénom hôte 2 ("" = défaut "Lilou")
+  eventWelcome: "",   // identité événement : message d'accueil veille personnalisé
 
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "86"; // ⚠️ doit MATCHER data-app-version de index.html + cache du SW
+const APP_VERSION = "121"; // choix de rôle au démarrage : doit matcher le HTML
+telemetry.startupMark("jsReady");
+if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => telemetry.startupMark("firstPaint"));
+const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé tant que l'organisateur ne l'active pas.
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
 const screens = { capture: $("screen-capture"), result: $("screen-result"), gallery: $("screen-gallery"), guest: $("screen-guest") };
 const camera = $("camera");
 const cameraZone = $("camera-zone");
+/* Le secours inline peut obtenir un flux pendant une ancienne session PWA.
+   On le garde en attente jusqu'au choix de rôle : le mode Interface ne doit
+   jamais demander ni rattacher une caméra locale. */
+const pendingFallbackStream = window.__mbFallbackStream || null;
+delete window.__mbFallbackStream;
+window.mbDeviceRole = "pending";
+function syncCameraPresentation(stream = state.stream) {
+  if (!camera) return;
+  camera.dataset.facing = state.facing === "user" ? "user" : "environment";
+  if (stream && camera.srcObject !== stream) camera.srcObject = stream;
+}
+window.addEventListener("mb-camera-ready", () => {
+  if (!state.stream && camera?.srcObject) state.stream = camera.srcObject;
+  syncCameraPresentation(state.stream || camera?.srcObject || null);
+  if (state.stream) {
+    if (camera.videoWidth > 0) telemetry.startupMark("cameraReady", { width: camera.videoWidth, height: camera.videoHeight, source: "fallback-event" });
+    hideSplash();
+  }
+});
 let _detectFaceTimer = null;
 let _faceTrackingPromise = null;
 let _faceTrackingGeneration = 0;
+let _faceTrackingUnavailableUntil = 0;
+let _faceTrackingFailureCount = 0;
 function pauseLiveProcessing() {
   if (_detectFaceTimer) { clearInterval(_detectFaceTimer); _detectFaceTimer = null; }
+  if (_railThumbTimer) { clearInterval(_railThumbTimer); _railThumbTimer = null; }
   stopPreroll();
   releaseFxCards();
   // MediaPipe est la plus grosse empreinte RAM optionnelle : il ne doit pas
@@ -107,6 +175,7 @@ function pauseLiveProcessing() {
 function resumeLiveProcessing() {
   if (!screens.capture.classList.contains("active") || document.hidden) return;
   if (state.prerollEnabled && state.stream) startPreroll();
+  if (!_railThumbTimer) { _railThumbTimer = setInterval(refreshFilterRailThumbnails, 700); refreshFilterRailThumbnails(); }
   void Promise.resolve(window.mbEnsureFaceTracking?.()).catch(() => {});
 }
 /* Suspend léger (app en arrière-plan) : coupe la détection visage, le monitor
@@ -114,78 +183,292 @@ function resumeLiveProcessing() {
    instantané et surtout zéro CPU/RAM consommés quand l'écran est éteint. */
 function suspendLiveWork() {
   if (_detectFaceTimer) { clearInterval(_detectFaceTimer); _detectFaceTimer = null; }
+  if (state.remoteConnectionState === "connected") setRemoteConnectionStatus("reconnecting", "Application en pause — vérification au retour…");
   stopLightMonitor();
   stopPreroll();
   stopGuestLivePublisher();
   stopRemotePublishing();
   stopRemotePolling();
+  stopRemoteCommandPolling();
+  stopDeviceAnnounce();
+  stopPairRequestPolling();
 }
 function resumeLiveWork() {
   if (document.hidden || !screens.capture.classList.contains("active")) return;
+  if (state.remoteCamMode !== "off") setRemoteConnectionStatus("connecting", "Vérification de la connexion…");
+  // Après bfcache/pagehide iOS, `state.stream` peut encore exister alors que
+  // sa piste est ended. La preuve de vie est l'état réel de la piste, pas la
+  // référence JavaScript conservée.
+  const streamLive = state.stream?.getVideoTracks?.().some((track) => track.readyState === "live");
+  if (state.deviceRole !== "interface" && !streamLive) void startCamera();
   if (state.prerollEnabled && state.stream) startPreroll();
   void Promise.resolve(window.mbEnsureFaceTracking?.()).catch(() => {});
   startLightMonitor();
-  if (state.remoteCamMode === "camera") startRemotePublishing();
-  if (state.remoteCamMode === "controller") startRemotePolling();
+  // Le réseau distant ne redémarre que pour un rôle compatible et une
+  // session explicitement active (les anciennes sessions Mixte sont purgées
+  // par setDeviceRole avant d'arriver ici).
+  if ((state.deviceRole === "camera" || state.deviceRole === "mixed") && state.remoteCamMode === "camera") {
+    startRemotePublishing();
+    startRemoteCommandPolling();
+    if (state.remoteCamToken && state.remoteCamHostKey) {
+      // Ne relance l'annonce que si la session n'est pas déjà jumelée (le
+      // serveur signale paired sur le prochain poll de commandes).
+      startDeviceAnnounce();
+      startPairRequestPolling();
+    }
+  }
+  if ((state.deviceRole === "interface" || state.deviceRole === "mixed") && state.remoteCamMode === "controller") startRemotePolling();
 }
 const PREF_KEY = "momentobooth-preferences-v1";
+const UI_CUSTOM_KEY = "momentobooth-ui-custom-v1";
 const PERF = {
-  eco: { cameraWidth: 1280, cameraHeight: 720, detectMs: 520, overlayMs: 120, gifFps: 5, gifFrames: 10, gifSize: 360, prerollFps: 4, prerollSize: 180 },
-  balanced: { cameraWidth: 1920, cameraHeight: 1080, detectMs: 360, overlayMs: 80, gifFps: 6, gifFrames: 12, gifSize: 420, prerollFps: 6, prerollSize: 220 },
-  max: { cameraWidth: 2560, cameraHeight: 1440, detectMs: 260, overlayMs: 55, gifFps: 7, gifFrames: 14, gifSize: 480, prerollFps: 8, prerollSize: 240 },
+  // Profils live : résolution volontairement stable pour éviter que Safari
+  // choisisse un flux 4K/60 i/s qui saccade dès qu'un effet est actif.
+  eco: { cameraWidth: 960, cameraHeight: 540, detectMs: 620, overlayMs: 140, gifFps: 5, gifFrames: 10, gifSize: 360, prerollFps: 4, prerollSize: 180 },
+  balanced: { cameraWidth: 1280, cameraHeight: 720, detectMs: 430, overlayMs: 95, gifFps: 6, gifFrames: 12, gifSize: 420, prerollFps: 6, prerollSize: 220 },
+  max: { cameraWidth: 1920, cameraHeight: 1080, detectMs: 320, overlayMs: 70, gifFps: 7, gifFrames: 14, gifSize: 480, prerollFps: 8, prerollSize: 240 },
 };
-function perfConfig() { return PERF[state.performanceMode] || PERF.eco; }
-/* Préférences persistantes : on NE PERSISTE PAS les clés d'authentification
-   (hostKey) ni les tokens d'event — un XSS les volerait et donnerait accès
-   total à l'event en cours. Les tokens sont gardés en mémoire, les hostKey
-   aussi ; si l'hôte recharge l'onglet, il doit re-saisir la clé (ou la
-   recréer). */
-const PERSISTED_PREFERENCE_FIELDS = [
-  "qualityMax", "trackEnabled", "idleEnabled", "idleFaceWake", "prerollEnabled",
-  "filmBubbleEnabled", "lightFrameEnabled", "portraitMode", "burstMode",
-  "timerSeconds", "captureCount", "logoEnabled", "flashMode", "performanceMode",
-  "autoDelay", "remoteCamMode", "remoteCamToken",
-  // PAS : remoteCamHostKey, guestToken, guestHostKey — données sensibles
-];
-const PREFERENCE_FIELDS = [
-  ...PERSISTED_PREFERENCE_FIELDS,
-  "remoteCamHostKey", // présent dans state, jamais écrit en storage
-];
+function perfConfig() { return PERF[state.performanceMode] || PERF.eco; }    const PREFERENCE_FIELDS = [
+      "qualityMax", "trackEnabled", "idleEnabled", "idleFaceWake", "prerollEnabled",
+      "filmBubbleEnabled", "emojiFacesEnabled", "lightFrameEnabled", "portraitMode", "burstMode", "timerSeconds", "captureCount", "logoEnabled", "flashMode", "performanceMode", "autoDelay", "deviceRole", "roleRemember", "deleteEnabled",
+    ];
 function loadPreferences() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
-    for (const field of PERSISTED_PREFERENCE_FIELDS) {
+    for (const field of PREFERENCE_FIELDS) {
       if (field === "logoEnabled") continue;
       if (Object.prototype.hasOwnProperty.call(saved, field)) state[field] = saved[field];
     }
-    // Les anciennes versions activaient le logo par défaut : elles sont
-    // explicitement invalidées pour qu'il n'apparaisse plus sans demande.
-    state.logoEnabled = saved.logoPreferenceVersion === LOGO_PREF_VERSION && saved.logoEnabled === true;
+    // Conserve une éventuelle activation explicite d'une ancienne version,
+    // mais n'active jamais le logo pour une préférence absente.
+    const previousLogoPreference = saved.logoPreferenceVersion === "splash-only-v1";
+    state.logoEnabled = (saved.logoPreferenceVersion === LOGO_PREF_VERSION || previousLogoPreference) && saved.logoEnabled === true;
     // Les préférences venant de localStorage restent bornées aux choix UI.
     state.timerSeconds = [5, 10, 15, 20].includes(Number(state.timerSeconds)) ? Number(state.timerSeconds) : 5;
     state.captureCount = Math.max(1, Math.min(6, Number(state.captureCount) || 1));
     state.autoDelay = [0.5, 1.5, 3].includes(Number(state.autoDelay)) ? Number(state.autoDelay) : 1.5;
-    // Sécurité : si une vieille version avait stocké le hostKey dans localStorage,
-    // on l'ignore (la session est invalidée à l'ouverture, l'hôte recrée).
+    state.deviceRole = ["camera", "interface", "mixed"].includes(state.deviceRole) ? state.deviceRole : "mixed";
+    state.roleRemember = state.roleRemember !== false;
+    // Les secrets de session ne survivent jamais à un rechargement : une
+    // session distante expirée ne doit pas bloquer la reconnexion. Le rôle
+    // Caméra recréera un pairing propre après l'ouverture du flux.
+    state.remoteCamMode = "off";
+    state.remoteCamToken = "";
     state.remoteCamHostKey = "";
-    // Purge défensive : un localStorage laissé par une ancienne version peut
-    // contenir momentobooth-guest-session avec hostKey. On l'efface, l'hôte
-    // recrée la session (l'URL seule ne suffit pas à un attaquant).
-    try {
-      const legacy = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
-      if (legacy && legacy.hostKey) localStorage.removeItem("momentobooth-guest-session");
-      // Et toute entrée "momentobooth" PREF_KEY ne doit plus contenir de hostKey.
-      const prefs = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
-      if (prefs.remoteCamHostKey) {
-        delete prefs.remoteCamHostKey;
-        localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
-      }
-    } catch { /* rien à purger */ }
+    state.remotePairCode = "";
+    state.remotePairUrl = "";
+    state.remoteConnectionState = "disconnected";
+    state.remoteSessionState = "none";
+    state.remoteLastFramePublishedAt = 0;
+    state.remoteLastFrameReceivedAt = 0;
+    state.remoteLastControllerSeenAt = 0;
+    state.remoteLastCommandSentAt = 0;
+    state.remoteLastCommandAckAt = 0;
+    state.remotePendingCommands = [];
+    state.remoteFrameAgeMs = null;
+    state.remoteLastFrameId = "";
+    loadUiCustomization();
   } catch { /* stockage indisponible ou préférence corrompue : defaults sûrs */ }
+}
+/* Grand écran = borne posée sur un support à distance de bras : texte et
+   boutons un peu plus grands par défaut pour rester lisibles sans y coller
+   les yeux. Uniquement un DÉFAUT initial — l'organisateur garde la main via
+   le curseur « Taille du texte / boutons » et tout choix déjà enregistré
+   n'est jamais écrasé. */
+function defaultUiScaleForViewport() {
+  const w = Math.max(window.innerWidth || 0, window.screen?.width || 0);
+  if (w >= 1024) return { textScale: 122, buttonScale: 116 };
+  if (w >= 768) return { textScale: 114, buttonScale: 110 };
+  return { textScale: 100, buttonScale: 100 };
+}
+function loadUiCustomization() {
+  let hasSavedScale = false;
+  try {
+    const saved = JSON.parse(localStorage.getItem(UI_CUSTOM_KEY) || "{}");
+    hasSavedScale = saved.textScale != null || saved.buttonScale != null;
+    const tabletDefault = hasSavedScale ? null : defaultUiScaleForViewport();
+    state.uiTheme = ["midnight", "studio", "party", "pearl"].includes(saved.theme) ? saved.theme : "midnight";
+    state.uiTextScale = Math.max(90, Math.min(145, Number(saved.textScale) || tabletDefault?.textScale || 100));
+    state.uiButtonScale = Math.max(90, Math.min(135, Number(saved.buttonScale) || tabletDefault?.buttonScale || 100));
+    state.customFrameSrc = typeof saved.frame === "string" ? saved.frame : "";
+    state.customBorderSrc = typeof saved.border === "string" ? saved.border : "";
+    state.idlePhotos = Array.isArray(saved.idlePhotos) ? saved.idlePhotos.slice(0, 8) : [];
+    state.idlePhotosEnabled = saved.idlePhotosEnabled === true;
+    state.uiComponents = saved.components && typeof saved.components === "object" && !Array.isArray(saved.components)
+      ? saved.components
+      : {};
+    state.eventHost1 = typeof saved.eventHost1 === "string" ? saved.eventHost1.slice(0, 24) : "";
+    state.eventHost2 = typeof saved.eventHost2 === "string" ? saved.eventHost2.slice(0, 24) : "";
+    state.eventWelcome = typeof saved.eventWelcome === "string" ? saved.eventWelcome.slice(0, 90) : "";
+    state.uiAccent = /^#[0-9a-fA-F]{6}$/.test(saved.accent || "") ? saved.accent : "";
+  } catch { /* préférences visuelles corrompues : thème neutre */ }
+  applyUiCustomization();
+  applyEventIdentity();
+  void loadCustomizationImages();
+}
+function saveUiCustomization() {
+  const data = {
+    theme: state.uiTheme,
+    textScale: state.uiTextScale,
+    buttonScale: state.uiButtonScale,
+    frame: state.customFrameSrc,
+    border: state.customBorderSrc,
+    idlePhotos: state.idlePhotos || [],
+    idlePhotosEnabled: state.idlePhotosEnabled === true,
+    components: state.uiComponents || {},
+    accent: state.uiAccent || "",
+    eventHost1: state.eventHost1 || "",
+    eventHost2: state.eventHost2 || "",
+    eventWelcome: state.eventWelcome || "",
+  };
+  try {
+    localStorage.setItem(UI_CUSTOM_KEY, JSON.stringify(data));
+  } catch {
+    // Quota dépassé : on retire d'abord les images (le thème et les échelles
+    // restent sauvés), sinon on signale à l'utilisateur que l'image est trop lourde.
+    try {
+      const slim = { ...data, frame: "", border: "", idlePhotos: [] };
+      localStorage.setItem(UI_CUSTOM_KEY, JSON.stringify(slim));
+      state.customFrameSrc = ""; state.customBorderSrc = "";
+      state.customFrameImage = null; state.customBorderImage = null;
+      state.idlePhotos = [];
+      applyUiCustomization();
+      toast("Images trop lourdes pour être mémorisées — choisissez des images plus légères");
+    } catch { toast("Mémoire locale pleine : images personnalisées non enregistrées"); }
+  }
+}
+/* Éclaircit/fonce une couleur hex de `percent` (positif = plus clair). Sert à
+   dériver --accent-2 d'une couleur d'accent personnalisée sans exiger deux
+   choix de couleur à l'organisateur. */
+function shadeHexColor(hex, percent) {
+  const n = parseInt(hex.slice(1), 16);
+  const clamp = (v) => Math.max(0, Math.min(255, v));
+  const r = clamp(((n >> 16) & 255) + Math.round(255 * (percent / 100)));
+  const g = clamp(((n >> 8) & 255) + Math.round(255 * (percent / 100)));
+  const b = clamp((n & 255) + Math.round(255 * (percent / 100)));
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+function applyUiCustomization() {
+  document.body.dataset.uiTheme = state.uiTheme;
+  document.documentElement.style.setProperty("--ui-text-scale", `${state.uiTextScale / 100}`);
+  document.documentElement.style.setProperty("--ui-button-scale", `${state.uiButtonScale / 100}`);
+  document.documentElement.style.setProperty("--ui-font-size", `${state.uiTextScale / 100}em`);
+  document.documentElement.style.setProperty("--ui-control-scale", `${state.uiButtonScale / 100}`);
+  // Accent personnalisé : surcharge --accent/--accent-2 sur les 4 thèmes sans
+  // dupliquer de règles CSS. "" revient à la teinte native du thème choisi.
+  if (state.uiAccent) {
+    document.documentElement.style.setProperty("--accent", state.uiAccent);
+    document.documentElement.style.setProperty("--accent-2", shadeHexColor(state.uiAccent, -18));
+  } else {
+    document.documentElement.style.removeProperty("--accent");
+    document.documentElement.style.removeProperty("--accent-2");
+  }
+  const accentInput = $("customizer-accent");
+  if (accentInput) accentInput.value = state.uiAccent || "#7dd3fc";
+  const accentReset = $("customizer-accent-reset");
+  if (accentReset) accentReset.hidden = !state.uiAccent;
+  const preview = $("customizer-preview");
+  if (preview) {
+    preview.dataset.theme = state.uiTheme;
+    preview.style.setProperty("--preview-text-scale", `${state.uiTextScale / 100}`);
+    preview.style.setProperty("--preview-button-scale", `${state.uiButtonScale / 100}`);
+    preview.querySelector(".customizer-preview-frame").style.backgroundImage = state.customFrameSrc ? `url(${state.customFrameSrc})` : "none";
+    preview.querySelector(".customizer-preview-border").style.backgroundImage = state.customBorderSrc ? `url(${state.customBorderSrc})` : "none";
+  }
+  document.querySelectorAll("#customizer-themes button").forEach((button) => button.classList.toggle("active", button.dataset.theme === state.uiTheme));
+  const text = $("customizer-text-scale"), button = $("customizer-button-scale");
+  if (text) text.value = state.uiTextScale;
+  if (button) button.value = state.uiButtonScale;
+  if ($("customizer-text-output")) $("customizer-text-output").textContent = `${state.uiTextScale}%`;
+  if ($("customizer-button-output")) $("customizer-button-output").textContent = `${state.uiButtonScale}%`;
+  // Composants personnalisables : chaque réglage s'applique en direct sur la
+  // vraie borne, puis on reflète l'état sur les « ghosts » de l'aperçu.
+  for (const key of Object.keys(UI_COMPONENTS)) applyComponentToDom(key);
+  applyCustomizerGhostVisuals();
+}
+/* Identité de l'événement (prénoms des hôtes + message d'accueil veille) :
+   personnalisable par l'organisateur, avec les valeurs d'origine de cette
+   soirée comme défaut si rien n'est renseigné. Ne touche jamais au design,
+   seulement au texte. */
+function applyEventIdentity() {
+  const host1 = state.eventHost1 || "Kenza";
+  const host2 = state.eventHost2 || "Lilou";
+  const welcome = state.eventWelcome || `${host1} & ${host2} — posez, c'est l'instant souvenir !`;
+  const bubble1 = document.querySelector(".bubble-kenza span");
+  const bubble2 = document.querySelector(".bubble-lilou span");
+  if (bubble1) bubble1.textContent = host1;
+  if (bubble2) bubble2.textContent = host2;
+  const idleCopy = document.querySelector(".idle-party-copy");
+  if (idleCopy) idleCopy.textContent = welcome;
+  // Le cadre anniversaire n'est jamais persisté d'une session à l'autre : son
+  // texte par défaut doit donc refléter l'identité choisie dès l'ouverture.
+  if (!state.frameText || state.frameText.line2 === "Lilou & Kenza" || !state.frameText.line2) {
+    state.frameText = { ...state.frameText, line2: `${host2} & ${host1}` };
+  }
+  const frameInput2 = $("frame-text-2");
+  if (frameInput2) {
+    frameInput2.placeholder = `Titre ligne 2 (ex. ${host2} & ${host1})`;
+    if (!frameInput2.value.trim()) frameInput2.value = state.frameText.line2;
+  }
+  const host1Input = $("customizer-host1"), host2Input = $("customizer-host2"), welcomeInput = $("customizer-welcome");
+  if (host1Input && document.activeElement !== host1Input) host1Input.value = state.eventHost1;
+  if (host2Input && document.activeElement !== host2Input) host2Input.value = state.eventHost2;
+  if (welcomeInput && document.activeElement !== welcomeInput) welcomeInput.value = state.eventWelcome;
+  if (host1Input) host1Input.placeholder = "Kenza";
+  if (host2Input) host2Input.placeholder = "Lilou";
+  if (welcomeInput) welcomeInput.placeholder = welcome;
+}
+function bindEventIdentityFields() {
+  const host1Input = $("customizer-host1"), host2Input = $("customizer-host2"), welcomeInput = $("customizer-welcome");
+  if (!host1Input || !host2Input || !welcomeInput) return;
+  const commit = () => {
+    state.eventHost1 = host1Input.value.trim().slice(0, 24);
+    state.eventHost2 = host2Input.value.trim().slice(0, 24);
+    state.eventWelcome = welcomeInput.value.trim().slice(0, 90);
+    applyEventIdentity();
+    saveUiCustomization();
+  };
+  [host1Input, host2Input, welcomeInput].forEach((input) => {
+    input.addEventListener("change", commit);
+    input.addEventListener("blur", commit);
+  });
+}
+function loadCustomizationImages() {
+  const load = (src, key) => new Promise((resolve) => {
+    if (!src) { state[key] = null; resolve(); return; }
+    const image = new Image();
+    image.onload = () => { state[key] = image; resolve(); };
+    image.onerror = () => { state[key] = null; resolve(); };
+    image.src = src;
+  });
+  return Promise.all([load(state.customFrameSrc, "customFrameImage"), load(state.customBorderSrc, "customBorderImage")]).then(() => {
+    drawLiveOverlay();
+  });
+}
+function readCustomizationAsset(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error("asset"));
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      // Dimension volontairement prudente : un cadre/rebord ne dépasse jamais
+      // 1110 px pour rester bien sous le quota localStorage iOS (~4 Mo).
+      const max = 1110, scale = Math.min(1, max / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/webp", .78));
+    };
+    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("asset")); };
+    image.src = url;
+  });
 }
 function savePreferences() {
   try {
-    const saved = Object.fromEntries(PERSISTED_PREFERENCE_FIELDS.map((field) => [field, state[field]]));
+    const saved = Object.fromEntries(PREFERENCE_FIELDS.map((field) => [field, state[field]]));
+    if (!state.roleRemember) saved.deviceRole = "mixed";
     saved.logoPreferenceVersion = LOGO_PREF_VERSION;
     localStorage.setItem(PREF_KEY, JSON.stringify(saved));
   } catch { /* mode privé iOS ou quota atteint : l'app continue */ }
@@ -193,11 +476,14 @@ function savePreferences() {
 function syncPreferenceControls() {
   const checks = {
     "set-quality": state.qualityMax,
+    "set-logo": state.logoEnabled,
+    "set-delete": state.deleteEnabled,
     "set-track": state.trackEnabled,
     "set-idle": state.idleEnabled,
     "set-idle-face": state.idleFaceWake,
     "set-preroll": state.prerollEnabled,
     "set-film-bubble": state.filmBubbleEnabled,
+    "set-emoji-faces": state.emojiFacesEnabled,
     "set-light-frame": state.lightFrameEnabled,
     "set-portrait": state.portraitMode,
     "set-burst": state.burstMode,
@@ -208,6 +494,12 @@ function syncPreferenceControls() {
   }
   const perfControl = $("set-performance");
   if (perfControl) perfControl.value = PERF[state.performanceMode] ? state.performanceMode : "eco";
+  const roleLabel = { camera: "Caméra", interface: "Interface", mixed: "Mixte" }[state.deviceRole] || "Mixte";
+  const roleValue = $("settings-device-role");
+  if (roleValue) roleValue.textContent = roleLabel;
+  document.querySelectorAll(".settings-row [data-device-role]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.deviceRole === state.deviceRole);
+  });
   document.querySelectorAll("#flash-modes button").forEach((button) => {
     button.classList.toggle("active", button.dataset.flash === state.flashMode);
   });
@@ -217,9 +509,9 @@ function syncPreferenceControls() {
 }
 
 const stickerCanvas = $("sticker-canvas");
-const fxPanel = $("fx-panel");
-const countdownEl = $("countdown");
-const countdownNumber = $("countdown-number");
+const fxPanel = $("fx-panel");  const countdownEl = $("countdown");
+  const countdownNumber = $("countdown-number");
+  const countdownCancel = $("countdown-cancel");
 const sheetMap = {
   "sheet-timer": $("sheet-timer"),
   "sheet-backdrop": $("sheet-backdrop"),
@@ -245,8 +537,75 @@ function showCamDiag(detail) {
 }
 
 /* ---------- Helpers ---------- */
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+}
+
+/* Nom d'appareil pour la sélection (au lieu du code) : modèle par défaut,
+   éditable dans Réglages → Appareils. */
+function defaultDeviceName() {
+  try {
+    const ua = navigator.userAgentData;
+    if (ua) {
+      const platform = String(ua.platform || "").toLowerCase();
+      if (platform.includes("iphone")) return "iPhone";
+      if (platform.includes("ipad")) return "iPad";
+      if (platform.includes("android")) return "Android";
+      if (platform.includes("mac")) return "Mac";
+      if (platform.includes("win")) return "PC";
+    }
+    const legacy = String(navigator.platform || "").toLowerCase();
+    if (legacy.includes("iphone")) return "iPhone";
+    if (legacy.includes("ipad")) return "iPad";
+    if (legacy.includes("android")) return "Android";
+    if (legacy.includes("mac")) return "Mac";
+  } catch { /* ua indisponible */ }
+  return "Appareil";
+}
+function getDeviceName() {
+  try { return localStorage.getItem("momentobooth-device-name") || defaultDeviceName(); } catch { return defaultDeviceName(); }
+}
+function setDeviceName(name) {
+  const clean = String(name || "").replace(/[^\p{L}\p{N} _\-'.]/gu, "").slice(0, 40);
+  try {
+    if (clean) localStorage.setItem("momentobooth-device-name", clean);
+    else localStorage.removeItem("momentobooth-device-name");
+  } catch { /* stockage indisponible */ }
+  return clean;
+}
+
 /* Toast : créé dynamiquement au premier message — AUCUN élément permanent
    dans le HTML (le div vide restait visible en pilule permanente sur l'écran). */
+/* ---------- Accès organisateur : le code n'est jamais comparé en local,
+   toujours vérifié par le serveur (voir /api/organizer/verify). La session
+   obtenue est mise en cache le temps de l'événement pour ne pas redemander
+   le code à chaque action. ---------- */
+const ORGANIZER_SESSION_KEY = "momentobooth-organizer-session";
+function loadOrganizerSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(ORGANIZER_SESSION_KEY) || "null");
+    if (saved?.token && Number(saved.expiresAt) > Date.now()) return saved;
+  } catch { /* session corrompue : redemander le code */ }
+  return null;
+}
+async function requestOrganizerAccess(promptText) {
+  if (loadOrganizerSession()) return true;
+  const pin = prompt(promptText || "Code organisateur :");
+  if (pin === null) return false;
+  try {
+    const response = await fetch("/api/organizer/verify", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { toast(data.error || "Code incorrect"); return false; }
+    sessionStorage.setItem(ORGANIZER_SESSION_KEY, JSON.stringify(data));
+    return true;
+  } catch {
+    toast("Vérification impossible — connexion au serveur requise");
+    return false;
+  }
+}
+
 function toast(message) {
   let el = $("toast");
   if (!el) {
@@ -316,10 +675,22 @@ function resumeAudio() {
   document.addEventListener(eventName, unlockAudio, { capture: true, passive: true });
 });
 document.addEventListener("visibilitychange", () => {
+  telemetry.emit("lifecycle", { event: document.hidden ? "hidden" : "visible" });
   if (document.hidden) suspendLiveWork();
   else { resumeAudio(); resumeLiveWork(); }
 });
-window.addEventListener("pageshow", resumeAudio);
+// pageshow : en plus du son, on relance publishing/polling distants — sur iOS
+// un aller-retour en arrière-plan (pagehide) stoppe les timers et la reprise
+// ne doit pas laisser la paire Caméra/Interface « connectée » mais muette.
+window.addEventListener("pageshow", () => {
+  telemetry.emit("lifecycle", { event: "pageshow" });
+  resumeAudio();
+  resumeLiveWork();
+});
+window.addEventListener("pagehide", () => {
+  telemetry.emit("lifecycle", { event: "pagehide" });
+  stopCamera({ lifecycle: true });
+});
 
 /* Son simple : oscillo + enveloppe. gain 0..1 (fort par défaut) */
 function playBeep(freq = 880, duration = 0.14, gain = 0.5, type = "sine") {
@@ -519,8 +890,6 @@ async function tryTorch(enabled = shouldUseFlash()) {
 /* Le fill-light écran est volontairement supprimé : il masquait le preview.
    `tryTorch()` utilise uniquement la capacité réelle exposée par la piste ;
    sinon le flash visuel reste limité au bord. */
-function fillLightOn(enabled = shouldUseFlash()) { return enabled; }
-function fillLightOff() {}
 
 /* =========================================================
    CAMÉRA + OBJECTIF (grand angle)
@@ -568,8 +937,15 @@ function buildLensOptions() {
       state.lensDeviceId = deviceId; // null = auto (facingMode)
       buildLensOptions();
       toast(deviceId ? `Objectif : ${label}` : "Objectif auto");
+      // En Interface, l'objectif est choisi sur la Caméra jumelée : la
+      // commande part immédiatement et l'aperçu distant se met à jour.
+      if (state.remoteCamMode === "controller") {
+        remoteSendSetting("lensDeviceId", deviceId);
+        return;
+      }
       if (state.stream) {
         try { state.stream.getTracks().forEach((t) => t.stop()); } catch {}
+        telemetry.cameraStop();
         state.stream = null;
         await startCamera();
       }
@@ -594,7 +970,71 @@ function buildLensOptions() {
   }
 }
 
+async function ensureCameraPlayback(stream = state.stream, retries = 3) {
+  if (!camera || !stream || state.deviceRole === "interface") return false;
+  const isCurrentLiveStream = () => state.stream === stream
+    && state.deviceRole !== "interface"
+    && stream.getVideoTracks?.().some((track) => track.readyState === "live");
+  if (!isCurrentLiveStream()) return false;
+  camera.style.visibility = "visible";
+  camera.dataset.facing = state.facing === "user" ? "user" : "environment";
+  camera.hidden = false;
+  camera.autoplay = true;
+  camera.playsInline = true;
+  camera.muted = true;
+  syncCameraPresentation(stream);
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    if (!isCurrentLiveStream()) return false;
+    try {
+      if (camera.readyState < 1) {
+        await new Promise((resolve) => {
+          camera.addEventListener("loadedmetadata", resolve, { once: true });
+          window.setTimeout(resolve, 700);
+        });
+      }
+      if (!isCurrentLiveStream()) return false;
+      await camera.play();
+      if (isCurrentLiveStream() && (camera.videoWidth > 0 || camera.readyState >= 2)) return true;
+    } catch { /* Safari peut retarder canplay après getUserMedia */ }
+    await new Promise((resolve) => window.setTimeout(resolve, 120 * (attempt + 1)));
+  }
+  return false;
+}
+
+function stopCamera({ lifecycle = false } = {}) {
+  _cameraRequestId += 1;
+  _cameraRestartPending = false;
+  state.cameraStopRequested = true;
+  stopLightMonitor();
+  stopPreroll();
+  stopRemotePublishing();
+  stopRemoteCommandPolling();
+  // pagehide n'est pas toujours précédé d'un visibilitychange sur iOS :
+  // couper aussi les annonces et demandes évite de laisser une caméra
+  // « disponible » alors que son écran est suspendu.
+  if (lifecycle) {
+    stopDeviceAnnounce();
+    stopPairRequestPolling();
+  }
+  try { state.stream?.getTracks?.().forEach((track) => track.stop()); } catch {}
+  telemetry.cameraStop();
+  state.stream = null;
+  camera.srcObject = null;
+  if (lifecycle && state.remoteCamMode === "camera") setRemoteConnectionStatus("reconnecting", "Application en pause — reprise en cours…");
+  else if (!lifecycle) setRemoteConnectionStatus("disconnected", "Caméra arrêtée");
+}
+
 async function startCamera() {
+  // Le rôle Interface est volontairement sans caméra locale : aucune
+  // permission ne doit être demandée, même si un ancien bouton de secours
+  // ou une reprise de page tente de relancer startCamera().
+  if (state.deviceRole === "interface") {
+    const errorEl = $("camera-error");
+    errorEl?.classList.add("hidden");
+    camera.style.visibility = "hidden";
+    hideSplash();
+    return;
+  }
   if (_cameraOpening) {
     // Une action utilisateur pendant la permission ne doit pas être perdue.
     // Une seule relance suffit : elle prendra les réglages les plus récents.
@@ -607,25 +1047,27 @@ async function startCamera() {
   const errorEl = $("camera-error");
   const previousStream = state.stream;
   try {
+    state.cameraStopRequested = false;
     const facing = state.facing === "user" ? "user" : "environment";
+    camera.dataset.facing = facing;
     // Essai progressif : 2560 → 1920 → 1280 → sans contrainte.
     // iPhone 11 (front ≤ ~1920×1080) échoue parfois sur les grosses contraintes.
     // Si un objectif précis est choisi → deviceId exact (Android multi-objectifs).
     const base = state.lensDeviceId
+      ? { deviceId: { exact: state.lensDeviceId }, frameRate: { ideal: 30, max: 30 } }
+      : { facingMode: facing, frameRate: { ideal: 30, max: 30 } };
+    // Le preview live reste plafonné à 1080p/30 i/s : demander du 4K ici
+    // rendrait le flux saccadé dès qu'un canvas, un filtre ou le réseau est
+    // actif. La qualité photo est optimisée séparément lors de la capture.
+    const profile = perfConfig();
+    const unconstrainedBase = state.lensDeviceId
       ? { deviceId: { exact: state.lensDeviceId } }
       : { facingMode: facing };
-    // 4K d'abord si qualité max (back camera), puis descente progressive.
-    const profile = perfConfig();
-    const attempts = state.qualityMax && state.performanceMode === "max"
-      ? [
-          { ...base, width: { ideal: 3840 }, height: { ideal: 2160 } },
-          { ...base, width: { ideal: profile.cameraWidth }, height: { ideal: profile.cameraHeight } },
-          base,
-        ]
-      : [
-          { ...base, width: { ideal: profile.cameraWidth }, height: { ideal: profile.cameraHeight } },
-          base,
-        ];
+    const attempts = [
+      { ...base, width: { ideal: profile.cameraWidth }, height: { ideal: profile.cameraHeight } },
+      base,
+      unconstrainedBase,
+    ];
     let stream = null, lastError = null;
     for (const video of attempts) {
       try {
@@ -634,9 +1076,9 @@ async function startCamera() {
       } catch (error) { lastError = error; }
     }
     if (!stream) throw lastError || new Error("getUserMedia failed");
-    // Une bascule/relance plus récente a gagné : ne laisse jamais cette
-    // permission tardive remplacer le flux courant.
-    if (requestId !== _cameraRequestId) {
+    // Une bascule/relance plus récente ou un Arrêter a gagné : ne laisse
+    // jamais cette permission tardive recréer un flux après l'arrêt.
+    if (requestId !== _cameraRequestId || state.cameraStopRequested) {
       try { stream.getTracks().forEach((track) => track.stop()); } catch {}
       return;
     }
@@ -644,17 +1086,48 @@ async function startCamera() {
       try { state.stream.getTracks().forEach((track) => track.stop()); } catch {}
     }
     state.stream = stream;
-    camera.srcObject = state.stream;
-    await camera.play().catch(() => {});
+    telemetry.cameraStart(camera, state.stream, {
+      width: profile.cameraWidth,
+      height: profile.cameraHeight,
+      frameRate: 30,
+    });
+    // `init()` peut avoir affiché l'état d'attente pendant que la permission
+    // Safari était ouverte. Le flux est maintenant réellement prêt : la vidéo
+    // doit explicitement redevenir visible.
+    const playbackReady = await ensureCameraPlayback(state.stream, 4);
+    if (!playbackReady) {
+      const failedStream = state.stream;
+      telemetry.cameraStop();
+      state.stream = null;
+      camera.srcObject = null;
+      try { failedStream?.getTracks?.().forEach((track) => track.stop()); } catch {}
+      throw new Error("Camera playback unavailable");
+    }
     // On re-synchronise les miniatures avec le vrai flux
     fxCards.forEach((item) => { if (item.video && item.hydrated) { item.video.srcObject = state.stream; } });
     if (fxPanel.classList.contains("open")) buildFxPanel();
+    const wheelVideo = $("filter-wheel-live");
+    if (wheelVideo && wheelVideo.srcObject !== state.stream) { wheelVideo.srcObject = state.stream; wheelVideo.play?.().catch(() => {}); }
     // Caméra OK → masque l'écran d'erreur ou l'état d'attente
     if (errorEl) errorEl.classList.add("hidden");
     clearTimeout(startCamera._waitingTimer);
     console.log("[MomentoBooth] caméra OK", camera.videoWidth, "x", camera.videoHeight);
+    telemetry.startupMark("cameraReady", { width: camera.videoWidth, height: camera.videoHeight });
     // Caméra OK → le splash disparaît en fondu (interface révélée)
     hideSplash();
+    // La demande peut avoir été lancée directement par le bouton de rôle,
+    // avant la fin de init(). Reprend/crée ici la session distante pour ne
+    // jamais perdre la publication caméra dans cette course iOS.
+    if (state.deviceRole === "camera") {
+      if (state.remoteCamMode === "camera" && state.remoteCamToken && state.remoteCamHostKey) {
+        $("remote-token-row") && ($("remote-token-row").style.display = "flex");
+        $("set-remote-camera") && ($("set-remote-camera").checked = true);
+        startRemotePublishing();
+        startRemoteCommandPolling();
+      } else if (state.remoteCamMode === "off") {
+        void startRemoteCamera();
+      }
+    }
     // Contour lumineux : analyse la luminosité de la scène en continu
     if (state.lightFrameEnabled || state.flashMode === "auto") startLightMonitor();
     // Préfilmage : ring buffer + déclencheurs (approche / voix proche).
@@ -668,24 +1141,46 @@ async function startCamera() {
     // Objectifs : liste les caméras réelles (Android) et met à jour le sélecteur
     listLenses().then(() => { try { buildLensOptions(); } catch {} });
     const videoTrack = state.stream.getVideoTracks?.()[0];
-    videoTrack?.addEventListener?.("ended", () => stopLightMonitor(), { once: true });
+    videoTrack?.addEventListener?.("ended", () => {
+      if (requestId !== _cameraRequestId || state.cameraStopRequested) return;
+      stopLightMonitor();
+      stopRemotePublishing();
+      stopRemoteCommandPolling();
+      telemetry.cameraStop();
+      state.stream = null;
+      camera.srcObject = null;
+      hideSplash();
+      const textEl = $("camera-error")?.querySelector(".camera-error-text");
+      if (textEl) textEl.textContent = "La caméra s'est interrompue. Touchez Réessayer pour la relancer.";
+      $("camera-error")?.classList.remove("hidden");
+      setRemoteConnectionStatus("error", "Caméra interrompue — touchez Réessayer");
+    }, { once: true });
     // ⚠️ Watchdog : si la vidéo reste NOIRE (aucune dimension après 2,5 s),
     // on ré-attache le flux (bug iOS connu) puis on affiche un diagnostic.
     setTimeout(() => {
       if (requestId !== _cameraRequestId) return;
       if (camera.videoWidth === 0 && state.stream) {
-        try {
+        const currentStream = state.stream;
+        // Safari peut conserver srcObject sans produire de frames. Détache
+        // puis réessaie réellement la lecture avant d'annoncer une panne.
+        camera.srcObject = null;
+        void ensureCameraPlayback(currentStream, 3).then((ready) => {
+          if (ready || requestId !== _cameraRequestId || state.stream !== currentStream) return;
+          showCamDiag("flux obtenu mais vidéo noire (width=0)");
+          stopLightMonitor();
+          telemetry.cameraStop();
+          state.stream = null;
+          try { currentStream.getTracks?.().forEach((track) => track.stop()); } catch {}
           camera.srcObject = null;
-          camera.srcObject = state.stream;
-          camera.play().catch(() => {});
-        } catch { /* ignore */ }
-      }
-      if (camera.videoWidth === 0) {
-        showCamDiag("flux obtenu mais vidéo noire (width=0)");
+          const error = $("camera-error");
+          const text = error?.querySelector(".camera-error-text");
+          if (text) text.textContent = "La caméra est active mais le flux vidéo ne s'affiche plus. Touchez Réessayer.";
+          error?.classList.remove("hidden");
+        });
       }
     }, 2500);
   } catch (error) {
-    if (requestId !== _cameraRequestId) return;
+    if (requestId !== _cameraRequestId || state.cameraStopRequested) return;
     // ⚠️ Affiche un écran clair + bouton réessayer au lieu d'un écran noir.
     // Le splash ne doit jamais rester au-dessus de cet état d'erreur.
     clearTimeout(startCamera._waitingTimer);
@@ -695,8 +1190,7 @@ async function startCamera() {
       // Une relance secondaire peut échouer (objectif non exposé, contrainte
       // refusée) alors que l'ancien flux reste parfaitement utilisable.
       // Restaure-le au lieu d'afficher une fausse panne caméra.
-      camera.srcObject = state.stream;
-      camera.play().catch(() => {});
+      void ensureCameraPlayback(state.stream, 3);
       if (errorEl) errorEl.classList.add("hidden");
       hideSplash();
       if (state.lightFrameEnabled || state.flashMode === "auto") startLightMonitor();
@@ -705,6 +1199,7 @@ async function startCamera() {
     }
     hideSplash();
     stopLightMonitor(); // pas de contour lumineux sur l'écran d'erreur
+    if (state.deviceRole === "camera") setRemoteConnectionStatus("error", "Caméra indisponible — autorisez l'accès puis réessayez");
     console.error("[MomentoBooth] getUserMedia échec:", error?.name, error?.message);
     showCamDiag(`erreur ${error?.name || "inconnue"}: ${error?.message || ""}`);
     if (errorEl) errorEl.classList.remove("hidden");
@@ -726,6 +1221,7 @@ async function startCamera() {
 }
 
 async function showCameraWaiting() {
+  if (state.deviceRole === "interface") return;
   const errorEl = $("camera-error");
   if (!errorEl || state.stream) return;
   const title = errorEl.querySelector(".camera-error-title");
@@ -739,8 +1235,9 @@ async function showCameraWaiting() {
 }
 
 async function flipCamera() {
-  if (!state.stream) return;
-  state.stream.getTracks().forEach((t) => t.stop());
+  if (state.deviceRole === "interface" || !state.stream) return;
+  stopCamera({ lifecycle: true });
+  state.cameraStopRequested = false;
   state.facing = state.facing === "user" ? "environment" : "user";
   // ⚠️ Le retournement repasse à l'objectif auto (sinon deviceId exact
   // bloquerait la bascule avant/arrière)
@@ -780,6 +1277,10 @@ function fxItemById(id) {
 
 function activePhotoFilter() { return filterById(state.photoFilterId); }
 function activeAccessory() { return state.accessoryId ? filterById(state.accessoryId) : filterById("original"); }
+function updateLensStatus() {
+  // L'ancien bandeau « LENS LIVE / Original » surchargeait la caméra et
+  // n'apportait aucune action : il a été retiré de l'interface.
+}
 function liveFilterCss() {
   return [activePhotoFilter(), activeAccessory()]
     .map((item) => item.css && item.css !== "none" ? item.css : "")
@@ -787,7 +1288,12 @@ function liveFilterCss() {
 }
 function refreshLiveFilter() {
   const css = liveFilterCss();
+  updateLensStatus();
   camera.style.setProperty("--mb-live-filter", css);
+  // La roue de filtres (élément frère, pas descendant de #camera) doit
+  // recevoir la même variable CSS pour que sa vignette vidéo porte le filtre.
+  const wheelVideo = $("filter-wheel-live");
+  if (wheelVideo) wheelVideo.style.setProperty("--mb-live-filter", css);
   document.body.classList.add("fx-blur");
   clearTimeout(_fxBlurTimer);
   _fxBlurTimer = setTimeout(() => {
@@ -816,6 +1322,7 @@ function applyFx(id, opts = {}) {
     refreshLiveFilter();
   }
   fxCards.forEach((item) => item.card.classList.toggle("active", item.id === id));
+  updateLensStatus();
   if (opts.showName) showFilterName(fxItemById(id)?.name || "");
 }
 
@@ -833,88 +1340,129 @@ function applyFilter(id) {
   }
   state.photoFilterId = id;
   refreshLiveFilter();
-  document.querySelectorAll("#photo-filter-rail-list [data-filter]").forEach((item) => item.classList.toggle("active", item.dataset.filter === id));
+  syncWheelAngles();
+  document.querySelectorAll("#photo-filter-rail-list [data-filter]").forEach((item) => {
+    const isActive = item.dataset.filter === id;
+    item.classList.toggle("active", isActive);
+    item.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
   try { navigator.vibrate?.(8); } catch {}
 }
 
-function buildPhotoFilterRail() {
-  const rail = $("photo-filter-rail-list");
-  if (!rail) return;
-  rail.innerHTML = "";
-  // Le rail droit est exclusivement le carrousel des filtres photo/image.
-  PHOTO_FILTERS.forEach((item) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `filter-rail-card${state.photoFilterId === item.id ? " active" : ""}`;
-    button.dataset.filter = item.id;
-    button.setAttribute("aria-label", `Filtre photo ${item.name}`);
-    button.title = item.name;
-
-    const preview = document.createElement("span");
-    preview.className = "filter-rail-preview";
-    preview.textContent = item.id === "original" ? "◎" : "Aa";
-    preview.style.filter = item.css && item.css !== "none" ? item.css : "none";
-    button.appendChild(preview);
-
-    const name = document.createElement("span");
-    name.className = "filter-rail-name";
-    name.textContent = item.name;
-    button.appendChild(name);
-
-    button.addEventListener("click", () => {
-      // Le rail photo ne change jamais l'onglet du panneau Accessoires/Animations.
-      centerRailCard(button, true);
-      applyFilter(item.id);
-      showFilterName(item.name);
-      sfxOpen();
-    });
-    rail.appendChild(button);
-  });
-  // Carrousel : au défilement, la pastille la plus proche du centre devient
-  // le filtre actif (même comportement que le dial de filtres Snapchat).
-  let railScrollTimer = null;
-  rail.addEventListener("scroll", () => {
-    clearTimeout(railScrollTimer);
-    railScrollTimer = setTimeout(applyCenteredFilter, 120);
-  }, { passive: true });
-  // Marge de centrage : moitié de la hauteur visible (les 1res/dernières
-  // pastilles doivent pouvoir atteindre le centre, sinon le snap les bloque).
-  const setRailPad = () => {
-    rail.style.setProperty("--rail-pad", `${Math.max(0, Math.round(rail.clientHeight / 2 - 23))}px`);
-  };
-  setRailPad();
-  requestAnimationFrame(setRailPad);
-  window.addEventListener("resize", setRailPad, { passive: true });
-  // Recentre la pastille déjà active (filtre conservé d'une session à l'autre).
-  // Double rAF : les dimensions du rail ne sont fiables qu'après le layout.
-  const activeCard = rail.querySelector(".filter-rail-card.active");
-  if (activeCard) {
-    requestAnimationFrame(() => requestAnimationFrame(() => centerRailCard(activeCard)));
-  }
-}
-
-/* Centre une pastille du rail (scroll déterministe, snap-compatible). */
-function centerRailCard(card, smooth = false) {
+/* Resynchronise les angles de la demi-roue quand le filtre actif change en
+   dehors de la roue (swipe, sélection legacy, reset après capture). */
+function syncWheelAngles() {
   const list = $("photo-filter-rail-list");
-  if (!list || !card) return;
-  const target = card.offsetTop - list.clientHeight / 2 + card.offsetHeight / 2;
-  list.scrollTo({ top: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
+  const cards = list ? [...list.querySelectorAll("[data-filter]")] : [];
+  const index = Math.max(0, PHOTO_FILTERS.findIndex((item) => item.id === state.photoFilterId));
+  cards.forEach((card, i) => card.style.setProperty("--wheel-angle", `${-58 + (i - index) * 14}deg`));
 }
 
-/* Applique le filtre de la pastille la plus proche du centre du rail (snap). */
-function applyCenteredFilter() {
+function applyWheelSelection(index, announce = true) {
+  const safeIndex = Math.max(0, Math.min(PHOTO_FILTERS.length - 1, index));
+  const item = PHOTO_FILTERS[safeIndex];
+  const list = $("photo-filter-rail-list");
+  const cards = [...(list?.querySelectorAll("[data-filter]") || [])];
+  cards.forEach((card, i) => {
+    card.classList.toggle("active", i === safeIndex);
+    card.setAttribute("aria-selected", i === safeIndex ? "true" : "false");
+    card.style.setProperty("--wheel-angle", `${-58 + (i - safeIndex) * 14}deg`);
+  });
+  if (state.photoFilterId !== item.id) applyFilter(item.id);
+  if (announce) showFilterName(item.name);
+}
+/* Vignette live du carrousel : au lieu de rendre 14 flux vidéo simultanés
+   (coûteux sur iPhone 11), une SEULE frame basse résolution est capturée
+   périodiquement depuis `filter-wheel-live` (déjà connecté au flux caméra)
+   puis partagée entre toutes les pastilles — chacune applique son propre
+   filtre CSS par-dessus la même image de base. Fréquence volontairement
+   basse (≈1,4 im/s) : la miniature n'a besoin d'être qu'à jour, pas fluide. */
+let _railThumbTimer = null;
+let _railThumbUrl = null;
+function refreshFilterRailThumbnails() {
+  const rail = $("photo-filter-rail");
+  const video = $("filter-wheel-live");
+  if (!rail || !video || !video.videoWidth) return;
+  if (!screens.capture?.classList.contains("active") || document.body.classList.contains("idle")) return;
+  try {
+    const size = 84;
+    const canvas = document.createElement("canvas");
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const side = Math.min(video.videoWidth, video.videoHeight);
+    const sx = (video.videoWidth - side) / 2, sy = (video.videoHeight - side) / 2;
+    ctx.translate(size, 0); ctx.scale(-1, 1); // miroir selfie, cohérent avec l'aperçu
+    ctx.drawImage(video, sx, sy, side, side, 0, 0, size, size);
+    // Encodage asynchrone : le canvas est petit (84×84) et local à cette
+    // fonction, inutile de forcer sa libération — le GC s'en charge une fois
+    // le callback de toBlob passé.
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const nextUrl = URL.createObjectURL(blob);
+      if (_railThumbUrl) URL.revokeObjectURL(_railThumbUrl);
+      _railThumbUrl = nextUrl;
+      rail.querySelectorAll(".filter-rail-thumb").forEach((img) => { img.src = nextUrl; });
+    }, "image/jpeg", 0.55);
+  } catch { /* vignette optionnelle : la pastille garde son dégradé de secours */ }
+}
+function buildPhotoFilterRail() {
   const list = $("photo-filter-rail-list");
   if (!list) return;
-  const centerY = list.scrollTop + list.clientHeight / 2;
-  let best = null, bestDist = Infinity;
-  list.querySelectorAll("[data-filter]").forEach((card) => {
-    const dist = Math.abs(card.offsetTop + card.offsetHeight / 2 - centerY);
-    if (dist < bestDist) { bestDist = dist; best = card; }
+  list.innerHTML = "";
+  let selected = Math.max(0, PHOTO_FILTERS.findIndex((item) => item.id === state.photoFilterId));
+  PHOTO_FILTERS.forEach((item, index) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `filter-rail-card${index === selected ? " active" : ""}`;
+    card.dataset.filter = item.id;
+    card.title = item.name;
+    card.setAttribute("role", "option");
+    card.setAttribute("aria-selected", index === selected ? "true" : "false");
+    card.setAttribute("aria-label", `Filtre photo ${item.name}`);
+    const preview = document.createElement("span");
+    preview.className = "filter-rail-preview";
+    const thumb = document.createElement("img");
+    thumb.className = "filter-rail-thumb";
+    thumb.alt = "";
+    thumb.style.filter = item.css && item.css !== "none" ? item.css : "none";
+    if (_railThumbUrl) thumb.src = _railThumbUrl;
+    preview.appendChild(thumb);
+    card.appendChild(preview);
+    card.addEventListener("click", () => { selected = index; applyWheelSelection(selected); sfxOpen(); });
+    list.appendChild(card);
   });
-  if (!best || best.dataset.filter === state.photoFilterId) return;
-  applyFilter(best.dataset.filter);
-  showFilterName(best.querySelector(".filter-rail-name")?.textContent || best.dataset.filter);
-  try { navigator.vibrate?.(6); } catch {}
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Filtres photo");
+  // Clavier : ↑/↓ (ou ←/→ selon l'orientation de la roue) déplace ET
+  // sélectionne immédiatement, comme le toucher — pas de bouton Appliquer.
+  list.tabIndex = 0;
+  list.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const dir = (event.key === "ArrowUp" || event.key === "ArrowLeft") ? -1 : 1;
+    selected = Math.max(0, Math.min(PHOTO_FILTERS.length - 1, selected + dir));
+    applyWheelSelection(selected);
+    sfxOpen();
+  });
+  let startY = 0, lastY = 0, dragging = false;
+  list.addEventListener("pointerdown", (event) => { dragging = true; startY = lastY = event.clientY; list.setPointerCapture?.(event.pointerId); event.preventDefault(); });
+  list.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    if (Math.abs(event.clientY - startY) > 18) {
+      selected = Math.max(0, Math.min(PHOTO_FILTERS.length - 1, selected + (event.clientY < lastY ? 1 : -1)));
+      lastY = event.clientY;
+      applyWheelSelection(selected);
+    }
+    event.preventDefault();
+  });
+  list.addEventListener("pointerup", () => { dragging = false; });
+  list.addEventListener("pointercancel", () => { dragging = false; });
+  const wheelVideo = $("filter-wheel-live");
+  if (wheelVideo && state.stream) { wheelVideo.srcObject = state.stream; wheelVideo.play?.().catch(() => {}); }
+  applyWheelSelection(selected, false);
+  clearInterval(_railThumbTimer);
+  _railThumbTimer = setInterval(refreshFilterRailThumbnails, 700);
+  refreshFilterRailThumbnails();
 }
 
 /* Animation overlay : ballons, confettis… dessinés sur le canvas */
@@ -928,6 +1476,7 @@ function applyAnimation(id) {
     state.animationEngine = startAnimation(state.animationId, () => drawLiveOverlay());
   }
   fxCards.forEach((item) => item.card.classList.toggle("active", item.id === id));
+  updateLensStatus();
   try { navigator.vibrate?.(8); } catch {}
 }
 
@@ -1042,6 +1591,7 @@ function openFxPanel() {
   topButton?.classList.add("active");
   topButton?.setAttribute("aria-expanded", "true");
   sfxOpen();
+  fxPanelTrap.onOpen();
 }
 function closeFxPanel() {
   releaseFxCards();
@@ -1051,15 +1601,7 @@ function closeFxPanel() {
   topButton?.classList.remove("active");
   topButton?.setAttribute("aria-expanded", "false");
   sfxClose();
-}
-
-/* Sélection (ancien nom) : l'écran résultat l'utilise encore */
-function selectFilter(id, thumbEl) {
-  // Compatibilité avec les anciennes vignettes : une sélection photo ne
-  // force pas le panneau à afficher une catégorie inexistante « filter ».
-  applyFilter(id);
-  showFilterName(filterById(id).name);
-  if (thumbEl) thumbEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  fxPanelTrap.onClose();
 }
 
 /* =========================================================
@@ -1082,8 +1624,12 @@ function gestureTarget(event) {
 }
 
 document.addEventListener("pointerdown", (event) => {
+  // Le rôle Caméra est un moniteur uniquement : aucun tap ne lance le
+  // minuteur, n'ouvre une feuille ou ne déclenche une capture locale.
+  if (state.deviceRole === "camera") return;
   // Pendant le compte à rebours : un tap = pause / reprise
   if (state.counting) {
+    if (event.target.closest("#countdown-cancel")) return;
     toggleCountdownPause();
     return;
   }
@@ -1130,6 +1676,7 @@ document.addEventListener("pointermove", (event) => {
 }, { passive: true });
 
 document.addEventListener("pointerup", (event) => {
+  if (state.deviceRole === "camera") return;
   if (!swipeActive) return;
   swipeActive = false;
   if (state.counting) return;
@@ -1137,7 +1684,7 @@ document.addEventListener("pointerup", (event) => {
   // Un appui long vient de déclencher le focus manuel → ne pas ouvrir le minuteur
   if (_focusJustUsed) { _focusJustUsed = false; return; }
   if (gestureTarget(event) !== "cam") return;
-  openSheet("sheet-timer");
+  // Previously we opened the timer sheet here, now it's bound to the specific button.
 }, { passive: true });
 
 document.addEventListener("pointercancel", () => {
@@ -1165,6 +1712,7 @@ function buildTimerOptions() {
     chip.innerHTML = `${d.big}<small>${d.sub}</small>`;
     chip.addEventListener("click", () => {
       state.timerSeconds = d.s;
+      remoteSendSetting("timerSeconds", d.s);
       document.querySelectorAll(".timer-chip").forEach((c) => c.classList.toggle("active", c === chip));
       savePreferences();
       chip.classList.add("active");
@@ -1178,6 +1726,23 @@ function buildTimerOptions() {
 
 /* Résumé de la série : chaque prise produit le pack lens complet
    (Original + Filtre + Portrait + GIF), sauf rafale (meilleure prise). */
+/* Après une prise, l'aperçu revient toujours à son état neutre.
+   Les blobs déjà générés restent inchangés dans l'écran résultat. */
+function resetLiveEffectsAfterCapture() {
+  state.photoFilterId = "original";
+  state.accessoryId = null;
+  state.animationId = null;
+  stopAnimation();
+  state.animationEngine = null;
+  refreshLiveFilter();
+  drawLiveOverlay();
+  document.querySelectorAll("#photo-filter-rail-list [data-filter]").forEach((item) => {
+    item.classList.toggle("active", item.dataset.filter === "original");
+  });
+  fxCards.forEach((item) => item.card.classList.remove("active"));
+  void Promise.resolve(window.mbUpdateFaceTracking?.()).catch(() => {});
+}
+
 function captureSummaryText(count = state.captureCount) {
   const n = `${count} ${count > 1 ? "prises" : "prise"}`;
   if (state.burstMode) return `${n} · meilleure prise par série`;
@@ -1197,6 +1762,7 @@ function buildCaptureCountOptions() {
     chip.innerHTML = `<strong>${count}</strong><small>${count === 1 ? "photo" : "photos"}</small>`;
     chip.addEventListener("click", () => {
       state.captureCount = count;
+      remoteSendSetting("captureCount", count);
       savePreferences();
       document.querySelectorAll(".capture-count-chip").forEach((item) => item.classList.toggle("active", item === chip));
       const summary = $("capture-count-summary");
@@ -1208,6 +1774,22 @@ function buildCaptureCountOptions() {
 }
 
 /* Pause / reprise au tap pendant le compte à rebours */
+function cancelCountdown() {
+  if (!state.counting) return;
+  state.counting = false;
+  state.countingPaused = false;
+  state._countdownToken = null;
+  state._countdownCancelled = true;
+  state._resumeCountdown?.();
+  state._resumeCountdown = null;
+  countdownEl.classList.add("hidden");
+  countdownEl.classList.remove("paused");
+  document.body.classList.remove("ui-hidden", "counting-mode");
+  releaseWakeLock();
+  sfxClose();
+  toast("Compte à rebours annulé");
+}
+
 function toggleCountdownPause() {
   if (!state.counting) return;
   state.countingPaused = !state.countingPaused;
@@ -1225,6 +1807,10 @@ function toggleCountdownPause() {
 async function startCountdown() {
   if (state.counting) return;
   state.counting = true;
+  state._countdownCancelled = false;
+  const countdownToken = {};
+  state._countdownToken = countdownToken;
+  const countdownIsCurrent = () => state.counting && state._countdownToken === countdownToken && !state._countdownCancelled;
   state.countingPaused = false;
   const pauseBadge = $("countdown-pause");
   if (pauseBadge) pauseBadge.classList.add("hidden");
@@ -1241,8 +1827,10 @@ async function startCountdown() {
     if (state.countingPaused) {
       await new Promise((resolve) => { state._resumeCountdown = resolve; });
     }
+    if (!countdownIsCurrent()) return null;
     sfxTick();
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (!countdownIsCurrent()) return null;
     remaining -= 1;
     if (remaining > 0) {
       countdownNumber.textContent = String(remaining);
@@ -1250,21 +1838,39 @@ async function startCountdown() {
     }
     sfxFinal();
     countdownEl.classList.add("hidden");
-    try {
-      await capture();
-    } finally {
-      // ⚠️ Toujours réafficher l'interface même si la capture échoue,
-      // sinon l'app reste verrouillée ("plus rien ne marche")
-      document.body.classList.remove("ui-hidden");
-      document.body.classList.remove("counting-mode");
-      releaseWakeLock();
-      state.counting = false;
-      state._resumeCountdown = null;
-    }
+    // Une annulation juste avant l'échéance ne doit jamais déclencher la photo.
+    if (countdownIsCurrent()) await capture();
     return null;
   };
-  await tick();
+  try {
+    await tick();
+  } finally {
+    // Nettoyage unique pour fin normale, annulation et erreur de capture.
+    // Ainsi aucune classe UI, wake lock ou marqueur interne ne fuit d'une prise
+    // à la suivante.
+    // Un ancien cycle ne doit jamais nettoyer l'interface d'un nouveau cycle.
+    if (state._countdownToken !== countdownToken) return;
+    countdownEl.classList.add("hidden");
+    countdownEl.classList.remove("paused");
+    document.body.classList.remove("ui-hidden", "counting-mode");
+    releaseWakeLock();
+    state.counting = false;
+    state.countingPaused = false;
+    state._countdownToken = null;
+    state._resumeCountdown = null;
+    state._countdownCancelled = false;
+  }
 }
+
+countdownCancel?.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  cancelCountdown();
+}, { passive: false });
+countdownCancel?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+}, { passive: false });
 
 /* =========================================================
    DÉTECTION VISAGE + TRACK + MODE AUTO
@@ -1272,12 +1878,16 @@ async function startCountdown() {
 async function initFaceLandmarker() {
   if (state.landmarker) return state.landmarker;
   if (_faceTrackingPromise) return _faceTrackingPromise;
+  // Un asset MediaPipe absent ou trop lourd ne doit pas provoquer une
+  // nouvelle importation à chaque geste : l'app reste utilisable sans tracking
+  // et retentera plus tard, de façon bornée.
+  if (Date.now() < _faceTrackingUnavailableUntil) return null;
   const generation = _faceTrackingGeneration;
   const promise = (async () => {
     let created = null;
     try {
-      const { FaceLandmarker, FilesetResolver } = await import("./mediapipe/vision_bundle.mjs");
-      const fileset = await FilesetResolver.forVisionTasks("./mediapipe/wasm");
+      const { FaceLandmarker, FilesetResolver } = await import("../mediapipe/vision_bundle.mjs?v=121");
+      const fileset = await FilesetResolver.forVisionTasks("../mediapipe/wasm");
       // Le mode multi-visage est opt-in avec la bulle : 3 visages max suffisent
       // pour l'interface, sans imposer ce coût au mode caméra standard.
       const opts = { runningMode: "VIDEO", numFaces: state.filmBubbleEnabled ? 3 : 1, outputFaceSegmentationMasks: Boolean(state.portraitMode || state.backdrop) };
@@ -1285,12 +1895,12 @@ async function initFaceLandmarker() {
         // GPU d'abord (rapide), fallback CPU si indisponible.
         created = await FaceLandmarker.createFromOptions(fileset, {
           ...opts,
-          baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "GPU" },
+          baseOptions: { modelAssetPath: "../mediapipe/face_landmarker.task", delegate: "GPU" },
         });
       } catch {
         created = await FaceLandmarker.createFromOptions(fileset, {
           ...opts,
-          baseOptions: { modelAssetPath: "./mediapipe/face_landmarker.task", delegate: "CPU" },
+          baseOptions: { modelAssetPath: "../mediapipe/face_landmarker.task", delegate: "CPU" },
         });
       }
       // Une activation/désactivation ou une mise en arrière-plan peut avoir
@@ -1301,10 +1911,17 @@ async function initFaceLandmarker() {
         return null;
       }
       state.landmarker = created;
+      telemetry.startupMark("mediapipeReady");
+      telemetry.resourceStart("activeFaceTrackers", { model: "face-landmarker" });
+      _faceTrackingFailureCount = 0;
+      _faceTrackingUnavailableUntil = 0;
       if (state.landmarker) console.log("[MomentoBooth] FaceLandmarker prêt (option activée)");
       return state.landmarker;
     } catch {
       try { created?.close?.(); } catch {}
+      _faceTrackingFailureCount = Math.min(4, _faceTrackingFailureCount + 1);
+      _faceTrackingUnavailableUntil = Date.now() + (5000 * _faceTrackingFailureCount);
+      console.warn("[MomentoBooth] Tracking visage indisponible, nouvelle tentative différée");
       return null;
     } finally {
       if (_faceTrackingPromise === promise) _faceTrackingPromise = null;
@@ -1385,6 +2002,7 @@ function resetFaceTrackingModel() {
   _faceTrackingPromise = null;
   if (_detectFaceTimer) { clearInterval(_detectFaceTimer); _detectFaceTimer = null; }
   if (state.landmarker?.close) { try { state.landmarker.close(); } catch {} }
+  if (state.landmarker) telemetry.resourceStop("activeFaceTrackers", { model: "face-landmarker" });
   state.landmarker = null;
   state.face = null;
   clearFaceMask();
@@ -1399,9 +2017,46 @@ function detectFace() {
   if (now - (state._lastDetectAt || 0) < perfConfig().detectMs) return;
   state._lastDetectAt = now;
   if (!state._forceDetect && !state.trackEnabled && !state.autoMode && !state.idleFaceWake && !state.filmBubbleEnabled && !state.prerollEnabled && !state.backdrop && !state.accessoryId) return;
+  const detectStarted = performance.now();
   try {
     const result = state.landmarker.detectForVideo(camera, performance.now());
-    state.face = result.faceLandmarks?.[0] ?? null;
+    // ── Lissage EMA des landmarks (masque biométrique stable) ──
+    // Réduit fortement le jitter des accessoires sans coût notable (une passe
+    // par point). Le lissage est réinitialisé si le nombre de visages change.
+    const rawFaces = result.faceLandmarks ?? [];
+    telemetry.emit("mediapipe", {
+      durationMs: performance.now() - detectStarted,
+      faceCount: rawFaces.length,
+      frameWidth: camera.videoWidth || null,
+      frameHeight: camera.videoHeight || null,
+    });
+    // Pool réutilisé (pas d'allocation par frame → zéro GC churn sur mobile).
+    if (!state._smoothPool) state._smoothPool = [];
+    const prevSmooth = state._smoothFaces && state._smoothFaces.length === rawFaces.length ? state._smoothFaces : null;
+    const SMOOTH = 0.42; // poids du passé : plus haut = plus stable mais plus lent
+    const smoothed = new Array(rawFaces.length);
+    for (let i = 0; i < rawFaces.length; i++) {
+      const lm = rawFaces[i];
+      if (!lm || lm.length < 30) { smoothed[i] = lm; continue; }
+      // Réutilise le buffer du slot i (même longueur) sinon en crée un.
+      let out = state._smoothPool[i];
+      if (!out || out.length !== lm.length) {
+        out = new Array(lm.length);
+        for (let j = 0; j < lm.length; j++) out[j] = { x: 0, y: 0, z: 0 };
+        state._smoothPool[i] = out;
+      }
+      const pv = prevSmooth && prevSmooth[i] && prevSmooth[i].length === lm.length ? prevSmooth[i] : null;
+      for (let j = 0; j < lm.length; j++) {
+        const p = lm[j];
+        const o = out[j];
+        if (pv) { o.x = pv[j].x * SMOOTH + p.x * (1 - SMOOTH); o.y = pv[j].y * SMOOTH + p.y * (1 - SMOOTH); o.z = p.z; }
+        else { o.x = p.x; o.y = p.y; o.z = p.z; }
+      }
+      smoothed[i] = out;
+    }
+    state.faces = smoothed;
+    state._smoothFaces = state.faces.length ? state.faces : null;
+    state.face = state.faces[0] ?? null;
     // Convertit le premier masque puis ferme aussi les éventuels masques
     // supplémentaires : le mode multi-visage peut en retourner plusieurs.
     const masks = result.segmentationMasks ?? [];
@@ -1412,7 +2067,17 @@ function detectFace() {
         try { mask?.close?.(); } catch {}
       }
     }
-    state.faces = result.faceLandmarks ?? [];
+    /* Présence globale : le GIF se réarme seulement après une absence réelle,
+       y compris quand la borne n'est pas encore en veille. */
+    if (state.face && state.face.length >= 30) {
+      state.idleFaceAbsentSince = 0;
+    } else {
+      if (!state.idleFaceAbsentSince) state.idleFaceAbsentSince = performance.now();
+      if (performance.now() - state.idleFaceAbsentSince >= 2500) {
+        state.idlePromptShown = false;
+        state.idlePromptAt = 0;
+      }
+    }
     // Réveil par visage STABILISÉ : un simple passage ne réveille plus.
     // Il faut un visage présent, centré et assez grand sur N détections
     // consécutives avant de sortir de la veille.
@@ -1425,8 +2090,21 @@ function detectFace() {
         wakeOk = centered && box.w > stickerCanvas.width * .15 && box.h > stickerCanvas.height * .15;
       }
       if (wakeOk) {
+        /*
+         * Arrivée d'une personne : idle-click.gif est un signal de présence,
+         * pas seulement une animation après un tap. Le verrou empêche le GIF
+         * de redémarrer à chaque frame MediaPipe tant que le même visage reste
+         * devant la borne.
+         */
+        if (!state.idlePromptShown) {
+          state.idlePromptShown = true;
+          state.idlePromptAt = performance.now();
+          playIdleClickPrompt();
+        }
         state.idleWakeHits = (state.idleWakeHits || 0) + 1;
-        if (state.idleWakeHits >= 3) {
+        /* Trois détections réveillent la borne, mais jamais avant que le GIF
+           ait eu le temps de jouer : le signal de présence reste lisible. */
+        if (state.idleWakeHits >= 3 && performance.now() - state.idlePromptAt >= 720) {
           state.idleWakeHits = 0;
           exitIdle();
           showFilterName("Bienvenue !");
@@ -1438,13 +2116,68 @@ function detectFace() {
     updateAutoMode();
     updateFilmBubble();
     drawLiveOverlay();
-  } catch { state.face = null; clearFaceMask(); state.faces = []; }
+  } catch { state.face = null; clearFaceMask(); state.faces = []; state._smoothFaces = null; }
+}
+
+/* Grain live léger : motif réutilisé, sans Math.random() sur chaque frame.
+   Le rendu photo complet garde le grain pixel côté capture/serveur ; ici on
+   affiche seulement un aperçu discret pour préserver la fluidité mobile. */
+let _liveGrainPattern = null;
+function drawLiveGrain(ctx, W, H, strength = .05) {
+  try {
+    if (!_liveGrainPattern) {
+      const grain = document.createElement("canvas");
+      grain.width = 64; grain.height = 64;
+      const gctx = grain.getContext("2d");
+      const pixels = gctx.createImageData(64, 64);
+      for (let i = 0; i < pixels.data.length; i += 4) {
+        const value = Math.random() > .5 ? 255 : 0;
+        pixels.data[i] = value; pixels.data[i + 1] = value; pixels.data[i + 2] = value; pixels.data[i + 3] = 255;
+      }
+      gctx.putImageData(pixels, 0, 0);
+      _liveGrainPattern = grain;
+    }
+    const pattern = ctx.createPattern(_liveGrainPattern, "repeat");
+    if (!pattern) return;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(.12, strength));
+    ctx.globalCompositeOperation = "soft-light";
+    ctx.fillStyle = pattern;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  } catch { /* overlay décoratif : jamais bloquant */ }
 }
 
 /* Overlay live : masque + tracker + ANIMATION (ballons…) */
 /* Fond en LIVE : si un fond est choisi, on dessine le fond + la personne
    détourée (masque de segmentation) par-dessus la vidéo, en basse résolution
    pour rester léger (le canvas ne fait que la taille de l'écran). */
+/* MediaPipe renvoie des points normalisés dans l'image source. Le preview
+   utilise `object-fit: cover`, donc une simple multiplication par W/H fait
+   flotter les lenses dès que le ratio vidéo et le ratio écran diffèrent.
+   On projette les landmarks dans le même crop que la vidéo avant de dessiner. */
+function mapFaceToCover(face, canvasW, canvasH, videoW, videoH, mirrored = false) {
+  if (!Array.isArray(face) || !face.length || !videoW || !videoH) return face;
+  const sourceRatio = videoW / videoH;
+  const targetRatio = canvasW / canvasH;
+  let renderW = canvasW, renderH = canvasH, offsetX = 0, offsetY = 0;
+  if (sourceRatio > targetRatio) {
+    renderW = canvasH * sourceRatio;
+    offsetX = (canvasW - renderW) / 2;
+  } else {
+    renderH = canvasW / sourceRatio;
+    offsetY = (canvasH - renderH) / 2;
+  }
+  return face.map((point) => {
+    const projectedX = (point.x * renderW + offsetX) / canvasW;
+    return {
+      ...point,
+      x: mirrored ? 1 - projectedX : projectedX,
+      y: (point.y * renderH + offsetY) / canvasH,
+    };
+  });
+}
+
 function drawLiveOverlay() {
   const now = performance.now();
   if (now - (state._lastOverlayAt || 0) < perfConfig().overlayMs && !state._forceOverlay) return;
@@ -1454,6 +2187,14 @@ function drawLiveOverlay() {
   const W = stickerCanvas.width, H = stickerCanvas.height;
   ctx.clearRect(0, 0, W, H);
   const filter = activeAccessory();
+  const photoFilter = activePhotoFilter();
+  // Quand le fond remplace le <video>, le filtre CSS du <video> ne s'applique
+  // plus. CanvasFilter restaure le même look sur la source composite.
+  const sourceFilter = liveFilterCss();
+  const canFilterCanvas = typeof ctx.filter === "string";
+  // Le fond décoratif reste neutre ; le look est appliqué uniquement à la
+  // source caméra/personne, comme dans l'export final.
+  if (canFilterCanvas) ctx.filter = "none";
 
   if (state.backdrop && state.face && state.face.length > 30) {
     // ── Fond en direct : dessine le fond, puis la personne découpée ──
@@ -1467,6 +2208,7 @@ function drawLiveOverlay() {
       ctx.drawImage(state._backdropImg, 0, 0, W, H);
     }
     // Personne détourée via la segmentation (si dispo) sinon la vidéo complète
+    if (canFilterCanvas) ctx.filter = sourceFilter;
     if (state.faceMask) {
       try {
         // Canvas de travail réutilisé (pas d'allocation à chaque tick 8 fps)
@@ -1484,6 +2226,7 @@ function drawLiveOverlay() {
       ctx.drawImage(camera, 0, 0, W, H);
       ctx.restore();
     }
+    if (canFilterCanvas) ctx.filter = "none";
   } else if (state.backdrop && !state.face) {
     // Fond choisi mais visage pas encore détecté → fond seul + vidéo en fondu
     if (state.backdrop.type === "gradient") {
@@ -1497,13 +2240,46 @@ function drawLiveOverlay() {
     }
     // Fallback avant le premier masque : le fond reste perceptible et la
     // caméra continue d'être lisible, sans prétendre à un détourage parfait.
+    if (canFilterCanvas) ctx.filter = sourceFilter;
     ctx.globalAlpha = .68;
     ctx.drawImage(camera, 0, 0, W, H);
     ctx.globalAlpha = 1;
+    if (canFilterCanvas) ctx.filter = "none";
   }
 
-  if (filter.mask !== "none" && state.face && state.face.length > 30) {
-    drawMask(ctx, W, H, state.face, filter.mask);
+  /* Finition Lens : elle doit passer AVANT les masques, comme dans la capture
+     (le filtre couleur traite la photo, puis l'accessoire est posé au-dessus).
+     Cela évite les lunettes/moustaches teintées différemment entre le live et
+     le JPEG final. */
+  if (photoFilter?.overlay) {
+    const overlay = photoFilter.overlay;
+    if (overlay.tint) {
+      ctx.fillStyle = overlay.tint;
+      ctx.fillRect(0, 0, W, H);
+    }
+    if (overlay.vignette) {
+      const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .18, W / 2, H / 2, Math.max(W, H) * .72);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, `rgba(0,0,0,${Math.min(.5, overlay.vignette)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
+    if (overlay.grain) drawLiveGrain(ctx, W, H, overlay.grain);
+  }
+
+  // Les accessoires restent nets et non recolorés par le filtre de source ;
+  // leur géométrie, elle, suit exactement le crop object-fit:cover.
+  if (canFilterCanvas) ctx.filter = "none";
+  if (filter.mask !== "none") {
+    const maskFaces = (state.faces && state.faces.length) ? state.faces : (state.face ? [state.face] : []);
+    const videoW = camera.videoWidth || W, videoH = camera.videoHeight || H;
+    for (let fi = 0; fi < maskFaces.length; fi++) {
+      const f = maskFaces[fi];
+      if (f && f.length > 30) {
+        const projected = mapFaceToCover(f, W, H, videoW, videoH, state.facing === "user");
+        drawMask(ctx, W, H, projected, filter.mask, fi);
+      }
+    }
   }
 
   // Tracker visage : cadre doré sur les visages, disparaît après délai
@@ -1514,6 +2290,14 @@ function drawLiveOverlay() {
   // Animation overlay (ballons, confettis…) par-dessus
   if (state.animationEngine) {
     state.animationEngine.draw(ctx, W, H);
+  }
+  // Cadre/rebord organisateur : rendu léger, au-dessus de la caméra et des effets.
+  if (canFilterCanvas) ctx.filter = "none";
+  if (state.customFrameImage || state.customBorderImage) {
+    ctx.save();
+    if (state.customFrameImage) ctx.drawImage(state.customFrameImage, 0, 0, W, H);
+    if (state.customBorderImage) ctx.drawImage(state.customBorderImage, 0, 0, W, H);
+    ctx.restore();
   }
 }
 
@@ -1747,8 +2531,23 @@ function ratioOf(video) {
   return (video.videoWidth || 1280) / (video.videoHeight || 960);
 }
 
+/* Retour visuel pendant le traitement d'une capture (dessin canvas, filtre,
+   GIF, décor emoji…). Le délai avant apparition évite tout clignotement sur
+   les prises quasi instantanées (mode éco, appareil rapide) : seul un
+   traitement réellement perceptible affiche le voile + spinner. */
+let _captureLoadingTimer = null;
+function beginCaptureProcessingFeedback() {
+  clearTimeout(_captureLoadingTimer);
+  _captureLoadingTimer = setTimeout(() => { $("capture-loading-overlay")?.classList.add("show"); }, 220);
+}
+function endCaptureProcessingFeedback() {
+  clearTimeout(_captureLoadingTimer);
+  $("capture-loading-overlay")?.classList.remove("show");
+}
 async function captureSingle() {
   if (state.capturing) return;
+  beginCaptureProcessingFeedback();
+  try {
   // Le pack lens inclut un Portrait : on s'assure que le tracking visage est
   // actif avant la prise. `_forceDetect` lève le gate de detectFace (détection
   // même sans accessoire/fond), l'attente reste bornée et non bloquante.
@@ -1766,6 +2565,7 @@ async function captureSingle() {
   } finally {
     state._forceDetect = hadForceDetect;
   }
+  await ensureLogoForCapture();
   if (state.burstMode) {
     await captureBurst();
     return;
@@ -1788,11 +2588,15 @@ async function captureSingle() {
     state.latestPhoto = items.find((item) => !item.gif)?.blob ?? null;
     state.latestGif = items.find((item) => item.gif)?.blob ?? null;
     playBeep(1200, 0.2, 0.3);
-    showResult(items);
+    await showResult(items);
+    if (!state.captureBatchActive) resetLiveEffectsAfterCapture();
   } finally {
     await tryTorch(false);
     gifStopPre(true);
     state.capturing = false;
+  }
+  } finally {
+    endCaptureProcessingFeedback();
   }
 }
 
@@ -1819,12 +2623,14 @@ async function capturePack(animationEngine = state.animationEngine) {
   const W = raw.width, H = raw.height;
   const filter = activePhotoFilter();
   const hasFilter = filter && filter.id !== "original" && filter.ops.length;
-  const canPortrait = state.face && state.face.length > 30;
+  // En mode Portrait, la variante doit exister même si MediaPipe perd une
+  // frame au moment du déclenchement. On utilise alors un fallback centré,
+  // plutôt que de supprimer silencieusement le rendu demandé.
+  const portraitRequested = Boolean(state.portraitMode || state.autoMode);
   // Segmentation MediaPipe dispo (mode portrait / fond) : le portrait-masque
-  // local est bien supérieur à l'ovale serveur → on le garde côté iPhone et on
-  // ne délègue le portrait que si seul l'ovale serait produit de toute façon.
+  // local est supérieur à l'ovale serveur ; le serveur reste le fallback.
   const hasMask = Boolean(state.faceMask);
-  const delegatePortrait = canPortrait && !hasMask;
+  const delegatePortrait = portraitRequested && !hasMask;
   let items = [];
   try {
     // 2) Délégation serveur : le serveur applique les ops du filtre couleur,
@@ -1832,21 +2638,33 @@ async function capturePack(animationEngine = state.animationEngine) {
     //    qu'un seul JPEG (l'upload) au lieu de 3 encodages + ops pixels + blur.
     const serverUp = await serverProcessUp().catch(() => false);
     if (serverUp && (hasFilter || delegatePortrait)) {
-      items = await serverRenderPack(raw, W, H, animationEngine, hasFilter, delegatePortrait);
-      // Portrait segmentation local (qualité iOS) quand le masque est dispo.
-      if (canPortrait && hasMask && !items.some((it) => it.label === "Portrait")) {
+      items = await serverRenderPack(raw, W, H, animationEngine, hasFilter, portraitRequested);
+      // Le masque MediaPipe est plus précis que l'ovale serveur : il remplace
+      // toujours la variante Portrait renvoyée par le serveur.
+      if (portraitRequested && hasMask) {
+        items = items.filter((it) => it.label !== "Portrait");
+        const portraitCanvas = cloneCanvas(raw);
+        const portrait = await portraitBlur(portraitCanvas, W, H, animationEngine);
+        if (portrait?.blob) items.push({ blob: portrait.blob, label: "Portrait" });
+      } else if (portraitRequested && !items.some((it) => it.label === "Portrait")) {
+        // Compatibilité avec un serveur ancien ou une réponse partielle :
+        // on ne laisse jamais un pack Portrait sans sa variante Portrait.
         const portraitCanvas = cloneCanvas(raw);
         const portrait = await portraitBlur(portraitCanvas, W, H, animationEngine);
         if (portrait?.blob) items.push({ blob: portrait.blob, label: "Portrait" });
       }
     }
-    if (!items.length) {
+    if (!items.length || (portraitRequested && !items.some((it) => it.label === "Portrait"))) {
       // 3) Fallback local (serveur KO, ou rien à déléguer) : pipeline d'origine.
-      const originalCanvas = cloneCanvas(raw);
-      const original = await finalizeCanvas(originalCanvas, W, H, animationEngine);
-      if (original) items.push({ blob: original, label: "Original" });
+      // Complète uniquement les variantes manquantes : une réponse serveur
+      // partielle ne doit jamais dupliquer l'Original ou le Filtre.
+      if (!items.some((it) => it.label === "Original")) {
+        const originalCanvas = cloneCanvas(raw);
+        const original = await finalizeCanvas(originalCanvas, W, H, animationEngine);
+        if (original) items.push({ blob: original, label: "Original" });
+      }
       // Filtre : même frame + les ops du filtre couleur choisi
-      if (hasFilter) {
+      if (hasFilter && !items.some((it) => it.label === filter.name)) {
         const fCanvas = cloneCanvas(raw);
         const fctx = fCanvas.getContext("2d", { willReadFrequently: true });
         const imageData = fctx.getImageData(0, 0, W, H);
@@ -1855,8 +2673,9 @@ async function capturePack(animationEngine = state.animationEngine) {
         const filtered = await finalizeCanvas(fCanvas, W, H, animationEngine);
         if (filtered) items.push({ blob: filtered, label: filter.name });
       }
-      // Portrait : flou d'arrière-plan (segmentation ou ovale), si visage
-      if (canPortrait) {
+      // Portrait : flou d'arrière-plan (segmentation ou fallback centré).
+      // Même sans détection au dernier tick, le mode Portrait produit un rendu.
+      if (portraitRequested && !items.some((it) => it.label === "Portrait")) {
         const portraitCanvas = cloneCanvas(raw);
         const portrait = await portraitBlur(portraitCanvas, W, H, animationEngine);
         if (portrait?.blob) items.push({ blob: portrait.blob, label: "Portrait" });
@@ -1887,7 +2706,10 @@ async function capture() {
   } finally {
     state.captureBatchActive = false;
     const items = state.captureBatchItems.splice(0);
-    if (items.length) showResult(items);
+    if (items.length) {
+      await showResult(items);
+      resetLiveEffectsAfterCapture();
+    }
   }
 }
 
@@ -2009,7 +2831,8 @@ async function captureBurst() {
     ];
     if (gif) items.push({ blob: gif, label: "GIF", gif: true });
     playBeep(1200, 0.2, 0.3);
-    showResult(items);
+    await showResult(items);
+    if (!state.captureBatchActive) resetLiveEffectsAfterCapture();
   } finally {
     // Même en cas d'exception d'encodage, ne conserve aucun canvas de rafale.
     shots.forEach((shot) => releaseCanvas(shot.canvas));
@@ -2053,7 +2876,8 @@ async function capturePortrait() {
     state.latestPhoto = items.find((item) => !item.gif)?.blob ?? null;
     state.latestGif = items.find((item) => item.gif)?.blob ?? null;
     playBeep(1200, 0.2, 0.3);
-    showResult(items);
+    await showResult(items);
+    if (!state.captureBatchActive) resetLiveEffectsAfterCapture();
   } finally {
     // Stoppe toujours le buffer GIF et libère ses canvases même si une étape
     // portrait/encodage échoue avant que grabGif() ne puisse les consommer.
@@ -2100,7 +2924,17 @@ function drawVideoFrame(ctx, video, W, H, skipFrame = false, animationEngine = s
       ctx.translate(W, 0);
       ctx.scale(-1, 1);
     }
-    drawMask(ctx, W, H, state.face, accessory.mask);
+    const maskFaces = (state.faces && state.faces.length) ? state.faces : (state.face ? [state.face] : []);
+    const videoW = video.videoWidth || W, videoH = video.videoHeight || H;
+    for (let fi = 0; fi < maskFaces.length; fi++) {
+      const f = maskFaces[fi];
+      if (f && f.length > 30) {
+        // Le contexte est déjà miroir pour la caméra frontale : on projette
+        // le crop sans miroir, puis scale(-1,1) retourne le lens avec l'image.
+        const projected = mapFaceToCover(f, W, H, videoW, videoH, false);
+        drawMask(ctx, W, H, projected, accessory.mask, fi);
+      }
+    }
     ctx.restore();
   }
 
@@ -2114,13 +2948,47 @@ function drawVideoFrame(ctx, video, W, H, skipFrame = false, animationEngine = s
     if (dynamicAnimation) animationEngine.draw(ctx, W, H);
     else animationEngine.drawStatic(ctx, W, H);
   }
+  if (!skipFrame) drawCustomOverlays(ctx, W, H);
 }
 
-/* Logo MomentoBooth : RETIRÉ des photos à la demande de l'utilisateur.
-   La fonction reste appelée par les chemins d'export mais ne dessine plus
-   rien : aucune photo (simple, portrait, GIF, carte) ne porte de watermark. */
-function drawLogo(_ctx, _W, _H) {
-  // Volontairement vide : plus aucun logo sur les photos prises.
+/* Logo MomentoBooth : optionnel, discret et désactivé par défaut. */
+let _logoImagePromise = null;
+function loadLogoImage() {
+  if (state.logoImage) return Promise.resolve(state.logoImage);
+  if (_logoImagePromise) return _logoImagePromise;
+  _logoImagePromise = new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => { state.logoImage = image; resolve(image); };
+    image.onerror = () => { _logoImagePromise = null; resolve(null); };
+    image.src = `/icons/logo-trim.png?v=${APP_VERSION}`;
+  });
+  return _logoImagePromise;
+}
+function drawLogo(ctx, W, H) {
+  if (!state.logoEnabled || !state.logoImage || !W || !H) return;
+  const size = Math.max(44, Math.round(Math.min(W, H) * 0.115));
+  const margin = Math.max(14, Math.round(size * 0.2));
+  ctx.save();
+  ctx.globalAlpha = 0.82;
+  ctx.drawImage(state.logoImage, W - size - margin, H - size - margin, size, size);
+  ctx.restore();
+}
+async function ensureLogoForCapture() {
+  if (!state.logoEnabled) return true;
+  const image = await loadLogoImage();
+  if (image) return true;
+  state.logoEnabled = false;
+  syncPreferenceControls();
+  savePreferences();
+  toast("Logo indisponible — vérifiez la connexion");
+  return false;
+}
+function drawCustomOverlays(ctx, W, H) {
+  if (!state.customFrameImage && !state.customBorderImage) return;
+  ctx.save();
+  if (state.customFrameImage) ctx.drawImage(state.customFrameImage, 0, 0, W, H);
+  if (state.customBorderImage) ctx.drawImage(state.customBorderImage, 0, 0, W, H);
+  ctx.restore();
 }
 
 /* Canvas brut haute qualité : vidéo + filtre + masque + fond (SANS cadre/logo).
@@ -2128,8 +2996,11 @@ function drawLogo(_ctx, _W, _H) {
    en conservant accessoires, masque et fond. Utilisé par le pack, la RAFALE
    et les captures simples. */
 function grabFrameCanvas(maxDimension = null, opts = {}) {
-  // Si on est en mode contrôleur (caméra déportée), on récupère le canvas capturé par la caméra distante
-  if (state.remoteCamMode === "controller" && state._remoteCaptureCanvas) { const c = state._remoteCaptureCanvas; state._remoteCaptureCanvas = null; return Promise.resolve(c); }
+  if (state.remoteCamMode === "controller" && state._remoteCaptureCanvas) {
+    const c = state._remoteCaptureCanvas;
+    state._remoteCaptureCanvas = null;
+    return Promise.resolve(c);
+  }
   const skipFilter = !!opts?.skipFilter;
   return new Promise((resolve) => {
     const video = camera;
@@ -2204,7 +3075,8 @@ function grabFrameCanvas(maxDimension = null, opts = {}) {
             if (compositeAccessory.mask !== "none" && state.face && state.face.length > 30) {
               ctx.save();
               if (state.facing === "user") { ctx.translate(W, 0); ctx.scale(-1, 1); }
-              drawMask(ctx, W, H, state.face, compositeAccessory.mask);
+              const projected = mapFaceToCover(state.face, W, H, video.videoWidth || W, video.videoHeight || H, false);
+              drawMask(ctx, W, H, projected, compositeAccessory.mask);
               ctx.restore();
             }
           } catch {
@@ -2254,6 +3126,7 @@ function finalizeCanvas(canvas, W, H, animationEngine = state.animationEngine) {
     try {
       drawFrame(ctx, W, H, state.frameId, state.frameText);
       drawLogo(ctx, W, H);
+      drawCustomOverlays(ctx, W, H);
       // L'animation live est figée une seule fois dans la photo exportée.
       if (animationEngine) animationEngine.drawStatic(ctx, W, H);
       canvas.toBlob((blob) => {
@@ -2315,6 +3188,20 @@ function drawVideoCover(ctx, video, W, H) {
   return true;
 }
 
+function drawMaskCover(ctx, mask, W, H) {
+  const targetRatio = W / H;
+  const maskRatio = mask.width / mask.height;
+  let sx = 0, sy = 0, sw = mask.width, sh = mask.height;
+  if (maskRatio > targetRatio) {
+    sw = mask.height * targetRatio;
+    sx = (mask.width - sw) / 2;
+  } else {
+    sh = mask.width / targetRatio;
+    sy = (mask.height - sh) / 2;
+  }
+  ctx.drawImage(mask, sx, sy, sw, sh, 0, 0, W, H);
+}
+
 function drawSegmented(ctx, cut, video, W, H) {
   const mask = state.faceMask;
   if (!mask || !mask.width || !mask.height || !video.videoWidth || !video.videoHeight) return false;
@@ -2331,21 +3218,12 @@ function drawSegmented(ctx, cut, video, W, H) {
     sh = video.videoWidth / targetRatio;
     sy = (video.videoHeight - sh) / 2;
   }
-  const maskRatio = mask.width / mask.height;
-  let msx = 0, msy = 0, msw = mask.width, msh = mask.height;
-  if (maskRatio > targetRatio) {
-    msw = mask.height * targetRatio;
-    msx = (mask.width - msw) / 2;
-  } else {
-    msh = mask.width / targetRatio;
-    msy = (mask.height - msh) / 2;
-  }
   // La vidéo et son alpha reçoivent le même recadrage cover. Le miroir est
   // appliqué aux deux sources pour garder le masque aligné en selfie.
   if (state.facing === "user") { cctx.translate(W, 0); cctx.scale(-1, 1); }
   cctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
   cctx.globalCompositeOperation = "destination-in";
-  cctx.drawImage(mask, msx, msy, msw, msh, 0, 0, W, H);
+  drawMaskCover(cctx, mask, W, H);
   cctx.globalCompositeOperation = "source-over";
   ctx.drawImage(cut, 0, 0);
   return true;
@@ -2355,7 +3233,6 @@ function drawSegmented(ctx, cut, video, W, H) {
    la RAFALE pour flouter la meilleure frame (au lieu d'une autre capture). */
 function portraitBlur(net, W, H, animationEngine = state.animationEngine) {
   return new Promise((resolve) => {
-    const nctx = net.getContext("2d", { willReadFrequently: true });
     const blurBase = makeBlur(net, W, H);    const mask = state.faceMask;
     if (mask && mask.width && mask.height) {
       let netMasked = null;
@@ -2370,7 +3247,9 @@ function portraitBlur(net, W, H, animationEngine = state.animationEngine) {
         // brut doit recevoir le même miroir au moment du compositing.
         mctx.save();
         if (state.facing === "user") { mctx.translate(W, 0); mctx.scale(-1, 1); }
-        mctx.drawImage(mask, 0, 0, W, H);
+        // Même recadrage cover que drawVideoFrame/drawSegmented : le masque
+        // MediaPipe reste collé au sujet sur les flux 4:3 et 16:9.
+        drawMaskCover(mctx, mask, W, H);
         mctx.restore();
         mctx.globalCompositeOperation = "source-over";
 
@@ -2382,6 +3261,7 @@ function portraitBlur(net, W, H, animationEngine = state.animationEngine) {
         // Compose les éléments UI après le flou : cadre, logo et accessoires restent nets.
         drawFrame(octx, W, H, state.frameId, state.frameText);
         drawLogo(octx, W, H);
+        drawCustomOverlays(octx, W, H);
         if (animationEngine) animationEngine.drawStatic(octx, W, H);
         out.toBlob((blob) => {
           const result = blob ? { blob, width: W, height: H } : null;
@@ -2400,34 +3280,29 @@ function portraitBlur(net, W, H, animationEngine = state.animationEngine) {
       }
     }
 
-  // Fallback : ovale de visage net sur fond flou.
-  // Les landmarks sont normalisés dans le repère de la vidéo ; pour la
-  // caméra frontale, la photo a déjà été miroir par drawVideoFrame.
+  // Fallback : sujet net sur fond flou. Si les landmarks manquent, on
+  // conserve un portrait distinct grâce à une zone centrale progressive ;
+  // la variante n'est donc jamais supprimée silencieusement.
+  let cx = W / 2, cy = H * .40, rw = W * .58, rh = H * .72;
   if (state.face && state.face.length > 30) {
-    // Reprend exactement le crop de drawVideoFrame, puis applique le miroir
-    // de la caméra frontale : le fallback reste aligné sur le vrai portrait.
-    const box = faceBox(
-      state.face,
-      W,
-      H,
-      camera.videoWidth || 1280,
-      camera.videoHeight || 960,
-    );
-    const cx = state.facing === "user" ? W - (box.x + box.w / 2) : box.x + box.w / 2;
-    const cy = box.y + box.h / 2;
-    const rw = box.w * 1.7, rh = box.h * 1.9;
-    const bctx = blurBase.getContext("2d");
-    bctx.save();
-    bctx.beginPath();
-    bctx.ellipse(cx, cy, rw / 2, rh / 2, 0, 0, Math.PI * 2);
-    bctx.clip();
-    bctx.drawImage(net, 0, 0);
-    bctx.restore();
+    const box = faceBox(state.face, W, H, camera.videoWidth || 1280, camera.videoHeight || 960);
+    cx = state.facing === "user" ? W - (box.x + box.w / 2) : box.x + box.w / 2;
+    cy = box.y + box.h / 2;
+    rw = box.w * 1.85;
+    rh = box.h * 2.05;
   }
+  const bctx = blurBase.getContext("2d");
+  bctx.save();
+  bctx.beginPath();
+  bctx.ellipse(cx, cy, rw / 2, rh / 2, 0, 0, Math.PI * 2);
+  bctx.clip();
+  bctx.drawImage(net, 0, 0);
+  bctx.restore();
     // Même fallback que la segmentation : cadre, logo et animation restent nets.
     const bctxFinal = blurBase.getContext("2d");
     drawFrame(bctxFinal, W, H, state.frameId, state.frameText);
     drawLogo(bctxFinal, W, H);
+    drawCustomOverlays(bctxFinal, W, H);
     if (animationEngine) animationEngine.drawStatic(bctxFinal, W, H);
     blurBase.toBlob((blob) => {
       const result = blob ? { blob, width: W, height: H } : null;
@@ -2489,31 +3364,49 @@ function gifStopPre(releaseFrames = false) {
    L'ordi (serveur) fait les traitements lourds ; si le serveur est
    injoignable, on retombe automatiquement sur le traitement local.
    ════════════════════════════════════════════════════════════ */
-const _serverPing = { at: 0, up: null };
+const _serverPing = { at: 0, up: null, probe: null };
+let _serverProcessLastFailure = "";
+const SERVER_PING_OK_TTL = 30_000;
+const SERVER_PING_FAIL_TTL = 2_500;
 
-/* Vrai si le serveur a répondu récemment (cache court).
-   ⚠️ Le serveur cloud (Modal) fait un cold start de 2 à 5 s : un timeout trop
-   court ou un cache d'échec trop long ferait retomber le téléphone sur les
-   traitements locaux (gif.js/jszip) → chauffe et crash iOS. On patiente donc
-   un peu plus, et on re-teste vite après un échec. */
+/* Sonde courte et dédupliquée du serveur de traitement.
+   Modal peut démarrer à froid : un échec ne doit jamais geler l'application
+   pendant 30 secondes ni supprimer le GIF de la capture suivante. */
 async function serverProcessUp() {
   const now = performance.now();
-  if (_serverPing.at && now - _serverPing.at < 30000) return _serverPing.up;
-  try {
+  const ttl = _serverPing.up === true ? SERVER_PING_OK_TTL : SERVER_PING_FAIL_TTL;
+  if (_serverPing.at && now - _serverPing.at < ttl) return _serverPing.up === true;
+  if (_serverPing.probe) return _serverPing.probe;
+  _serverPing.probe = (async () => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch("/api/process/ping", { method: "GET", signal: controller.signal, cache: "no-store" });
-    clearTimeout(timer);
-    _serverPing.up = res.ok;
-  } catch { _serverPing.up = false; }
-  _serverPing.at = now;
-  return _serverPing.up;
+    const timer = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const res = await fetch("/api/process/ping", { method: "GET", signal: controller.signal, cache: "no-store" });
+      _serverPing.up = res.ok;
+    } catch {
+      _serverPing.up = false;
+    } finally {
+      clearTimeout(timer);
+      _serverPing.at = performance.now();
+      _serverPing.probe = null;
+    }
+    return _serverPing.up === true;
+  })();
+  return _serverPing.probe;
 }
 
-function serverProcessMarkDown() { _serverPing.at = performance.now(); _serverPing.up = false; }
+function serverProcessMarkDown() {
+  _serverPing.at = performance.now();
+  _serverPing.up = false;
+  // Un échec réseau est réessayable rapidement : ne conserve pas une promesse
+  // terminée et ne bloque pas la prochaine capture sur un vieux statut.
+  _serverPing.probe = null;
+}
 
 /* POST multipart vers /api/process/* : renvoie la réponse ou null (serveur KO). */
 async function serverProcessPost(pathname, entries, timeoutMs = 20000) {
+  _serverProcessLastFailure = "";
+  const operation = telemetry.startNetwork(pathname, "POST");
   const form = new FormData();
   entries.forEach((entry) => {
     if (Array.isArray(entry)) {
@@ -2527,12 +3420,19 @@ async function serverProcessPost(pathname, entries, timeoutMs = 20000) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(pathname, { method: "POST", body: form, signal: controller.signal, cache: "no-store" });
+    telemetry.finishNetwork(operation, { status: res.status, serverTs: Number(res.headers.get("x-mb-server-ts")) || null });
     // Un HTTP 4xx/5xx (frame corrompue, fichier trop gros…) ne veut PAS dire
     // que le serveur est injoignable : on garde la délégation active et on
     // laisse l'appelant retomber sur le traitement local pour cette fois.
-    return res.ok ? res : null;
-  } catch {
+    if (!res.ok) {
+      _serverProcessLastFailure = `http-${res.status}`;
+      return null;
+    }
+    return res;
+  } catch (error) {
     // Seule une erreur réseau (abort/TypeError) marque le serveur indisponible.
+    telemetry.finishNetwork(operation, { error: error?.name || "network" });
+    _serverProcessLastFailure = "network";
     serverProcessMarkDown();
     return null;
   } finally {
@@ -2541,11 +3441,8 @@ async function serverProcessPost(pathname, entries, timeoutMs = 20000) {
 }
 
 /* Convertit un canvas en JPEG Blob (pour l'upload). */
-function canvasToJpegBlob(canvas, quality = 0.72) {
-  return new Promise((resolve) => {
-    try { canvas.toBlob((b) => resolve(b), "image/jpeg", quality); }
-    catch { resolve(null); }
-  });
+function canvasToJpegBlob(canvas, quality = 0.72, kind = "jpeg") {
+  return telemetry.measureBlob(canvas, quality, kind);
 }
 
 /* Décode une chaîne base64 en Blob (réponses JPEG du serveur de rendu). */
@@ -2561,7 +3458,7 @@ function b64ToBlob(b64, type = "image/jpeg") {
 /* Rendu du pack délégué : le serveur applique les ops du filtre couleur et le
    flou portrait sur le frame envoyé, puis renvoie les JPEG en base64. L'iPhone
    n'encode qu'UN SEUL JPEG (l'upload) au lieu de 3 encodages + ops + blur. */
-async function serverRenderPack(raw, W, H, animationEngine, hasFilter, canPortrait) {
+async function serverRenderPack(raw, W, H, animationEngine, hasFilter, portraitRequested) {
   let rawBlob = null;
   try {
     // Photo brute sans cadre pour reframeLatest (même sémantique que finalizeCanvas).
@@ -2572,17 +3469,18 @@ async function serverRenderPack(raw, W, H, animationEngine, hasFilter, canPortra
     const bctx = base.getContext("2d");
     drawFrame(bctx, W, H, state.frameId, state.frameText);
     drawLogo(bctx, W, H);
+    drawCustomOverlays(bctx, W, H);
     if (animationEngine) animationEngine.drawStatic(bctx, W, H);
     const baseJpeg = await canvasToJpegBlob(base, 0.92);
     releaseCanvas(base);
     if (!baseJpeg) return [];
     const filter = activePhotoFilter();
     const ops = hasFilter && filter ? JSON.stringify(filter.ops) : "[]";
-    let faceBox = "";
+    let faceBoxPayload = "";
+    const canPortrait = Boolean(state.face && state.face.length > 30);
     if (canPortrait) {
-      // Reprend la bbox locale (faceBox) puis applique le miroir caméra frontale :
-      // le serveur travaille sur l'image reçue (déjà miroir). Le serveur applique
-      // lui-même l'étirement 1.7/1.9 de l'ovale, comme portraitBlur local.
+      // Reprend la bbox locale puis applique le miroir caméra frontale.
+      // Sans bbox, le serveur reçoit portrait=1 et utilise son fallback centré.
       const box = faceBox(state.face, W, H, camera.videoWidth || 1280, camera.videoHeight || 960);
       let bx = box.x, by = box.y;
       if (state.facing === "user") bx = W - (box.x + box.w);
@@ -2590,13 +3488,17 @@ async function serverRenderPack(raw, W, H, animationEngine, hasFilter, canPortra
       by = Math.max(0, Math.round(by));
       const bw = Math.max(24, Math.round(Math.min(box.w, W - bx)));
       const bh = Math.max(24, Math.round(Math.min(box.h, H - by)));
-      faceBox = JSON.stringify({ x: bx, y: by, w: bw, h: bh });
+      faceBoxPayload = JSON.stringify({ x: bx, y: by, w: bw, h: bh });
     }
     const res = await serverProcessPost("/api/process/pack", [
       ["frame", baseJpeg, "frame.jpg"],
       ["filterOps", ops],
-      ["faceBox", faceBox],
-      ["quality", "94"],
+      ["faceBox", faceBoxPayload],
+      ["portrait", portraitRequested ? "1" : "0"],
+      // Qualité JPEG serveur : le numéro de version était codé ici par erreur
+      // (résidu des bumps v104→v105→v106) — le serveur clampait silencieusement
+      // à 97. On repasse sur une vraie qualité : 92 en standard, 95 en 4K.
+      ["quality", state.qualityMax ? "95" : "92"],
     ], 35000);
     if (!res) return [];
     const j = await res.json().catch(() => null);
@@ -2691,14 +3593,35 @@ function grabGif(postFrames = 6, animationEngine = state.animationEngine) {
       const encode = async () => {
         if (settled) return;
         try {
-          if (await serverProcessUp()) {
-            const gif = await serverEncodeGif(frames, W, H, 140);
+          // Une première sonde peut tomber pendant le cold start Modal. On
+          // laisse une courte fenêtre de reprise avant d'abandonner le GIF.
+          let serverReady = await serverProcessUp();
+          if (!serverReady) {
+            await new Promise((resolve) => setTimeout(resolve, 750));
+            // Force une nouvelle requête après le délai : le cache d'échec
+            // court ne doit pas transformer ce retry en simple relecture.
+            _serverPing.at = 0;
+            serverReady = await serverProcessUp();
+          }
+          if (serverReady) {
+            let gif = await serverEncodeGif(frames, W, H, 140);
+            // Le serveur peut être monté entre le ping et le POST : retente
+            // une seule fois, sans refaire de boucle infinie ni chauffer le
+            // téléphone avec un encodeur local.
+            if (!gif && _serverProcessLastFailure === "network") {
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              _serverPing.at = 0;
+              if (await serverProcessUp()) gif = await serverEncodeGif(frames, W, H, 140);
+            }
             if (gif) { finish(gif); return; }
           }
         } catch { /* serveur indisponible */ }
-        // Plus de fallback local gif.js : le serveur Modal est l'encodeur unique.
-        // Si le serveur est down, on libere les frames sans GIF (pas de crash).
-        toast("GIF indisponible (serveur hors ligne)");
+        // Le GIF reste délégué à Modal : aucun encodeur lourd local ne revient
+        // sur l'iPhone. Le message distingue une panne réseau d'un fichier
+        // refusé par l'API pour ne plus accuser à tort le serveur.
+        toast(_serverProcessLastFailure === "network"
+          ? "GIF indisponible : serveur momentanément hors ligne"
+          : "GIF indisponible : réessayez la prise");
         finish(null);
       };
       const takePost = () => {
@@ -2761,11 +3684,89 @@ function clearAutoReturn() {
   if (btn) btn.style.display = "none";
 }
 
-function showResult(items) {
+/* Emojis par visage (OPT-IN, désactivé par défaut) : le serveur reçoit la
+   photo finale + les boîtes des visages détectés par MediaPipe et renvoie un
+   emoji stable par personne. On les dessine en petit à côté de chaque tête,
+   sur les variantes photos (jamais sur le GIF). Heuristique gratuite. */
+let _emojiDecorationBusy = false;
+function blobDimensions(blob) {
+  return new Promise((resolve) => {
+    try {
+      const image = new Image();
+      image.onload = () => resolve({ w: image.naturalWidth, h: image.naturalHeight });
+      image.onerror = () => resolve(null);
+      image.src = URL.createObjectURL(blob);
+      setTimeout(() => URL.revokeObjectURL(image.src), 4000);
+    } catch { resolve(null); }
+  });
+}
+async function decorateItemsWithFaceEmojis(items, W, H) {
+  if (!state.emojiFacesEnabled || _emojiDecorationBusy) return items;
+  const photoItems = items.filter((it) => !it.gif && it.blob);
+  const faces = Array.isArray(state.faces) ? state.faces.filter((f) => f && f.length >= 30) : [];
+  if (!photoItems.length || !faces.length) return items;
+  try {
+    const boxes = faces.map((f) => {
+      const b = faceBox(f, W, H, camera.videoWidth || 1280, camera.videoHeight || 960);
+      return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) };
+    });
+    if (!(await serverProcessUp())) return items;
+    const form = new FormData();
+    form.append("frame", photoItems[0].blob, "frame.jpg");
+    form.append("faces", JSON.stringify(boxes));
+    const res = await fetch("/api/process/emojis", { method: "POST", body: form });
+    if (!res.ok) return items;
+    const data = await res.json();
+    const emojis = (data.faces || []).filter((f) => f && f.emoji);
+    if (!emojis.length) return items;
+    _emojiDecorationBusy = true;
+    const draw = (ctx, f) => {
+      const size = Math.max(26, Math.round(f.h * 0.42));
+      const x = Math.min(W - size, Math.max(0, f.x + f.w + Math.round(f.w * 0.06)));
+      const y = Math.max(0, f.y + Math.round(f.h * 0.1));
+      ctx.save();
+      ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji",sans-serif`;
+      ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 6;
+      ctx.fillText(f.emoji, x, y);
+      ctx.restore();
+    };
+    await Promise.all(photoItems.map(async (item) => {
+      try {
+        const bmp = await createImageBitmap(item.blob);
+        const canvas = document.createElement("canvas");
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bmp, 0, 0, W, H);
+        bmp.close?.();
+        emojis.forEach((f) => draw(ctx, f));
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+        releaseCanvas(canvas);
+        if (blob) item.blob = blob;
+      } catch { /* garde la photo non décorée */ }
+    }));
+  } catch { /* serveur indisponible : la capture reste normale */ }
+  finally { _emojiDecorationBusy = false; }
+  return items;
+}
+
+async function showResult(items) {
   if (!items || !items.length) { toast("Capture impossible"); return; }
   if (state.captureBatchActive) {
     state.captureBatchItems.push(...items.filter((item) => item?.blob));
     return;
+  }
+  // Emojis par visage (OPT-IN) : décoration UNE seule fois, sur l'affichage
+  // final (jamais pendant une série), et state.latestPhoto reprend les blobs
+  // décorés pour que le partage/téléchargement garde les emojis.
+  if (state.emojiFacesEnabled) {
+    const probe = items.find((it) => !it.gif && it.blob);
+    if (probe) {
+      try {
+        const dims = await blobDimensions(probe.blob);
+        if (dims) items = await decorateItemsWithFaceEmojis(items, dims.w, dims.h);
+      } catch { /* décoration optionnelle */ }
+    }
   }
   stopAnimation();
   state.animationEngine = null;
@@ -2925,10 +3926,18 @@ async function shareMethod(method) {
 /* =========================================================
    GALERIE
    ========================================================= */
-// db() est défini plus bas (l. 5163) avec la version unifiée qui gère aussi
-// le store uploadQueue. On garde un stub commentaire ici pour la lecture du
-// fichier, mais l'unique implémentation vivante est la version async plus bas
-// (avec upgrade onupgradeneeded qui inclut uploadQueue).
+function db() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("momentobooth", 2);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("moments")) d.createObjectStore("moments", { keyPath: "id" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
 async function saveLocal(blob, metadata = {}) {
   if (!blob) throw new Error("blob manquant");
   const id = metadata.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2939,10 +3948,10 @@ async function saveLocal(blob, metadata = {}) {
       id,
       blob,
       date: metadata.date || Date.now(),
-      mediaType: metadata.mediaType || (blob.type === "image/gif" ? "gif" : "photo"),
-      label: metadata.label || "Photo",
-      ...(metadata.serverId ? { serverId: metadata.serverId } : {}),
-    });
+      mediaType: metadata.mediaType || (blob.type === "image/gif" ? "gif" : "photo"),       label: metadata.label || "Photo",
+       ...(metadata.serverId ? { serverId: metadata.serverId } : {}),
+       ...(metadata.deleteToken ? { deleteToken: metadata.deleteToken } : {}),
+     });
     tx.oncomplete = () => resolve(id);
     tx.onerror = () => reject(tx.error);
   });
@@ -2956,7 +3965,7 @@ async function loadLocal() {
     req.onerror = () => resolve([]);
   });
 }
-async function setLocalServerId(localId, serverId) {
+async function setLocalServerId(localId, serverId, deleteToken = "") {
   try {
     const d = await db();
     await new Promise((resolve, reject) => {
@@ -2964,7 +3973,12 @@ async function setLocalServerId(localId, serverId) {
       const store = tx.objectStore("photos");
       const req = store.get(localId);
       req.onsuccess = () => {
-        if (req.result) store.put({ ...req.result, serverId });
+        if (req.result) {
+          const next = { ...req.result, serverId };
+          if (deleteToken) next.deleteToken = deleteToken;
+          else delete next.deleteToken;
+          store.put(next);
+        }
       };
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
@@ -2980,30 +3994,20 @@ async function uploadPhoto(blob, localId = state.lastLocalId, mediaType = "photo
   const form = new FormData();
   form.append("photo", blob, `${id}.${extension}`);
   try {
-    // Si l'hôte a re-saisi la clé dans le panneau (cas reload), on l'utilise
-    // avant la requête. Sans clé valide, on n'envoie PAS les headers (=> 403
-    // propre côté serveur, l'UI explique pourquoi).
-    const hostKey = liveGuestHostKey();
-    const guestHeaders = state.guestToken && hostKey
-      ? { "x-guest-token": state.guestToken, "x-guest-host-key": hostKey }
+    const guestHeaders = state.guestToken && state.guestHostKey
+      ? { "x-guest-token": state.guestToken, "x-guest-host-key": state.guestHostKey }
       : {};
     const response = await fetch("/api/photos", { method: "POST", headers: guestHeaders, body: form });
     if (response.ok) {
       const data = await response.json();
       // L'enregistrement local doit toujours recevoir son serverId, mais une
       // ancienne capture ne doit pas remplacer le lien de la capture courante.
-      await setLocalServerId(id, data.id);
+      await setLocalServerId(id, data.id, data.deleteToken || "");
       if (generation === state.resultGeneration) {
         state.publicUrl = data.publicUrl || data.url || "";
       }
-    } else {
-      // Erreur HTTP (403, 413, 500…) : on met en file pour réessayer plus tard
-      await addToUploadQueue({ blob, localId: id, mediaType, filename: `${id}.${extension}`, guestToken: state.guestToken || null, guestHostKey: liveGuestHostKey() || null });
     }
-  } catch {
-    // Réseau indisponible : on met en file pour réessayer plus tard
-    await addToUploadQueue({ blob, localId: id, mediaType, filename: `${id}.${extension}`, guestToken: state.guestToken || null, guestHostKey: liveGuestHostKey() || null });
-  }
+  } catch { /* serveur optionnel : la copie locale reste valide */ }
   return id;
 }
 
@@ -3035,7 +4039,7 @@ async function persistResultItems(items, generation = state.resultGeneration) {
       if (generation === state.resultGeneration) await uploadPhoto(gifItems[0].blob, gifId, "gif", generation);
     }
     if (generation !== state.resultGeneration) return;
-    $("share-status").textContent = "Photo et GIF enregistrés ✓";
+    $("share-status").textContent = gifItems[0] ? "Photo et GIF enregistrés ✓" : "Photo enregistrée ✓";
     // Upload serveur en arrière-plan : ne bloque ni l'aperçu ni le commentaire.
     if (generation === state.resultGeneration) await uploadPhoto(primary.blob, photoId, "photo", generation);
   } catch (error) {
@@ -3049,36 +4053,24 @@ function openGuestSharePanel(autoCreate = true) {
   if (!panel) return;
   panel.classList.add("open");
   panel.setAttribute("aria-hidden", "false");
+  guestShareTrap.onOpen();
   $("gallery-title")?.setAttribute("aria-label", "Galerie — partage invités ouvert");
   if (!autoCreate) return;
-  // Réutilise une session encore valide : on garde token+url en sessionStorage
-  // (limité à l'onglet courant, inaccessible aux autres onglets) mais on NE
-  // stocke JAMAIS le hostKey — il reste uniquement en RAM, et l'hôte doit le
-  // re-saisir (ou recréer la session) s'il recharge l'onglet. Vol par XSS
-  // ⇒ accès uniquement à la session de l'onglet courant, et l'attaquant
-  // doit de toute façon être dans le même origin.
+  // Réutilise une session encore valide : QR + lien affichés immédiatement,
+  // sans recréer un lien à chaque ouverture.
   try {
-    const saved = JSON.parse(sessionStorage.getItem("momentobooth-guest-session") || "null");
+    const saved = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
     if (saved && saved.url && saved.token && Date.now() < (saved.expiresAt || 0)) {
       state.guestToken = saved.token;
-      // hostKey volontairement non restauré — l'hôte en a une copie dans
-      // l'UI à la création, et il peut la re-saisir via le champ masqué.
-      state.guestHostKey = "";
+      state.guestHostKey = saved.hostKey;
       state.guestLiveEnabled = Boolean($("guest-live-toggle")?.checked);
-        $("guest-share-url").value = saved.url;
+      $("guest-share-url").value = saved.url;
       $("guest-share-link-row").classList.remove("hidden");
       $("guest-share-qr").src = guestQrUrl(saved.url);
       $("guest-share-qr-box").classList.remove("hidden");
-      // hostKey n'est pas restauré → on affiche le champ éditable (l'hôte
-      // colle sa clé conservée pour reprendre le contrôle).
-      const hostKeyInput = $("guest-share-hostkey");
-      if (hostKeyInput) {
-        hostKeyInput.readOnly = false;
-        hostKeyInput.placeholder = "Coller votre clé hôte pour reprendre le contrôle";
-        hostKeyInput.value = "";
-        $("guest-share-hostkey-block")?.classList.remove("hidden");
-      }
-      guestShareStatus(`Lien actif jusqu’au ${new Date(saved.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Collez votre clé hôte pour publier / supprimer.`);
+      refreshTabletQr();
+      guestShareStatus(`Lien actif jusqu’au ${new Date(saved.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`);
+      startGuestLivePublisher();
       return;
     }
   } catch { /* session corrompue → en créer une neuve */ }
@@ -3089,6 +4081,89 @@ function closeGuestSharePanel() {
   if (!panel) return;
   panel.classList.remove("open");
   panel.setAttribute("aria-hidden", "true");
+  guestShareTrap.onClose();
+}
+/* ---------- Corbeille : réservée à l'organisateur (code vérifié côté
+   serveur), permet de voir/restaurer/purger ce que la galerie a supprimé. ---------- */
+async function openTrashPanel() {
+  const authorized = await requestOrganizerAccess("Code organisateur pour ouvrir la corbeille :");
+  if (!authorized) return;
+  const panel = $("trash-panel");
+  if (!panel) return;
+  panel.classList.add("open");
+  panel.setAttribute("aria-hidden", "false");
+  trashPanelTrap.onOpen();
+  await loadTrashItems();
+}
+function closeTrashPanel() {
+  const panel = $("trash-panel");
+  if (!panel) return;
+  panel.classList.remove("open");
+  panel.setAttribute("aria-hidden", "true");
+  trashPanelTrap.onClose();
+}
+async function loadTrashItems() {
+  const grid = $("trash-grid");
+  if (!grid) return;
+  grid.innerHTML = '<div class="mb-loading-block"><div class="mb-spinner" role="status" aria-label="Chargement de la corbeille"></div>Chargement…</div>';
+  const session = loadOrganizerSession();
+  if (!session) { closeTrashPanel(); return; }
+  let items = [];
+  try {
+    const response = await fetch("/api/photos/trash", { headers: { "x-organizer-token": session.token }, cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    items = (await response.json()).photos ?? [];
+  } catch {
+    grid.innerHTML = '<div class="trash-empty">Corbeille indisponible — vérifiez la connexion au serveur.</div>';
+    return;
+  }
+  if (!items.length) { grid.innerHTML = '<div class="trash-empty">La corbeille est vide.</div>'; return; }
+  grid.innerHTML = "";
+  for (const item of items) {
+    const cell = document.createElement("div");
+    cell.className = "trash-item";
+    const img = document.createElement("img");
+    img.src = item.url;
+    img.alt = "";
+    img.loading = "lazy";
+    const actions = document.createElement("div");
+    actions.className = "trash-item-actions";
+    const restoreBtn = document.createElement("button");
+    restoreBtn.type = "button"; restoreBtn.className = "trash-restore"; restoreBtn.textContent = "Restaurer";
+    restoreBtn.addEventListener("click", () => void restoreTrashItem(item.id));
+    const purgeBtn = document.createElement("button");
+    purgeBtn.type = "button"; purgeBtn.className = "trash-purge"; purgeBtn.textContent = "Effacer";
+    purgeBtn.addEventListener("click", () => void purgeTrashItem(item.id));
+    actions.append(restoreBtn, purgeBtn);
+    cell.append(img, actions);
+    grid.appendChild(cell);
+  }
+}
+async function restoreTrashItem(id) {
+  const session = loadOrganizerSession();
+  if (!session) return;
+  try {
+    const response = await fetch(`/api/photos/${encodeURIComponent(id)}/restore`, {
+      method: "POST", headers: { "x-organizer-token": session.token },
+    });
+    if (!response.ok) throw new Error();
+    toast("Photo restaurée dans la galerie");
+    await loadTrashItems();
+    if ($("screen-gallery")?.classList.contains("active")) void renderGallery();
+  } catch { toast("Restauration impossible"); }
+}
+async function purgeTrashItem(id) {
+  const session = loadOrganizerSession();
+  if (!session) return;
+  if (!confirm("Effacer définitivement cette photo ? Impossible à annuler.")) return;
+  try {
+    const response = await fetch(`/api/photos/${encodeURIComponent(id)}/purge`, {
+      method: "DELETE", headers: { "x-organizer-token": session.token },
+    });
+    if (!response.ok) throw new Error();
+    toast("Photo effacée définitivement");
+    await loadTrashItems();
+  } catch { toast("Suppression définitive impossible"); }
 }
 function guestShareStatus(message) {
   const el = $("guest-share-status");
@@ -3097,10 +4172,29 @@ function guestShareStatus(message) {
 function guestQrUrl(url) {
   return `/api/qr?url=${encodeURIComponent(url)}`;
 }
+function refreshTabletQr() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
+    const image = $("tablet-qr-image");
+    const ready = Boolean(saved?.url && saved?.token && Date.now() < Number(saved.expiresAt || 0));
+    if (image && ready) {
+      image.src = guestQrUrl(saved.url);
+      document.body.classList.add("guest-qr-ready");
+    } else {
+      document.body.classList.remove("guest-qr-ready");
+    }
+  } catch {
+    document.body.classList.remove("guest-qr-ready");
+  }
+}
 
+let _guestLinkBusy = false;
 async function createGuestLink() {
+  if (_guestLinkBusy) return;
+  _guestLinkBusy = true;
   const button = $("guest-create-link");
-  if (button) button.disabled = true;
+  const originalLabel = button?.textContent ?? "";
+  if (button) { button.disabled = true; button.innerHTML = '<span class="mb-spinner small" role="status" aria-label="Création en cours"></span>'; }
   guestShareStatus("Création du lien privé…");
   try {
     const response = await fetch("/api/guest/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
@@ -3109,29 +4203,20 @@ async function createGuestLink() {
     state.guestToken = data.token;
     state.guestHostKey = data.hostKey;
     state.guestLiveEnabled = Boolean($("guest-live-toggle")?.checked);
-    // Stockage limité à l'onglet — on ne persiste PAS le hostKey (sécurité).
-    // L'hôte garde une copie via l'UI (copie-clipboard / affichage) ; s'il
-    // recharge, il doit re-saisir la clé ou recréer la session.
-    sessionStorage.setItem("momentobooth-guest-session", JSON.stringify({ token: state.guestToken, url: data.url, expiresAt: data.expiresAt }));
+    localStorage.setItem("momentobooth-guest-session", JSON.stringify({ token: state.guestToken, hostKey: state.guestHostKey, url: data.url, expiresAt: data.expiresAt }));
     $("guest-share-url").value = data.url;
     $("guest-share-link-row").classList.remove("hidden");
     $("guest-share-qr").src = guestQrUrl(data.url);
     $("guest-share-qr-box").classList.remove("hidden");
-    // Affichage initial de la clé à l'hôte (readonly + bouton copier).
-    // Si l'hôte recharge l'onglet, ce bloc apparaît en mode éditable.
-    const hostKeyInput = $("guest-share-hostkey");
-    if (hostKeyInput) {
-      hostKeyInput.readOnly = true;
-      hostKeyInput.placeholder = "Clé hôte (créée automatiquement)";
-      hostKeyInput.value = data.hostKey;
-      $("guest-share-hostkey-block")?.classList.remove("hidden");
-    }
-    guestShareStatus(`Lien actif jusqu’au ${new Date(data.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Copiez votre clé hôte (affichée ci-dessous).`);
+    refreshTabletQr();
+    document.body.classList.add("guest-qr-ready");
+    guestShareStatus(`Lien actif jusqu’au ${new Date(data.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`);
     startGuestLivePublisher();
   } catch {
     guestShareStatus("Impossible de créer le lien. Vérifiez la connexion du serveur.");
   } finally {
-    if (button) button.disabled = false;
+    _guestLinkBusy = false;
+    if (button) { button.disabled = false; button.textContent = originalLabel || "Créer le QR + lien"; }
   }
 }
 async function copyGuestUrl() {
@@ -3141,21 +4226,6 @@ async function copyGuestUrl() {
   catch { input.select(); document.execCommand("copy"); }
   guestShareStatus("URL copiée ✓");
 }
-async function copyGuestHostKey() {
-  const input = $("guest-share-hostkey");
-  if (!input?.value) return;
-  try { await navigator.clipboard.writeText(input.value); }
-  catch { input.select(); document.execCommand("copy"); }
-  guestShareStatus("Clé hôte copiée ✓");
-}
-/* Lue par les requêtes sortantes : si le panneau a re-saisi la clé, on l'utilise. */
-function liveGuestHostKey() {
-  const input = $("guest-share-hostkey");
-  if (input && !input.readOnly && input.value.trim()) {
-    state.guestHostKey = input.value.trim();
-  }
-  return state.guestHostKey;
-}
 async function shareGuestUrl() {
   const url = $("guest-share-url")?.value;
   if (!url) return guestShareStatus("Créez d’abord le lien invité.");
@@ -3163,61 +4233,6 @@ async function shareGuestUrl() {
     try { await navigator.share({ title: "Galerie MomentoBooth", text: "Accéder à la galerie de l’événement", url }); }
     catch { /* fermeture du panneau natif */ }
   } else copyGuestUrl();
-}
-/* Pré-flight : vérifie que l'event répond et qu'il a de la marge.
-   Utilisable SANS hostKey. Affiche l'état dans le bloc debug. */
-async function testGuestEvent() {
-  const token = state.guestToken;
-  if (!token) return guestShareStatus("Créez d’abord le lien invité.");
-  const debug = $("guest-share-debug");
-  if (debug) { debug.classList.remove("hidden"); debug.textContent = "Test en cours…"; }
-  try {
-    const res = await fetch(`/api/guest/${encodeURIComponent(token)}/health`);
-    const data = await res.json();
-    if (!res.ok) {
-      if (debug) debug.textContent = `❌ ${data.error || res.status}`;
-      return;
-    }
-    const lines = [
-      `✓ Événement joignable`,
-      `  Expire dans : ${data.remainingHuman} (${new Date(data.expiresAt).toLocaleString("fr-FR")})`,
-      `  Photos : ${data.photoCount}`,
-      `  Aperçu caméra actif : ${data.liveActive ? "oui" : "non"}`,
-      `  Serveur : Node ${data.server.nodeVersion}, uptime ${data.server.uptimeSec}s`,
-    ];
-    if (debug) debug.textContent = lines.join("\n");
-  } catch (error) {
-    if (debug) debug.textContent = `❌ Réseau : ${error.message}`;
-  }
-}
-/* Export ZIP de l'event courant. Demande le hostKey si pas en mémoire. */
-async function exportGuestEvent() {
-  const token = state.guestToken;
-  const hostKey = liveGuestHostKey();
-  if (!token) return guestShareStatus("Créez d’abord le lien invité.");
-  if (!hostKey) return guestShareStatus("Collez votre clé hôte avant d’exporter.");
-  const debug = $("guest-share-debug");
-  if (debug) { debug.classList.remove("hidden"); debug.textContent = "Préparation du ZIP…"; }
-  try {
-    const res = await fetch(`/api/guest/${encodeURIComponent(token)}/export.zip`, { headers: { "x-guest-host-key": hostKey } });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      if (debug) debug.textContent = `❌ ${data.error || res.status}`;
-      return;
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `momentobooth-event-${token.slice(0, 8)}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    if (debug) debug.textContent = `✓ ZIP téléchargé (${(blob.size / 1024).toFixed(1)} ko)`;
-  } catch (error) {
-    if (debug) debug.textContent = `❌ ${error.message}`;
-  }
 }
 function stopGuestLivePublisher() {
   if (state.guestLiveTimer) clearInterval(state.guestLiveTimer);
@@ -3236,11 +4251,20 @@ function startGuestLivePublisher() {
       canvas.width = 480; canvas.height = Math.max(270, Math.round(480 / ratio));
       const ctx = canvas.getContext("2d");
       ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.62));
+      const blob = await canvasToJpegBlob(canvas, 0.62, "guest-live");
       if (!blob) return;
+      const frameId = telemetry.recordFrame("guest-live", { width: canvas.width, height: canvas.height, sizeBytes: blob.size });
       const form = new FormData();
       form.append("frame", blob, "preview.jpg");
-      const response = await fetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, { method: "POST", headers: { "x-guest-host-key": liveGuestHostKey() }, body: form });
+      const response = await remoteFetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, {
+        method: "POST",
+        headers: {
+          "x-guest-host-key": state.guestHostKey,
+          "x-mb-session-id": telemetry.sessionId,
+          "x-mb-frame-id": frameId,
+        },
+        body: form,
+      }, 1500);
       if (response.status === 404) {
         stopGuestLivePublisher();
         localStorage.removeItem("momentobooth-guest-session");
@@ -3251,13 +4275,15 @@ function startGuestLivePublisher() {
     } finally { state.guestLiveBusy = false; }
   };
   publish();
-  state.guestLiveTimer = setInterval(publish, 1200);
+  // ~3 fps : vrai aperçu continu MJPEG, cadence plafonnée pour préserver
+  // la batterie et éviter de chauffer l'iPhone.
+  state.guestLiveTimer = setInterval(publish, 360);
 }
 async function loadGuestGallery(token) {
   const grid = $("guest-gallery-grid");
   if (!grid) return false;
   try {
-    const response = await fetch(`/api/guest/${encodeURIComponent(token)}/gallery`, { cache: "no-store" });
+    const response = await remoteFetch(`/api/guest/${encodeURIComponent(token)}/gallery`, { cache: "no-store" }, 4500);
     if (response.status === 404) {
       $("guest-gallery-grid").innerHTML = '<p class="guest-gallery-empty">Ce lien invité a expiré.</p>';
       return false;
@@ -3285,30 +4311,133 @@ function startGuestLivePolling(token) {
   const image = $("guest-live-image");
   const empty = $("guest-live-empty");
   const status = $("guest-live-state");
+  if (!image || !empty || !status) return;
   let active = true;
-  let timer = null;
-  const poll = async () => {
-    if (!active || document.hidden) return;
-    try {
-      const response = await fetch(`/api/guest/${encodeURIComponent(token)}/live?t=${Date.now()}`, { cache: "no-store" });
-      if (response.status === 200) {
-        const blob = await response.blob();
-        const old = image.src;
-        image.src = URL.createObjectURL(blob);
-        image.classList.remove("hidden"); empty.classList.add("hidden"); status.textContent = "Aperçu";
-        if (old.startsWith("blob:")) setTimeout(() => URL.revokeObjectURL(old), 1500);
-      } else if (response.status === 404) {
-        active = false;
-        if (timer) clearInterval(timer);
-        image.classList.add("hidden"); empty.classList.remove("hidden"); status.textContent = "Lien expiré";
-      } else {
-        image.classList.add("hidden"); empty.classList.remove("hidden"); status.textContent = "En attente";
-      }
-    } catch { status.textContent = "Hors connexion"; }
+  let reconnectTimer = null;
+  let firstFrameTimer = null;
+  let fallbackTimer = null;
+  let fallbackStarted = false;
+  let fallbackObjectUrl = "";
+  let streamPending = false;
+  const streamUrl = `/api/guest/${encodeURIComponent(token)}/live/stream?client=${Date.now()}`;
+  const setState = (label, live) => {
+    status.textContent = label;
+    if (live) { image.classList.remove("hidden"); empty.classList.add("hidden"); }
   };
-  poll();
-  timer = setInterval(poll, 1500);
-  window.addEventListener("pagehide", () => { active = false; if (timer) clearInterval(timer); }, { once: true });
+  const stopFallback = () => {
+    if (fallbackTimer) clearInterval(fallbackTimer);
+    fallbackTimer = null;
+  };
+  const stopTimers = (keepFallback = false) => {
+    clearTimeout(reconnectTimer);
+    clearTimeout(firstFrameTimer);
+    if (!keepFallback) stopFallback();
+  };
+  const startFallback = () => {
+    if (fallbackStarted || !active) return;
+    fallbackStarted = true;
+    let busy = false;
+    const poll = async () => {
+      if (!active || busy || document.hidden) return;
+      busy = true;
+      try {
+        const response = await remoteFetch(`/api/guest/${encodeURIComponent(token)}/live?t=${Date.now()}`, { cache: "no-store" }, 4500);
+        if (response.status === 200) {
+          const blob = await response.blob();
+          telemetry.emit("frame-receive", {
+            channel: "guest-live",
+            frameId: response.headers.get("x-mb-frame-id") || null,
+            sourceSessionId: response.headers.get("x-mb-source-session-id") || null,
+            bytes: blob.size,
+          });
+          if (!active || document.hidden) return;
+          const nextUrl = URL.createObjectURL(blob);
+          if (!active || document.hidden) {
+            URL.revokeObjectURL(nextUrl);
+            return;
+          }
+          const old = fallbackObjectUrl;
+          fallbackObjectUrl = nextUrl;
+          image.src = fallbackObjectUrl;
+          setState("Aperçu de secours", true);
+          if (old) URL.revokeObjectURL(old);
+        } else if (response.status === 404) {
+          active = false;
+          stopFallback();
+          setState("Lien expiré", false);
+        } else setState("En attente…", false);
+      } catch { setState("Hors connexion", false); }
+      finally { busy = false; }
+    };
+    void poll();
+    fallbackTimer = setInterval(poll, 1800);
+  };
+  const connect = () => {
+    if (!active || document.hidden) return;
+    // Si le fallback est déjà actif, une nouvelle tentative MJPEG ne doit
+    // pas le couper : il reste visible pendant toute la reconnexion.
+    const preservingFallback = fallbackStarted;
+    stopTimers(preservingFallback);
+    fallbackStarted = preservingFallback;
+    streamPending = true;
+    setState("Connexion vidéo…", false);
+    let gotFirstFrame = false;
+    image.onload = () => {
+      // Le même <img> sert au MJPEG et au fallback blob : un blob chargé ne
+      // doit jamais être interprété comme la première frame du flux continu.
+      if (!streamPending) return;
+      streamPending = false;
+      gotFirstFrame = true;
+      clearTimeout(firstFrameTimer);
+      stopFallback();
+      fallbackStarted = false;
+      if (fallbackObjectUrl) { URL.revokeObjectURL(fallbackObjectUrl); fallbackObjectUrl = ""; }
+      setState("En direct", true);
+    };
+    const fallbackFromStream = () => {
+      if (!active) return;
+      streamPending = false;
+      image.removeAttribute("src");
+      clearTimeout(reconnectTimer);
+      if (gotFirstFrame) {
+        // Une coupure après un flux déjà établi doit reconnecter le vrai
+        // MJPEG, pas rester figée sur la dernière image reçue.
+        setState("Reconnexion…", false);
+        reconnectTimer = setTimeout(connect, 1200);
+        return;
+      }
+      setState("Aperçu de secours…", false);
+      startFallback();
+      reconnectTimer = setTimeout(connect, 5000);
+    };
+    image.onerror = () => {
+      if (!active) return;
+      setState("Reconnexion…", false);
+      fallbackFromStream();
+    };
+    image.src = `${streamUrl}&retry=${Date.now()}`;
+    // Si le proxy ou la borne n'envoie aucune première image, ne laisse pas
+    // l'invité bloqué indéfiniment sur « Connexion vidéo… ».
+    firstFrameTimer = setTimeout(fallbackFromStream, 4500);
+  };
+  connect();
+  const onVisibility = () => {
+    if (document.hidden) {
+      image.removeAttribute("src");
+      if (fallbackObjectUrl) { URL.revokeObjectURL(fallbackObjectUrl); fallbackObjectUrl = ""; }
+      stopTimers();
+    } else connect();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("pageshow", connect, { once: false });
+  window.addEventListener("pagehide", () => {
+    active = false;
+    stopTimers();
+    document.removeEventListener("visibilitychange", onVisibility);
+    streamPending = false;
+    image.removeAttribute("src");
+    if (fallbackObjectUrl) { URL.revokeObjectURL(fallbackObjectUrl); fallbackObjectUrl = ""; }
+  }, { once: true });
 }
 async function initGuestMode() {
   const token = new URLSearchParams(location.search).get("guest") || location.pathname.match(/^\/guest\/([A-Za-z0-9_-]{32,80})$/)?.[1];
@@ -3318,7 +4447,11 @@ async function initGuestMode() {
   screens.gallery.classList.remove("active");
   screens.guest.classList.add("active");
   document.body.classList.add("guest-mode");
-  await loadGuestGallery(token);
+  telemetry.startupMark("firstInteractive");
+  // Le premier affichage reste non bloquant : une galerie lente ne doit pas
+  // laisser l'écran invité sous le splash.
+  hideSplash();
+  void loadGuestGallery(token).catch(() => {});
   startGuestLivePolling(token);
   let refresh = null;
   const startRefresh = () => {
@@ -3331,173 +4464,1349 @@ async function initGuestMode() {
   startRefresh();
   document.addEventListener("visibilitychange", () => document.hidden ? stopRefresh() : startRefresh());
   window.addEventListener("pagehide", stopRefresh, { once: true });
-  hideSplash();
   return true;
+}
+
+/* =========================================================
+   RÔLE DE L'APPAREIL — choix explicite au démarrage
+   ========================================================= */
+const DEVICE_ROLES = {
+  camera: { label: "Caméra", description: "Cet appareil filme et publie sa vue." },
+  interface: { label: "Interface", description: "Cet appareil contrôle une caméra distante." },
+  mixed: { label: "Mixte", description: "Caméra locale + connexions distantes disponibles." },
+};
+let _selectedDeviceRole = "mixed";
+let _roleGatePromise = null;
+
+function roleFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const requested = params.get("role");
+  if (["camera", "interface", "mixed"].includes(requested)) return requested;
+  // Un lien généré par une caméra contient déjà son token : proposer
+  // directement Interface évite une mauvaise demande de permission sur tablette.
+  return params.get("remote") ? "interface" : null;
+}
+
+function remoteTokenFromUrl() {
+  return (new URLSearchParams(location.search).get("remote") || "").trim();
+}
+
+function updateRoleGateSelection(role) {
+  if (!DEVICE_ROLES[role]) role = "mixed";
+  _selectedDeviceRole = role;
+  document.querySelectorAll("#role-gate .role-option").forEach((button) => {
+    const active = button.dataset.role === role;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-checked", String(active));
+  });
+  const remoteFields = $("role-remote-fields");
+  const tokenInput = $("role-remote-token");
+  const status = $("role-gate-status");
+  const needsToken = role === "interface";
+  remoteFields?.classList.toggle("hidden", !needsToken);
+  if (tokenInput && !tokenInput.value) tokenInput.value = remoteTokenFromUrl() || (state.remoteCamMode === "controller" ? state.remoteCamToken : "");
+  if (status) status.textContent = needsToken ? "Recherche d'une caméra…" : "";
+  // Sélection d'appareil : dès que le rôle Interface est actif dans le gate,
+  // on découvre les caméras pour un appui direct (le code reste en secours).
+  if (needsToken && $("role-gate")?.classList.contains("open")) {
+    startCameraDiscovery((cameraId, cameraName) => {
+      const finish = _roleGateFinish;
+      connectToCamera(cameraId, cameraName, (token) => {
+        if (finish) finish("interface", token);
+        else connectRemoteCamera(token);
+      }, (text) => { const statusEl = $("role-gate-status"); if (statusEl) statusEl.textContent = text; });
+    });
+  } else {
+    stopCameraDiscovery();
+  }
+}
+
+function showRoleGate() {
+  const gate = $("role-gate");
+  if (!gate) return;
+  gate.classList.add("open");
+  gate.setAttribute("aria-hidden", "false");
+  telemetry.startupMark("firstInteractive");
+  const requested = roleFromUrl() || state.deviceRole || "mixed";
+  updateRoleGateSelection(requested);
+  $("role-remember") && ($("role-remember").checked = state.roleRemember !== false);
+}
+
+function hideRoleGate() {
+  const gate = $("role-gate");
+  if (!gate) return;
+  stopCameraDiscovery();
+  _roleGateFinish = null;
+  gate.classList.remove("open");
+  gate.setAttribute("aria-hidden", "true");
+}
+
+function setDeviceRole(role, token = "") {
+  state.deviceRole = DEVICE_ROLES[role] ? role : "mixed";
+  state.roleRemember = Boolean($("role-remember")?.checked);
+  window.mbDeviceRole = state.deviceRole;
+  document.body.dataset.deviceRole = state.deviceRole;
+  const label = DEVICE_ROLES[state.deviceRole].label;
+  const roleValue = $("settings-device-role");
+  if (roleValue) roleValue.textContent = label;
+  const roleStatus = $("device-role-status");
+  if (roleStatus) {
+    roleStatus.textContent = "";
+    roleStatus.classList.add("hidden");
+  }
+  // Une caméra/interface précédente ne doit pas laisser un timer ou un
+  // canvas fantôme lorsqu'on change de rôle après un rechargement.
+  if (state.deviceRole === "interface") {
+    const broadcastRow = $("set-remote-camera")?.closest(".settings-row");
+    if (broadcastRow) broadcastRow.hidden = true;
+    const previousRemoteMode = state.remoteCamMode;
+    const previousRemoteToken = previousRemoteMode === "controller" ? state.remoteCamToken : "";
+    stopRemotePublishing();
+    if (previousRemoteMode === "camera") stopRemoteCamera();
+    state.remoteCamMode = "off";
+    state.remoteCamHostKey = "";
+    camera.style.visibility = "hidden";
+      const remoteToken = token.trim() || remoteTokenFromUrl() || previousRemoteToken;
+    state.remoteCamToken = remoteToken;
+    if (remoteToken) {
+      void connectRemoteCamera(remoteToken);
+    } else {
+      const status = $("device-role-status");
+      if (status) status.textContent = "";
+    }
+  } else {
+    const broadcastRow = $("set-remote-camera")?.closest(".settings-row");
+    if (broadcastRow) broadcastRow.hidden = false;
+    camera.style.visibility = "visible";
+    // En Mixte, une ancienne session distante mémorisée ne doit pas repartir
+    // seule au démarrage et voler du CPU au preview local. La connexion reste
+    // disponible via Réglages, mais devient explicitement opt-in.
+    if (state.deviceRole === "mixed") {
+      if (state.remoteCamMode === "camera") stopRemoteCamera();
+      else if (state.remoteCamMode === "controller") disconnectRemoteCamera();
+      state.cameraStopRequested = false;
+    }
+    // Caméra = publication automatique après l'ouverture locale.
+    // Mixte = publication/connexion laissée aux commandes dédiées.
+  }
+  savePreferences();
+}
+
+function waitForDeviceRole() {
+  if (_roleGatePromise) return _roleGatePromise;
+  _roleGatePromise = new Promise((resolve) => {
+    const gate = $("role-gate");
+    if (!gate) { setDeviceRole(state.deviceRole || "mixed"); resolve(); return; }
+    const finish = (role, token = "") => {
+      clearTimeout(stuckTimer);
+      _roleGateFinish = null;
+      setDeviceRole(role, token);
+      hideRoleGate();
+      resolve();
+      // Appel dans le même chemin d'événement que le bouton : Safari iOS
+      // conserve ainsi le geste utilisateur pour getUserMedia().
+      if (role !== "interface" && !state.stream) void startCamera();
+    };
+    _roleGateFinish = finish;
+    // Filet de sécurité : si la recherche de caméra ne trouve rien pendant
+    // longtemps, on l'affiche clairement plutôt que de choisir un rôle à la
+    // place de la personne — un minuteur ne doit jamais masquer un blocage.
+    const stuckTimer = setTimeout(() => {
+      if ($("role-gate")?.classList.contains("open") && _selectedDeviceRole === "interface" && state.remoteConnectionState !== "connected") {
+        const status = $("role-gate-status");
+        if (status) status.textContent = "Aucune caméra trouvée pour l'instant. Vérifiez que l'iPhone est allumé et réglé sur Caméra, ou entrez le code affiché dessus.";
+      }
+    }, 20000);
+    showRoleGate();
+    // Le module a réellement initialisé le sélecteur : le secours inline ne
+    // doit plus ajouter de handlers concurrents après ce point.
+    window.__mbAppBooted = true;
+    document.querySelectorAll("#role-gate .role-option").forEach((button) => {
+      button.addEventListener("click", () => {
+        const role = button.dataset.role;
+        updateRoleGateSelection(role);
+        unlockAudio();
+        if (role !== "interface") {
+          // Caméra / Mixte : aucun jumelage requis, un seul toucher suffit.
+          finish(role, "");
+          return;
+        }
+        // Interface : la recherche démarre immédiatement (déjà lancée par
+        // updateRoleGateSelection) et se termine seule dès qu'une caméra est
+        // trouvée ou qu'un code valide est saisi — aucune seconde validation.
+        // Le minuteur d'alerte (20 s) reste actif pour prévenir si rien n'est
+        // trouvé, au lieu de choisir un rôle à la place de la personne.
+        const remembered = remoteTokenFromUrl() || (state.remoteCamMode === "controller" ? state.remoteCamToken : "");
+        if (remembered) finish("interface", remembered);
+      }, { once: false });
+    });
+    const tryAutoFinishToken = () => {
+      const value = ($("role-remote-token")?.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (value.length === 6 && _selectedDeviceRole === "interface") finish("interface", value);
+    };
+    $("role-remote-token")?.addEventListener("input", () => { updateRoleGateSelection("interface"); tryAutoFinishToken(); });
+    $("role-paste-token")?.addEventListener("click", async () => {
+      try {
+        const value = await navigator.clipboard.readText();
+        if (value && $("role-remote-token")) $("role-remote-token").value = value.trim();
+        updateRoleGateSelection("interface");
+        tryAutoFinishToken();
+      } catch { $("role-gate-status").textContent = "Collez le token dans le champ ci-dessus."; }
+    });
+  });
+  return _roleGatePromise;
 }
 
 /* =========================================================
    CAMERA DEPORTEE — iPhone = camera, iPad = controle
    ========================================================= */
+let _remoteCameraGeneration = 0;
+let _remoteConnectGeneration = 0;
 let _remotePubTimer = null;
+let _remotePubBusy = false;
+let _remotePubGeneration = 0;
+let _remotePubResourceActive = false;
+let _remotePubCanvasResourceActive = false;
+let _remotePubCanvas = null;
 let _remotePollTimer = null;
+let _remotePollBusy = false;
+let _remotePollGeneration = 0;
+let _remotePollResourceActive = false;
 let _remotePreviewCanvas = null;
-let _remotePollBlobUrl = null;
+let _remoteCommandResourceActive = false;
+let _deviceAnnounceResourceActive = false;
+let _pairRequestResourceActive = false;
+let _cameraDiscoveryResourceActive = false;
 
 async function startRemoteCamera() {
-  state.remoteCamMode = 'camera';
+  const generation = ++_remoteCameraGeneration;
+  stopRemoteCommandPolling();
+  state.remoteCamMode = "camera";
+  state.remoteSessionState = "none";
+  state.remoteConnectionState = "connecting";
+  state.remoteLastFramePublishedAt = 0;
+  state.remoteLastControllerSeenAt = 0;
+  state.remoteFrameAgeMs = null;
+  setRemoteConnectionStatus("connecting", "Connexion en préparation…");
   try {
-    const res = await fetch("/api/remote-camera/sessions", { method: "POST" });
+    const res = await remoteFetch("/api/remote-camera/sessions", { method: "POST" }, 5000);
     if (!res.ok) throw new Error("session");
     const data = await res.json();
+    if (generation !== _remoteCameraGeneration || state.remoteCamMode !== "camera") {
+      // L’utilisateur a arrêté ou changé de rôle pendant le cold start :
+      // ne ressuscite jamais une session distante devenue obsolète.
+      void remoteFetch(`/api/remote-camera/${encodeURIComponent(data.token)}`, {
+        method: "DELETE",
+        headers: { "x-host-key": data.hostKey },
+        keepalive: true,
+      }, 1800).catch(() => {});
+      return;
+    }
     state.remoteCamToken = data.token;
     state.remoteCamHostKey = data.hostKey;
-    $("remote-token-display").value = data.url;
-    $("remote-token-row").style.display = "flex";
+    state.remoteSessionState = "created";
+    state.remoteCommandCursor = 0;
+    showCameraPairing(data);
+    $("set-remote-camera") && ($("set-remote-camera").checked = true);
     savePreferences();
-    toast("Camera deportee activee - Token copie");
-    try { await navigator.clipboard.writeText(data.url); } catch {}
+    setRemoteConnectionStatus("connecting", "En attente de l'écran Interface");
+    toast(`Code caméra : ${state.remotePairCode}`);
+    try { await navigator.clipboard.writeText(state.remotePairCode); } catch {}
     startRemotePublishing();
+    startRemoteCommandPolling();
+    // Sélection d'appareil : la borne se rend visible dans la liste de
+    // l'Interface et accepte les demandes de connexion par popup.
+    startDeviceAnnounce();
+    startPairRequestPolling();
   } catch {
-    toast("Impossible de creer la session distante");
+    if (generation !== _remoteCameraGeneration) return;
+    state.remoteSessionState = "expired";
+    setRemoteConnectionStatus("failed", "Serveur de pairing indisponible");
+    toast("Impossible de créer la connexion caméra");
     stopRemoteCamera();
   }
 }
 
 function stopRemoteCamera() {
+  _remoteCameraGeneration += 1;
+  stopRemoteCommandPolling();
   stopRemotePublishing();
-  state.remoteCamMode = 'off';
-  state.remoteCamToken = '';
-  state.remoteCamHostKey = '';
-  $("remote-token-row").style.display = "none";
-  $("remote-qr-row").style.display = "none";
+  stopDeviceAnnounce();
+  stopPairRequestPolling();
+  const token = state.remoteCamToken;
+  const hostKey = state.remoteCamHostKey;
+  if (token && hostKey) {
+    // La suppression est best-effort mais bornée : un réseau bloqué ne doit
+    // pas conserver une promesse pendante ni immobiliser la sortie de rôle.
+    void remoteFetch(`/api/remote-camera/${encodeURIComponent(token)}`, {
+      method: "DELETE",
+      headers: { "x-host-key": hostKey },
+      keepalive: true,
+    }, 1800).catch(() => {});
+  }
+  state.remoteCamMode = "off";
+  state.remoteSessionState = "none";
+  state.remoteCamToken = "";
+  state.remoteCamHostKey = "";
+  state.remotePairCode = "";
+  state.remotePairUrl = "";
+  state.remoteLastFramePublishedAt = 0;
+  state.remoteLastControllerSeenAt = 0;
+  state.remoteFrameAgeMs = null;
+  state.remoteLastFrameId = "";
+  state.remotePendingCommands = [];
+  setRemoteConnectionStatus("disconnected", "Caméra arrêtée");
+  $("camera-pair-code") && ($("camera-pair-code").textContent = "");
+  $("set-remote-camera") && ($("set-remote-camera").checked = false);
+  $("remote-token-row") && ($("remote-token-row").style.display = "none");
+  $("remote-qr-row") && ($("remote-qr-row").style.display = "none");
   savePreferences();
+}
+
+async function remoteFetch(input, init = {}, timeoutMs = 1600) {
+  const operation = telemetry.startNetwork(input, init.method || "GET");
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const response = await fetch(input, controller ? { ...init, signal: controller.signal } : init);
+    telemetry.finishNetwork(operation, { status: response.status, serverTs: Number(response.headers.get("x-mb-server-ts")) || null });
+    return response;
+  } catch (error) {
+    telemetry.finishNetwork(operation, { error: error?.name || "network" });
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function remoteFetchBlob(input, init = {}, timeoutMs = 1600) {
+  const operation = telemetry.startNetwork(input, init.method || "GET");
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const response = await fetch(input, controller ? { ...init, signal: controller.signal } : init);
+    const blob = response.ok ? await response.blob() : null;
+    telemetry.finishNetwork(operation, {
+      status: response.status,
+      bytes: blob?.size || 0,
+      serverTs: Number(response.headers.get("x-mb-server-ts")) || null,
+    });
+    const receivedFrameId = response.headers.get("x-mb-frame-id");
+    const ackHeader = response.headers.get("x-mb-command-acks");
+    if (ackHeader) {
+      try {
+        const acknowledged = JSON.parse(ackHeader);
+        if (Array.isArray(acknowledged) && acknowledged.length) {
+          const ackedIds = new Set(acknowledged.map((entry) => Number(entry.id)));
+          state.remotePendingCommands = (state.remotePendingCommands || []).filter((entry) => !ackedIds.has(Number(entry.id)));
+          state.remoteLastCommandAckAt = Math.max(...acknowledged.map((entry) => Number(entry.ackAt) || 0), state.remoteLastCommandAckAt || 0);
+          telemetry.emit("command-ack-status", { count: acknowledged.length, lastAckAt: state.remoteLastCommandAckAt });
+        }
+      } catch { /* header diagnostic facultatif */ }
+    }
+    const frameAt = Number(response.headers.get("x-mb-frame-at")) || 0;
+    const controllerSeenAt = Number(response.headers.get("x-mb-controller-seen-at")) || 0;
+    if (receivedFrameId) {
+      telemetry.emit("frame-receive", {
+        frameId: receivedFrameId,
+        sourceSessionId: response.headers.get("x-mb-source-session-id") || null,
+        bytes: blob?.size || 0,
+        frameAt,
+        controllerSeenAt,
+      });
+    }
+    return { response, blob, frameAt, controllerSeenAt };
+  } catch (error) {
+    telemetry.finishNetwork(operation, { error: error?.name || "network" });
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function setRemoteConnectionStatus(status, text) {
+  const legacy = { offline: "disconnected", starting: "connecting", waiting: "connecting", error: "degraded" };
+  const next = legacy[status] || status;
+  const allowed = ["disconnected", "connecting", "connected", "degraded", "reconnecting", "failed"];
+  const normalized = allowed.includes(next) ? next : "degraded";
+  const previousStatus = state.remoteConnectionState;
+  state.remoteConnectionState = normalized;
+  const labels = {
+    disconnected: "Déconnecté",
+    connecting: "Connexion en préparation…",
+    connected: "Connexion opérationnelle",
+    degraded: "Connexion dégradée — nouvelle tentative…",
+    reconnecting: "Reconnexion…",
+    failed: "Connexion impossible",
+  };
+  const message = text || labels[normalized];
+  if ((normalized === "degraded" || normalized === "failed") && previousStatus !== normalized && text) toast(text);
+  const monitor = $("camera-monitor-status");
+  if (monitor) monitor.textContent = message;
+  const badge = $("camera-monitor-badge");
+  if (badge) {
+    badge.dataset.state = normalized === "connected" ? "connected" : normalized === "disconnected" || normalized === "connecting" ? "waiting" : "error";
+    // Le badge est masqué uniquement hors session. Une session en attente ou
+    // dégradée reste visible : elle ne doit jamais être confondue avec CONNECTED.
+    badge.classList.toggle("hidden", normalized === "disconnected");
+  }
+  const code = $("camera-pair-code");
+  const hint = $("camera-pair-hint");
+  const connected = normalized === "connected";
+  if (code) code.classList.toggle("hidden", connected);
+  if (hint) hint.classList.toggle("hidden", connected);
+  const remoteStatus = $("remote-status-text");
+  if (remoteStatus) remoteStatus.textContent = normalized === "connected" ? "Connexion opérationnelle" : message;
+  const error = $("camera-error");
+  if (state.deviceRole === "camera" && (normalized === "failed" || normalized === "degraded") && error && !state.stream) {
+    const title = error.querySelector(".camera-error-title");
+    const copy = error.querySelector(".camera-error-text");
+    if (title) title.textContent = "Caméra indisponible";
+    if (copy) copy.textContent = message;
+    error.classList.remove("hidden");
+  }
+  telemetry.emit("connection-state", {
+    state: normalized,
+    previous: previousStatus,
+    sessionState: state.remoteSessionState,
+    frameAgeMs: state.remoteFrameAgeMs,
+  });
+}
+
+window.mbDebugSnapshot = () => ({
+  appVersion: APP_VERSION,
+  startup: telemetry.startupSnapshot?.() || null,
+  role: state.deviceRole,
+  session: {
+    state: state.remoteSessionState,
+    mode: state.remoteCamMode,
+    hasToken: Boolean(state.remoteCamToken),
+  },
+  connection: state.remoteConnectionState,
+  lastFrame: {
+    publishedAt: state.remoteLastFramePublishedAt || 0,
+    receivedAt: state.remoteLastFrameReceivedAt || 0,
+    ageMs: state.remoteFrameAgeMs,
+    id: state.remoteLastFrameId || "",
+  },
+  publisher: {
+    active: _remotePubResourceActive,
+    busy: _remotePubBusy,
+    timer: Boolean(_remotePubTimer),
+  },
+  polling: {
+    active: _remotePollResourceActive,
+    busy: _remotePollBusy,
+    timer: Boolean(_remotePollTimer),
+  },
+  commands: {
+    active: _remoteCommandResourceActive,
+    timer: Boolean(state.remoteCommandTimer),
+    lastSentAt: state.remoteLastCommandSentAt || 0,
+    lastControllerSeenAt: state.remoteLastControllerSeenAt || 0,
+    pending: (state.remotePendingCommands || []).map(({ id, name, queuedAt }) => ({ id, name, queuedAt })),
+  },
+  camera: {
+    active: Boolean(state.stream),
+    readyState: camera?.readyState ?? null,
+    width: camera?.videoWidth || 0,
+    height: camera?.videoHeight || 0,
+  },
+  mediapipe: { active: Boolean(state.landmarker), detecting: Boolean(_detectFaceTimer) },
+  resources: telemetry.resourceSnapshot?.() || {},
+});
+telemetry.setDebugSnapshotProvider?.(() => window.mbDebugSnapshot());
+
+function showCameraPairing(data) {
+  state.remotePairCode = String(data.pairCode || "").toUpperCase();
+  state.remotePairUrl = String(data.url || "");
+  state.remotePairExpiresAt = Number(data.pairExpiresAt) || (Date.now() + 45 * 60 * 1000);
+  const code = $("camera-pair-code");
+  if (code) code.textContent = state.remotePairCode || "";
+  updatePairCountdown();
+  const display = $("remote-token-display");
+  if (display) display.value = state.remotePairCode;
+  const row = $("remote-token-row");
+  if (row) row.style.display = "flex";
+  const qr = $("remote-qr-img");
+  if (qr && state.remotePairUrl) qr.src = `/api/qr?url=${encodeURIComponent(state.remotePairUrl)}`;
+}
+
+/* Compte à rebours du code de jumelage sous le code affiché : rassure
+   l'organisateur et reste honnête (la fenêtre est glissante côté serveur). */
+function updatePairCountdown() {
+  const hint = $("camera-pair-hint");
+  if (!hint) return;
+  const remainMs = Math.max(0, (state.remotePairExpiresAt || 0) - Date.now());
+  if (state.remoteConnectionState === "connected" || !state.remotePairCode) {
+    hint.textContent = "Sur l'écran Interface : touchez Connexion puis saisissez ce code.";
+    return;
+  }
+  if (remainMs <= 0) {
+    hint.textContent = "Code expiré — créez une nouvelle connexion.";
+    return;
+  }
+  const min = Math.ceil(remainMs / 60000);
+  hint.textContent = `Sur l'écran Interface : touchez Connexion puis saisissez ce code. Code valable encore ${min} min.`;
+}
+
+/* Prank à distance (trolls de fête) : l'Interface peut envoyer à la Caméra un
+   bug d'écran factice ou un texte plein écran animé. Tout est visuel, rien de
+   destructif, et un toucher fait tout disparaître. */
+let _prankEl = null;
+let _prankTimer = null;
+function showPrank(kind, text = "") {
+  if (_prankEl) hidePrank();
+  const el = document.createElement("div");
+  el.className = "prank-overlay";
+  if (kind === "bug") {
+    el.classList.add("prank-bug");
+    const lines = ["⚠️", "Système corrompu", "Code -#38A", "Redémarrez la borne", "Ne coupez pas l'alimentation"];
+    lines.forEach((line) => { const d = document.createElement("div"); d.textContent = line; el.appendChild(d); });
+  } else {
+    el.classList.add("prank-text");
+    const d = document.createElement("div"); d.textContent = text || "SURPRISE ! 🎉"; el.appendChild(d);
+  }
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  _prankEl = el;
+  clearTimeout(_prankTimer);
+  _prankTimer = setTimeout(hidePrank, kind === "bug" ? 5000 : 4000);
+}
+function hidePrank() {
+  clearTimeout(_prankTimer); _prankTimer = null;
+  if (_prankEl) { const el = _prankEl; _prankEl = null; el.classList.remove("show"); setTimeout(() => el.remove(), 400); }
+}
+document.addEventListener("pointerdown", () => { if (_prankEl) hidePrank(); }, { passive: true });
+
+/* Son distant (MyInstants) : joué sur la borne via le canal de commandes.
+   L'URL est validée https/http par le serveur ; on n'utilise que le contexte
+   audio déjà déverrouillé par un geste pour rester compatible iOS. */
+let _prankAudio = null;
+function playPrankSound(url) {
+  try {
+    const ctx = audioCtx();
+    if (!ctx) return;
+    if (_prankAudio) { try { _prankAudio.pause(); } catch {} _prankAudio = null; }
+    const audio = new Audio(url);
+    // Pas de crossOrigin : en lecture simple <audio>, demander un mode CORS
+    // ferait échouer les mp3 MyInstants qui n'envoient pas Access-Control-Allow-Origin.
+    _prankAudio = audio;
+    audio.volume = 0.9;
+    audio.play().catch(() => { /* iOS peut bloquer : silencieux */ });
+    toast("Son joué sur la borne 🔊");
+  } catch { /* réseau/lecture refusée */ }
+}
+
+function applyRemoteSetting(name, value) {
+  if (!(name in state) && !["prankBug", "prankText", "prankSound"].includes(name)) return;
+  if (name === "remoteCamToken" || name === "remoteCamHostKey") return;
+  state.remoteApplying = true;
+  try {
+  if (name === "prankBug") { if (value) showPrank("bug"); return; }
+  if (name === "prankText") { if (value) showPrank("text", String(value)); return; }
+  if (name === "prankSound") { if (value) playPrankSound(String(value)); return; }
+  if (name === "flipCamera") {
+    // L'Interface demande un retournement : exécuté sans attendre, la caméra
+    // reste maîtresse de son flux local (délégation au deviceRole caméra).
+    if (value && state.deviceRole === "camera" && state.stream) void flipCamera();
+    return;
+  }
+  if (name === "lensDeviceId") {
+    // L'Interface choisit l'objectif de la borne : on relance la caméra avec
+    // ce deviceId (null = auto/facingMode). Ignoré si la caméra est indisponible.
+    state.lensDeviceId = value || null;
+    try { buildLensOptions(); } catch {}
+    if (state.deviceRole !== "interface" && state.stream) {
+      try { state.stream.getTracks().forEach((t) => t.stop()); } catch {}
+      telemetry.cameraStop();
+      state.stream = null;
+      void startCamera().catch(() => {});
+    }
+    return;
+  }
+    state[name] = value;
+    if (name === "logoEnabled" && value) {
+      void loadLogoImage();
+    } else if (name === "trackEnabled") {
+      if (value) void Promise.resolve(window.mbEnsureFaceTracking?.()).catch(() => {});
+      else void Promise.resolve(window.mbUpdateFaceTracking?.()).catch(() => {});
+    } else if (name === "idleEnabled") {
+      if (value) initIdleMode(); else { stopIdleMode(); exitIdle(); }
+    } else if (name === "idleFaceWake" && value) {
+      state.idleEnabled = true;
+      initIdleMode();
+    } else if (name === "performanceMode") {
+      state.performanceMode = PERF[value] ? value : "eco";
+    }
+    syncPreferenceControls();
+    savePreferences();
+  } finally {
+    state.remoteApplying = false;
+  }
+}
+
+function startRemoteCommandPolling() {
+  stopRemoteCommandPolling();
+  if (state.deviceRole !== "camera" || state.remoteCamMode !== "camera" || !state.remoteCamToken || !state.remoteCamHostKey) return;
+  let failures = 0;
+  if (!_remoteCommandResourceActive) {
+    telemetry.resourceStart("activeCommandPollers", { role: "camera" });
+    _remoteCommandResourceActive = true;
+  }
+  const poll = async () => {
+    if (state.remoteCommandTimer === null || document.hidden) return;
+    try {
+      const res = await remoteFetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/commands?after=${state.remoteCommandCursor}`, { headers: { "x-host-key": state.remoteCamHostKey }, cache: "no-store" }, 2200);
+      if (!res.ok) throw new Error("commands");
+      const data = await res.json();
+      failures = 0;
+      state.remoteLastControllerSeenAt = Number(data.controllerLastSeenAt) || 0;
+      state.remoteSessionState = data.paired ? "paired" : "created";
+      for (const command of data.commands || []) {
+        state.remoteCommandCursor = Math.max(state.remoteCommandCursor, Number(command.id) || 0);
+        applyRemoteSetting(command.name, command.value);
+        void remoteFetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/commands/${encodeURIComponent(command.id)}/ack`, {
+          method: "POST",
+          headers: { "x-host-key": state.remoteCamHostKey },
+        }, 1800).then((response) => {
+          if (!response.ok) throw new Error(`ack-${response.status}`);
+          state.remoteLastCommandAckAt = Date.now();
+          telemetry.emit("command-ack", { commandId: Number(command.id) || 0, ackAt: state.remoteLastCommandAckAt });
+        }).catch(() => {});
+      }
+      // Statut honnête : « connecté » uniquement après le vrai jumelage.
+      // Avant, on reste en attente et on rafraîchit le compte à rebours du
+      // code (fourni par le serveur, fenêtre glissante).
+      if (data.paired) {
+        // Le serveur peut confirmer le pairage alors que l'Interface est déjà
+        // fermée. `paired` est une session, pas une connexion opérationnelle.
+        const controllerAlive = state.remoteLastControllerSeenAt > 0
+          && Date.now() - state.remoteLastControllerSeenAt <= 6000;
+        const publisherAlive = state.remoteLastFramePublishedAt > 0
+          && Date.now() - state.remoteLastFramePublishedAt <= 6000
+          && Boolean(state.stream);
+        stopDeviceAnnounce();
+        stopPairRequestPolling();
+        if (controllerAlive && publisherAlive) setRemoteConnectionStatus("connected", "Caméra connectée");
+        else setRemoteConnectionStatus("degraded", controllerAlive ? "Interface détectée — publication caméra à vérifier" : "Pairage conservé — interface silencieuse");
+      } else {
+        // Non jumelée, ou session ré-ouverte par le serveur (le contrôleur
+        // précédent a disparu : la borne redevient visible dans la liste de
+        // l'Interface et ré-accepte les demandes de connexion).
+        startDeviceAnnounce();
+        startPairRequestPolling();
+        state.remotePairExpiresAt = Number(data.pairExpiresAt) || state.remotePairExpiresAt;
+        const remainMs = Math.max(0, (state.remotePairExpiresAt || 0) - Date.now());
+        if (remainMs <= 0) {
+          // Improbable avec la fenêtre glissante, mais on coupe proprement la
+          // publication au lieu d'afficher un code mort.
+          stopRemotePublishing();
+          setRemoteConnectionStatus("error", "Code de jumelage expiré — créez une nouvelle connexion");
+          toast("Code expiré — touchez Connexion caméra pour un nouveau code");
+          stopRemoteCommandPolling();
+          return;
+        }
+        setRemoteConnectionStatus("waiting", `En attente de l'écran Interface — code valable ${Math.ceil(remainMs / 60000)} min`);
+        updatePairCountdown();
+      }
+    } catch {
+      // Une coupure isolée (cold start, réseau) ne doit pas casser le statut :
+      // on ne signale l'erreur qu'après plusieurs échecs consécutifs.
+      failures += 1;
+      if (failures >= 4) setRemoteConnectionStatus("reconnecting", "Connexion à l'interface interrompue — nouvelle tentative…");
+    } finally {
+      // 400 ms : les réglages de l'Interface arrivent quasi en direct sur la
+      // Caméra (objectif, flash, veille…) au lieu de ~1 s de latence perçue.
+      if (state.remoteCommandTimer !== null && !document.hidden) state.remoteCommandTimer = setTimeout(poll, 400);
+    }
+  };
+  state.remoteCommandTimer = setTimeout(poll, 250);
+}
+
+function stopRemoteCommandPolling() {
+  if (state.remoteCommandTimer) clearTimeout(state.remoteCommandTimer);
+  state.remoteCommandTimer = null;
+  if (_remoteCommandResourceActive) {
+    telemetry.resourceStop("activeCommandPollers", { role: "camera" });
+    _remoteCommandResourceActive = false;
+  }
+}
+
+function remoteSendSetting(name, value) {
+  if (state.remoteApplying || state.deviceRole !== "interface" || state.remoteCamMode !== "controller" || !state.remoteCamToken) return;
+  void remoteFetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/command`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, value }),    }, 1800).then((response) => {
+      if (!response.ok) throw new Error(`command-${response.status}`);
+      state.remoteLastCommandSentAt = Date.now();
+      state.remotePendingCommands = [...(state.remotePendingCommands || []).filter((entry) => entry.name !== name), { id: Number(response.headers.get("x-mb-command-id")) || 0, name, queuedAt: state.remoteLastCommandSentAt }].filter((entry) => entry.id > 0).slice(-12);
+      telemetry.emit("command-queued", { name, commandId: Number(response.headers.get("x-mb-command-id")) || 0, sentAt: state.remoteLastCommandSentAt });
+    }).catch(() => setRemoteConnectionStatus("degraded", "Réglage non envoyé"));
+}
+
+async function decodeRemoteFrame(blob) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(blob);
+      return { source: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close?.() };
+    } catch { /* Safari iOS ancien : fallback Image ci-dessous */ }
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+      image.src = url;
+    });
+    return { source: image, width: image.naturalWidth, height: image.naturalHeight, close: () => URL.revokeObjectURL(url) };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
 }
 
 function startRemotePublishing() {
   stopRemotePublishing();
-  if (!state.remoteCamToken || state.remoteCamMode !== 'camera') return;
+  if (!state.remoteCamToken || state.remoteCamMode !== "camera" || document.hidden) return;
+  const generation = ++_remotePubGeneration;
+  if (!_remotePubCanvas) _remotePubCanvas = document.createElement("canvas");
+  const canvas = _remotePubCanvas;
+  if (!_remotePubResourceActive) {
+    telemetry.resourceStart("activePublishers", { role: "camera" });
+    _remotePubResourceActive = true;
+  }
+  if (!_remotePubCanvasResourceActive) {
+    telemetry.resourceStart("temporaryCanvases", { kind: "remote-publisher" });
+    _remotePubCanvasResourceActive = true;
+  }
   const publish = async () => {
-    if (!state.stream || !camera.videoWidth || document.hidden) return;
+    if (generation !== _remotePubGeneration || _remotePubBusy || !state.stream || !camera.videoWidth || document.hidden) return;
+    _remotePubBusy = true;
     try {
-      const W = Math.min(camera.videoWidth, 1280);
-      const H = Math.round(W / (camera.videoWidth / camera.videoHeight));
-      const canvas = document.createElement("canvas");
-      canvas.width = W; canvas.height = H;
+      // Flux distant : 640 px à ~1,8 i/s (cadence doublée pour réduire la
+      // latence perçue). La compression JPEG est la plus coûteuse ; on la garde
+      // petite et on évite de saturer le thread principal de la Caméra.
+      const W = Math.min(camera.videoWidth, 640);
+      const H = Math.max(1, Math.round(W / (camera.videoWidth / camera.videoHeight)));
+      if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
       canvas.getContext("2d").drawImage(camera, 0, 0, W, H);
-      const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.82));
-      if (!blob) return;
+      const blob = await canvasToJpegBlob(canvas, 0.62, "remote-live");
+      if (!blob || generation !== _remotePubGeneration) return;
+      const frameId = telemetry.recordFrame("remote-live", { width: W, height: H, sizeBytes: blob.size });
       const form = new FormData();
-      form.append("frame", blob, "preview.jpg");
-      await fetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/frame`, {
-        method: "POST",
-        headers: { "x-host-key": state.remoteCamHostKey },
-        body: form,
-      });
-    } catch { /* reseau intermittent, continuer */ }
+      form.append("frame", blob, "preview.jpg");        const response = await remoteFetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/frame`, {
+          method: "POST",
+        headers: {
+          "x-host-key": state.remoteCamHostKey,
+          "x-mb-session-id": telemetry.sessionId,
+          "x-mb-frame-id": frameId,
+        },
+        body: form,        }, 1500);
+        if (!response.ok) throw new Error(`publish-${response.status}`);
+        state.remoteLastFramePublishedAt = Date.now();
+        telemetry.emit("frame-published", { frameId, publishedAt: state.remoteLastFramePublishedAt, bytes: blob.size });
+    } catch { /* réseau intermittent : ne jamais bloquer la caméra */ }
+    finally {
+      if (generation === _remotePubGeneration) _remotePubBusy = false;
+      if (generation === _remotePubGeneration && state.remoteCamMode === "camera" && !document.hidden) {
+        _remotePubTimer = setTimeout(publish, 550);
+      }
+    }
   };
-  publish();
-  _remotePubTimer = setInterval(publish, 450);
+  void publish();
 }
 
 function stopRemotePublishing() {
-  if (_remotePubTimer) { clearInterval(_remotePubTimer); _remotePubTimer = null; }
+  _remotePubGeneration += 1;
+  _remotePubBusy = false;
+  if (_remotePubTimer) { clearTimeout(_remotePubTimer); clearInterval(_remotePubTimer); _remotePubTimer = null; }
+  if (_remotePubResourceActive) {
+    telemetry.resourceStop("activePublishers", { role: "camera" });
+    _remotePubResourceActive = false;
+  }
+  if (_remotePubCanvasResourceActive) {
+    telemetry.resourceStop("temporaryCanvases", { kind: "remote-publisher" });
+    _remotePubCanvasResourceActive = false;
+  }
 }
 
 async function connectRemoteCamera(token) {
-  if (!token) return;
-  disconnectRemoteCamera();
-  state.remoteCamMode = 'controller';
-  state.remoteCamToken = token.trim();
+  const pairCode = String(token || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (pairCode.length < 6) { toast("Entrez le code caméra à 6 caractères"); return; }
+  const generation = ++_remoteConnectGeneration;
+  // Toute tentative précédente devient obsolète avant son premier await.
+  disconnectRemoteCamera({ silent: true, keepConnectGeneration: true });
+  state.remoteCamMode = "controller";
+  state.remoteSessionState = "none";
+  state.remoteConnectionState = "connecting";
+  state.remoteLastFramePublishedAt = 0;
+  state.remoteLastFrameReceivedAt = 0;
+  state.remoteFrameAgeMs = null;
   savePreferences();
   $("remote-controller-status").style.display = "flex";
-  $("remote-status-text").textContent = "Connecte...";
-  // Cree le canvas de preview distant (par-dessus la camera)
+  setRemoteConnectionStatus("waiting", "");
+  if (pairCode.length === 6) {
+    // Code court classique : échange de jumelage robuste (timeout long pour le
+    // cold start + nouvelle tentative automatique, message selon la cause).
+    let pairing = null, lastError = "pair";
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const pairResponse = await remoteFetch("/api/remote-camera/pair", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: pairCode }),
+        }, 15000);
+        if (pairResponse.status === 429) { lastError = "rate"; break; }
+        if (!pairResponse.ok) { lastError = pairResponse.status === 404 ? "expired" : "pair"; break; }
+        pairing = await pairResponse.json();
+        if (generation !== _remoteConnectGeneration) return;
+        if (pairing?.accessToken) break;
+        lastError = "pair";
+      } catch {
+        lastError = "timeout";
+        if (attempt === 1) setRemoteConnectionStatus("waiting", "Serveur lent — nouvelle tentative…");
+      }
+    }
+    if (generation !== _remoteConnectGeneration) return;
+    if (!pairing?.accessToken) {
+      state.remoteCamMode = "off";
+      state.remoteSessionState = "expired";
+      state.remoteConnectionState = "failed";
+      state.remoteCamToken = "";
+      const messages = {
+        expired: ["Code expiré ou caméra indisponible", "Code caméra invalide ou expiré — vérifiez le code affiché sur la borne"],
+        rate: ["Trop de tentatives", "Trop de tentatives — patientez une minute puis réessayez"],
+        timeout: ["Serveur injoignable", "Connexion au serveur impossible — vérifiez le réseau puis réessayez"],
+        pair: ["Jumelage refusé", "Jumelage refusé par le serveur — réessayez"],
+      }[lastError] || ["Jumelage refusé", "Jumelage refusé — réessayez"];
+      setRemoteConnectionStatus("failed", messages[0]);
+      toast(messages[1]);
+      return;
+    }
+      state.remoteCamToken = String(pairing.accessToken);
+    state.remoteSessionState = "paired";
+  } else {
+    // Jeton de contrôle déjà échangé (sélection d'appareil) : connexion directe.
+    state.remoteCamToken = String(token || "");
+    state.remoteSessionState = "paired";
+  }
+  if (generation !== _remoteConnectGeneration) return;
+  // Crée le canvas de preview distant (par-dessus la caméra locale, opaque
+  // pour ne JAMAIS laisser transparaître la caméra de l'Interface).
   _remotePreviewCanvas = document.createElement("canvas");
   _remotePreviewCanvas.id = "remote-preview";
-  _remotePreviewCanvas.style.cssText = "position:absolute;inset:0;z-index:5;width:100%;height:100%;";
+  _remotePreviewCanvas.style.cssText = "position:absolute;inset:0;z-index:6;width:100%;height:100%;background:#000;";
   const zone = $("camera-zone");
   if (zone) zone.appendChild(_remotePreviewCanvas);
+  // En mode Interface connectée à une Caméra distante, on n'utilise QUE le
+  // flux distant : la caméra locale de l'Interface doit rester invisible.
+  camera.style.visibility = "hidden";
+  camera.hidden = true;
   startRemotePolling();
-  $("remote-status-text").textContent = "Camera distante connectee";
-  toast("Camera deportee connectee");
+  setRemoteConnectionStatus("connecting", "Jumelage accepté — vérification du flux…");
+  // Synchronisation initiale : l'iPhone applique immédiatement l'état de
+  // l'Interface, sans attendre qu'un réglage soit modifié à la main.
+  [
+    ["portraitMode", state.portraitMode], ["burstMode", state.burstMode], ["qualityMax", state.qualityMax],
+    ["performanceMode", state.performanceMode], ["trackEnabled", state.trackEnabled], ["idleEnabled", state.idleEnabled],
+    ["idleFaceWake", state.idleFaceWake], ["prerollEnabled", state.prerollEnabled], ["filmBubbleEnabled", state.filmBubbleEnabled],
+    ["lightFrameEnabled", state.lightFrameEnabled], ["logoEnabled", state.logoEnabled], ["flashMode", state.flashMode], ["autoDelay", state.autoDelay],
+    ["timerSeconds", state.timerSeconds], ["captureCount", state.captureCount], ["lensDeviceId", state.lensDeviceId],
+  ].forEach(([name, value]) => remoteSendSetting(name, value));
+  // Connexion réussie : aucun texte permanent, l'aperçu suffit.
 }
 
-function disconnectRemoteCamera() {
+function disconnectRemoteCamera(options = {}) {
+  if (!options.keepConnectGeneration) _remoteConnectGeneration += 1;
   stopRemotePolling();
-  state.remoteCamMode = 'off';
-  state.remoteCamToken = '';
+  state.remoteCamMode = "off";
+  state.remoteSessionState = "none";
+  state.remoteCamToken = "";
+  state.remoteConnectionState = "disconnected";
+  state.remoteLastFrameReceivedAt = 0;
+  state.remoteFrameAgeMs = null;
+  state.remoteLastFrameId = "";
+  state.remotePendingCommands = [];
   if (_remotePreviewCanvas) { _remotePreviewCanvas.remove(); _remotePreviewCanvas = null; }
   $("remote-controller-status").style.display = "none";
+  // Restaure la caméra locale pour les rôles qui l'utilisent (Caméra/Mixte) ;
+  // en Interface elle reste masquée par le CSS dédié (data-device-role).
+  if (state.deviceRole !== "interface") {
+    camera.style.visibility = "";
+    camera.hidden = false;
+  }
   savePreferences();
-  toast("Camera deportee deconnectee");
+  if (!options.silent) toast("Déconnecté");
+}
+
+/* ════════════════════════════════════════════════════════════
+   SÉLECTION D'APPAREIL (au lieu du code)
+   Caméra = s'annonce périodiquement + reçoit les demandes de
+   connexion dans une popup (Accepter / Refuser).
+   Interface = liste les caméras actives, touche l'une d'elles et
+   attend l'acceptation pour recevoir le jeton de contrôle.
+   ════════════════════════════════════════════════════════════ */
+let _deviceAnnounceTimer = null;
+function startDeviceAnnounce() {
+  stopDeviceAnnounce();
+  if (state.deviceRole !== "camera" || state.remoteCamMode !== "camera" || !state.remoteCamToken || !state.remoteCamHostKey) return;
+  if (!_deviceAnnounceResourceActive) {
+    telemetry.resourceStart("activeDiscoveryPollers", { role: "camera", kind: "announce" });
+    _deviceAnnounceResourceActive = true;
+  }
+  const announce = async () => {
+    if (state.deviceRole !== "camera" || !state.remoteCamToken || !state.remoteCamHostKey || document.hidden) return;
+    try {
+      await remoteFetch("/api/device-discovery/announce", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "camera", name: getDeviceName(), token: state.remoteCamToken, hostKey: state.remoteCamHostKey }),
+      }, 1500);
+    } catch { /* réseau : la prochaine annonce réessaie */ }
+  };
+  void announce();
+  _deviceAnnounceTimer = setInterval(announce, 6000);
+}
+function stopDeviceAnnounce() {
+  if (_deviceAnnounceTimer) { clearInterval(_deviceAnnounceTimer); _deviceAnnounceTimer = null; }
+  if (_deviceAnnounceResourceActive) {
+    telemetry.resourceStop("activeDiscoveryPollers", { role: "camera", kind: "announce" });
+    _deviceAnnounceResourceActive = false;
+  }
+}
+
+/* ─── Côté caméra : popup d'acceptation des demandes reçues ─── */
+let _pairRequestTimer = null;
+let _pairRequestShown = new Set();
+let _pairRequestEl = null;
+let _pairRequestPreviousFocus = null;
+function startPairRequestPolling() {
+  stopPairRequestPolling();
+  if (state.deviceRole !== "camera" || state.remoteCamMode !== "camera" || !state.remoteCamToken || !state.remoteCamHostKey) return;
+  if (!_pairRequestResourceActive) {
+    telemetry.resourceStart("activePairRequestPollers", { role: "camera" });
+    _pairRequestResourceActive = true;
+  }
+  const poll = async () => {
+    if (!state.remoteCamToken || document.hidden) return;
+    try {
+      const res = await remoteFetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/pair-requests`, { headers: { "x-host-key": state.remoteCamHostKey }, cache: "no-store" }, 2200);
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const request of data.requests || []) {
+        if (_pairRequestEl) break;
+        if (_pairRequestShown.has(request.requestId)) continue;
+        _pairRequestShown.add(request.requestId);
+        showPairRequestPopup(request);
+        break;
+      }
+    } catch { /* réseau intermittent */ }
+  };
+  _pairRequestTimer = setInterval(poll, 2500);
+  void poll();
+}
+function stopPairRequestPolling() {
+  if (_pairRequestTimer) { clearInterval(_pairRequestTimer); _pairRequestTimer = null; }
+  _pairRequestShown.clear();
+  hidePairRequestPopup();
+  if (_pairRequestResourceActive) {
+    telemetry.resourceStop("activePairRequestPollers", { role: "camera" });
+    _pairRequestResourceActive = false;
+  }
+}
+function showPairRequestPopup(request) {
+  if (_pairRequestEl) return;
+  const el = document.createElement("div");
+  el.className = "pair-request-popup";
+  el.setAttribute("role", "dialog");
+  el.setAttribute("aria-modal", "true");
+  el.setAttribute("aria-label", "Demande de connexion");
+  el.innerHTML = `<div class="pair-request-card">
+    <div class="pair-request-icon">📱</div>
+    <div class="pair-request-title">Connexion demandée</div>
+    <div class="pair-request-name">${escapeHtml(request.interfaceName || "Interface")}</div>
+    <div class="pair-request-text">veut piloter cette caméra. Accepter ?</div>
+    <div class="pair-request-actions"><button type="button" class="mini-btn" data-pr="refuse">Refuser</button><button type="button" class="mini-btn primary" data-pr="accept">Accepter</button></div>
+  </div>`;
+  _pairRequestPreviousFocus = document.activeElement;
+  document.body.appendChild(el);
+  _pairRequestEl = el;
+  const respond = async (accept) => {
+    let response = null;
+    try {
+      response = await remoteFetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/pair-requests/${encodeURIComponent(request.requestId)}`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-host-key": state.remoteCamHostKey },
+        body: JSON.stringify({ accept }),
+      }, 2500);
+    } catch { /* la demande expire d'elle-même côté serveur */ }
+    hidePairRequestPopup();
+    if (!response?.ok) _pairRequestShown.delete(request.requestId);
+    if (accept && response?.ok) {
+      // Une demande acceptée ne doit plus être reproposée par le poller caméra.
+      stopPairRequestPolling();
+      // Accepté signifie SESSION_PAIRED, pas encore connexion saine : la
+      // preuve arrive ensuite par lastControllerSeenAt + frame publiée.
+      state.remoteSessionState = "paired";
+      setRemoteConnectionStatus("connecting", "Pairage accepté — vérification de l'Interface…");
+      toast("Pairage accepté — vérification en cours");
+      sfxFinal();
+    } else if (accept) {
+      setRemoteConnectionStatus("degraded", "Acceptation non confirmée — nouvelle tentative…");
+    } else {
+      toast("Demande refusée");
+    }
+  };
+  let responding = false;
+  const actionButtons = [...el.querySelectorAll("[data-pr]")];
+  const respondOnce = async (accept) => {
+    if (responding) return;
+    responding = true;
+    actionButtons.forEach((button) => { button.disabled = true; });
+    await respond(accept);
+  };
+  el.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      void respondOnce(false);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusables = actionButtons.filter((button) => !button.disabled);
+    if (!focusables.length) return;
+    const index = focusables.indexOf(document.activeElement);
+    const next = focusables[(index + (event.shiftKey ? -1 : 1) + focusables.length) % focusables.length];
+    event.preventDefault();
+    next.focus();
+  });
+  const acceptButton = el.querySelector('[data-pr="accept"]');
+  acceptButton?.focus();
+  el.querySelector('[data-pr="accept"]')?.addEventListener("click", () => { void respondOnce(true); });
+  el.querySelector('[data-pr="refuse"]')?.addEventListener("click", () => { void respondOnce(false); });
+}
+function hidePairRequestPopup() {
+  if (_pairRequestEl) { _pairRequestEl.remove(); _pairRequestEl = null; }
+  const previous = _pairRequestPreviousFocus;
+  _pairRequestPreviousFocus = null;
+  if (previous && document.contains(previous)) previous.focus();
+}
+
+/* Ré-ouvre le role-gate en mode Interface pour re-sélectionner la caméra
+   après une coupure (contrôleur révoqué par le dé-jumelage automatique).
+   La caméra étant redevenue visible dans la liste, un seul appui suffit. */
+function reopenDeviceSelection() {
+  const gate = $("role-gate");
+  if (!gate || gate.classList.contains("open") || state.deviceRole !== "interface") return;
+  _roleGateFinish = (role, token) => {
+    _roleGateFinish = null;
+    if (token) void connectRemoteCamera(token);
+    hideRoleGate();
+  };
+  showRoleGate();
+  const status = $("role-gate-status");
+  if (status) status.textContent = "La connexion a été interrompue — touchez la caméra pour vous reconnecter";
+}
+
+/* ─── Côté Interface : liste des caméras + demande de connexion ─── */
+let _cameraListTimer = null;
+let _cameraDiscoveryGeneration = 0;
+let _pairRequestPollTimer = null;
+let _pairAttemptGeneration = 0;
+let _currentPairRequestId = null;
+let _currentPairRequestKey = "";
+let _currentPairRequestName = "";
+let _roleGateFinish = null; // callback du role-gate : résout une fois connecté
+
+function startCameraDiscovery(onCameraTap) {
+  stopCameraDiscovery();
+  const generation = ++_cameraDiscoveryGeneration;
+  if (!_cameraDiscoveryResourceActive) {
+    telemetry.resourceStart("activeDiscoveryPollers", { role: "interface", kind: "camera-list" });
+    _cameraDiscoveryResourceActive = true;
+  }
+  void refreshCameraList(onCameraTap, generation);
+  _cameraListTimer = setInterval(() => { void refreshCameraList(onCameraTap, generation); }, 3000);
+}
+function stopCameraDiscovery() {
+  _cameraDiscoveryGeneration += 1;
+  _pairAttemptGeneration += 1;
+  const abandonedRequestId = _currentPairRequestId;
+  const abandonedPairKey = _currentPairRequestKey;
+  if (abandonedRequestId && abandonedPairKey) {
+    void remoteFetch(`/api/device-discovery/requests/${encodeURIComponent(abandonedRequestId)}`, {
+      method: "DELETE",
+      headers: { "x-pair-key": abandonedPairKey },
+      keepalive: true,
+    }, 1500).catch(() => {});
+  }
+  if (_cameraListTimer) { clearInterval(_cameraListTimer); _cameraListTimer = null; }
+  if (_pairRequestPollTimer) { clearInterval(_pairRequestPollTimer); _pairRequestPollTimer = null; }
+  _currentPairRequestId = null;
+  _currentPairRequestKey = "";
+  _currentPairRequestName = "";
+  if (_cameraDiscoveryResourceActive) {
+    telemetry.resourceStop("activeDiscoveryPollers", { role: "interface", kind: "camera-list" });
+    _cameraDiscoveryResourceActive = false;
+  }
+}
+async function refreshCameraList(onCameraTap, generation = _cameraDiscoveryGeneration) {
+  try {
+    const res = await remoteFetch("/api/device-discovery/cameras", { cache: "no-store" }, 2200);
+    if (generation !== _cameraDiscoveryGeneration) return;
+    if (!res.ok) return;
+    const data = await res.json();
+    if (generation !== _cameraDiscoveryGeneration) return;
+    const cameras = data.cameras || [];
+    const gateOpen = $("role-gate")?.classList.contains("open");
+    const boxes = [$("role-camera-list"), $("settings-camera-list")].filter(Boolean);
+    for (const box of boxes) {
+      // La liste du role-gate est contextuelle ; celle des réglages doit rester
+      // synchronisée même lorsque sa feuille est momentanément fermée.
+      if (box.id === "role-camera-list" && !gateOpen) continue;
+      if (!cameras.length) {
+        box.innerHTML = '<div class="cam-empty">Aucune caméra détectée — lancez le mode Caméra sur l\'iPhone</div>';
+        continue;
+      }
+      box.innerHTML = cameras.map((cam) => `<button type="button" class="cam-item" data-cam="${escapeHtml(cam.id)}" data-name="${escapeHtml(cam.name)}">📷 <span class="cam-name">${escapeHtml(cam.name)}</span><span class="cam-connect">Connecter</span></button>`).join("");
+      box.querySelectorAll(".cam-item").forEach((btn) => btn.addEventListener("click", () => {
+        _currentPairRequestName = btn.dataset.name;
+        markCamPending(btn);
+        onCameraTap(btn.dataset.cam, btn.dataset.name, box);
+      }));
+      // Ré-applique l'état « en attente » après le rebuild (par nom).
+      if (_currentPairRequestName) {
+        const pending = [...box.querySelectorAll(".cam-item")].find((b) => b.dataset.name === _currentPairRequestName);
+        if (pending) markCamPending(pending);
+      }
+    }
+  } catch { /* réseau : prochain rafraîchissement */ }
+}
+function markCamPending(btn) {
+  btn.classList.add("cam-pending");
+  const label = btn.querySelector(".cam-connect");
+  if (label) label.textContent = "En attente…";
+}
+function connectToCamera(cameraId, cameraName, onConnected, setStatus) {
+  if (_currentPairRequestId) { setStatus?.("Une demande est déjà en cours"); return; }
+  const attempt = ++_pairAttemptGeneration;
+  const clearAttempt = () => {
+    if (attempt !== _pairAttemptGeneration) return;
+    _currentPairRequestId = null;
+    _currentPairRequestKey = "";
+    _currentPairRequestName = "";
+  };
+  _currentPairRequestName = cameraName;
+  setStatus?.(`Demande envoyée à ${cameraName} — en attente d'acceptation…`);
+  void (async () => {
+    try {
+      const res = await remoteFetch("/api/device-discovery/pair", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cameraId, interfaceName: getDeviceName() }),
+      }, 3500);
+      const body = await res.json().catch(() => ({}));
+      if (attempt !== _pairAttemptGeneration) return;
+      if (res.status === 409) {
+        // Le serveur ne remet pas la clé privée d’une demande créée ailleurs.
+        // Ne laisse pas cet identifiant bloquer les tentatives suivantes.
+        clearAttempt();
+        setStatus?.(body.error || "Une demande est déjà en cours");
+        // Une demande créée par une autre page/interface ne peut pas être
+        // interrogée sans sa clé privée : on évite de sonder à l'aveugle.
+        return;
+      }
+      if (!res.ok) { clearAttempt(); setStatus?.("Caméra hors ligne — réessayez"); return; }
+      _currentPairRequestId = body.requestId;
+      _currentPairRequestKey = String(body.pairKey || "");
+      if (!_currentPairRequestId || !_currentPairRequestKey) { clearAttempt(); setStatus?.("Réponse serveur invalide"); return; }
+      pollPairRequest(onConnected, setStatus, attempt);
+    } catch {
+      clearAttempt();
+      if (attempt === _pairAttemptGeneration) setStatus?.("Serveur injoignable — vérifiez le réseau");
+    }
+  })();
+}
+function pollPairRequest(onConnected, setStatus, attempt = _pairAttemptGeneration) {
+  if (_pairRequestPollTimer) clearInterval(_pairRequestPollTimer);
+  const tick = async () => {
+    if (attempt !== _pairAttemptGeneration || !_currentPairRequestId) return;
+    try {
+      const res = await remoteFetch(`/api/device-discovery/requests/${encodeURIComponent(_currentPairRequestId)}`, {
+        headers: _currentPairRequestKey ? { "x-pair-key": _currentPairRequestKey } : {},
+        cache: "no-store",
+      }, 2200);
+      if (res.status === 404) { tick404(); return; }
+      if (res.status === 403) {
+        if (_pairRequestPollTimer) { clearInterval(_pairRequestPollTimer); _pairRequestPollTimer = null; }
+        if (attempt !== _pairAttemptGeneration) return;
+        _currentPairRequestId = null;
+        _currentPairRequestKey = "";
+        _currentPairRequestName = "";
+        setStatus?.("Demande de pairage invalide — recommencez");
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status === "accepted" && data.controllerToken) {
+        if (_pairRequestPollTimer) { clearInterval(_pairRequestPollTimer); _pairRequestPollTimer = null; }
+        if (attempt !== _pairAttemptGeneration) return;
+        _currentPairRequestId = null;
+        _currentPairRequestKey = "";
+        _currentPairRequestName = "";
+        setStatus?.("Connecté ✓");
+        void Promise.resolve(onConnected(data.controllerToken)).catch(() => {});
+      } else if (data.status === "refused" || data.status === "expired") {
+        if (_pairRequestPollTimer) { clearInterval(_pairRequestPollTimer); _pairRequestPollTimer = null; }
+        if (attempt !== _pairAttemptGeneration) return;
+        _currentPairRequestId = null;
+        _currentPairRequestKey = "";
+        _currentPairRequestName = "";
+        setStatus?.(data.status === "refused" ? "Demande refusée par la caméra" : "Demande expirée — réessayez");
+      }
+    } catch { /* re-poll */ }
+  };
+  const tick404 = () => {
+    if (attempt !== _pairAttemptGeneration) return;
+    // Demande purgée côté serveur (refus/expiré déjà consommés) : on arrête.
+    if (_pairRequestPollTimer) { clearInterval(_pairRequestPollTimer); _pairRequestPollTimer = null; }
+    _currentPairRequestId = null;
+    _currentPairRequestKey = "";
+    _currentPairRequestName = "";
+    setStatus?.("Demande introuvable — réessayez");
+  };
+  void tick();
+  _pairRequestPollTimer = setInterval(tick, 2000);
 }
 
 function startRemotePolling() {
   stopRemotePolling();
-  if (!state.remoteCamToken || state.remoteCamMode !== 'controller') return;
+  if (!state.remoteCamToken || state.remoteCamMode !== "controller" || document.hidden) return;
+  const generation = ++_remotePollGeneration;
+  let consecutiveFailures = 0;
+  if (!_remotePollResourceActive) {
+    telemetry.resourceStart("activePollers", { role: "interface" });
+    _remotePollResourceActive = true;
+  }
   const poll = async () => {
-    if (!state.remoteCamToken || document.hidden) return;
+    if (generation !== _remotePollGeneration || _remotePollBusy || !state.remoteCamToken || document.hidden) return;
+    _remotePollBusy = true;
     try {
-      const res = await fetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/frame?t=${Date.now()}`, { cache: "no-store" });
-      if (res.status === 204) return;
-      if (!res.ok) { disconnectRemoteCamera(); return; }
-      const blob = await res.blob();
-      if (!blob || !_remotePreviewCanvas) return;
-      const img = new Image();
-      const url = URL.createObjectURL(blob);
-      img.onload = () => {
-        if (_remotePollBlobUrl) URL.revokeObjectURL(_remotePollBlobUrl);
-        _remotePollBlobUrl = url;
-        const cw = _remotePreviewCanvas.parentElement?.clientWidth || 390;
-        const ch = _remotePreviewCanvas.parentElement?.clientHeight || 844;
-        _remotePreviewCanvas.width = img.naturalWidth;
-        _remotePreviewCanvas.height = img.naturalHeight;
+      const result = await remoteFetchBlob(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/frame?t=${Date.now()}`, { cache: "no-store" }, 1500);
+      const res = result.response;
+      if (res.status === 204) {
+        consecutiveFailures = 0;
+        state.remoteLastFramePublishedAt = result.frameAt || state.remoteLastFramePublishedAt || 0;
+        state.remoteFrameAgeMs = state.remoteLastFramePublishedAt ? Date.now() - state.remoteLastFramePublishedAt : null;
+        if (state.remoteFrameAgeMs > 4500) {
+          setRemoteConnectionStatus("degraded", "Caméra jumelée mais aucune frame récente");
+        } else if (state.remoteConnectionState !== "connected") {
+          setRemoteConnectionStatus("connecting", "En attente de la première frame caméra…");
+        }
+        return;
+      }
+      if (!res.ok) {
+      if (res.status === 404) {
+        consecutiveFailures = 0;
+        // Le contrôleur a été révoqué (dé-jumelage auto côté serveur après
+        // perte du contrôleur, ou session purgée). On nettoie puis on rouvre
+        // la sélection d'appareil : la caméra est redevenue visible.
+        const wasConnected = state.remoteConnectionState === "connected";
+        disconnectRemoteCamera({ silent: true });
+        if (state.deviceRole === "interface") {
+          setRemoteConnectionStatus("waiting", wasConnected ? "Interface déconnectée — re-sélectionnez la caméra" : "Session caméra expirée — re-sélectionnez la caméra");
+          reopenDeviceSelection();
+        } else {
+          setRemoteConnectionStatus("error", "Session caméra expirée — reconnectez la caméra");
+        }
+        return;
+      }
+        consecutiveFailures = Math.min(6, consecutiveFailures + 1);
+        setRemoteConnectionStatus("reconnecting", "Réseau interrompu — nouvelle tentative…");
+        return;
+      }
+      consecutiveFailures = 0;
+      const blob = result.blob;
+      state.remoteLastFramePublishedAt = result.frameAt || Date.now();
+      state.remoteLastFrameReceivedAt = Date.now();
+      state.remoteLastFrameId = result.response.headers.get("x-mb-frame-id") || state.remoteLastFrameId;
+      state.remoteFrameAgeMs = result.frameAt ? Math.max(0, Date.now() - result.frameAt) : 0;
+      if (!blob || !blob.size || !_remotePreviewCanvas || generation !== _remotePollGeneration) return;
+      const frame = await decodeRemoteFrame(blob);
+      if (!_remotePreviewCanvas || generation !== _remotePollGeneration) { frame.close(); return; }
+      // Ne redimensionne le backing store que si la taille de la frame change.
+      // Le redimensionner à chaque image provoquait des allocations GPU répétées.
+      if (_remotePreviewCanvas.width !== frame.width || _remotePreviewCanvas.height !== frame.height) {
+        _remotePreviewCanvas.width = frame.width;
+        _remotePreviewCanvas.height = frame.height;
+      }
+      try {
         const ctx = _remotePreviewCanvas.getContext("2d");
-        ctx.drawImage(img, 0, 0);
-        state.remoteCamW = img.naturalWidth;
-        state.remoteCamH = img.naturalHeight;
-      };
-      img.src = url;
-    } catch { /* continuer */ }
+        ctx.drawImage(frame.source, 0, 0);
+        state.remoteCamW = _remotePreviewCanvas.width;
+        state.remoteCamH = _remotePreviewCanvas.height;
+      } finally {
+        frame.close();
+      }
+      feedCustomizerRemotePreview();
+      state.remoteCamW = _remotePreviewCanvas.width;
+      state.remoteCamH = _remotePreviewCanvas.height;
+      setRemoteConnectionStatus("connected", "Flux caméra reçu");
+    } catch {
+      consecutiveFailures = Math.min(6, consecutiveFailures + 1);
+      setRemoteConnectionStatus("reconnecting", "Réseau interrompu — nouvelle tentative…");
+    }
+    finally {
+      if (generation === _remotePollGeneration) _remotePollBusy = false;
+      if (generation === _remotePollGeneration && state.remoteCamMode === "controller" && !document.hidden) {
+        // Cadence rapide quand tout va bien (le flux paraît live), backoff
+        // léger en cas de panne pour ne ni saturer Modal ni vider la batterie.
+        const delay = consecutiveFailures ? Math.min(2500, 500 * (2 ** Math.min(2, consecutiveFailures - 1))) : 330;
+        _remotePollTimer = setTimeout(poll, delay);
+      }
+    }
   };
-  poll();
-  _remotePollTimer = setInterval(poll, 500);
+  void poll();
 }
 
 function stopRemotePolling() {
-  if (_remotePollTimer) { clearInterval(_remotePollTimer); _remotePollTimer = null; }
-  if (_remotePollBlobUrl) { URL.revokeObjectURL(_remotePollBlobUrl); _remotePollBlobUrl = null; }
+  _remotePollGeneration += 1;
+  _remotePollBusy = false;
+  if (_remotePollTimer) { clearTimeout(_remotePollTimer); clearInterval(_remotePollTimer); _remotePollTimer = null; }
+  if (_remotePollResourceActive) {
+    telemetry.resourceStop("activePollers", { role: "interface" });
+    _remotePollResourceActive = false;
+  }
 }
 
 /* Telecharge la derniere frame distante et retourne un canvas (pour la capture). */
 async function grabRemoteFrame() {
   if (!state.remoteCamToken) return null;
   try {
-    const res = await fetch(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/frame?t=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    const bmp = await createImageBitmap(blob);
-    const canvas = document.createElement("canvas");
-    canvas.width = bmp.width;
-    canvas.height = bmp.height;
-    canvas.getContext("2d").drawImage(bmp, 0, 0);
-    bmp.close();
-    return canvas;
+    const result = await remoteFetchBlob(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/frame?t=${Date.now()}`, { cache: "no-store" }, 1500);
+    const res = result.response;
+    if (!res.ok || !result.blob) return null;
+    const frame = await decodeRemoteFrame(result.blob);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      canvas.getContext("2d").drawImage(frame.source, 0, 0);
+      return canvas;
+    } finally {
+      frame.close();
+    }
   } catch { return null; }
 }
 
 async function renderGallery() {
   const grid = $("gallery-grid");
-  grid.innerHTML = "";
+  grid.innerHTML = '<div class="mb-loading-block"><div class="mb-spinner large" role="status" aria-label="Chargement de la galerie"></div>Chargement…</div>';
   const photos = await loadLocal();
-  let serverPhotos = [];    try {
-      const hostKey = liveGuestHostKey();
-      const headers = state.guestToken && hostKey
-        ? { "x-guest-token": state.guestToken, "x-guest-host-key": hostKey }
-        : {};
-      const response = await fetch("/api/photos", { cache: "no-store", headers });
-      if (response.ok) serverPhotos = (await response.json()).photos ?? [];
-    } catch { /* serveur optionnel */ }
+  let serverPhotos = [];
+  try {
+    const headers = state.guestToken && state.guestHostKey
+      ? { "x-guest-token": state.guestToken, "x-guest-host-key": state.guestHostKey }
+      : {};
+    const response = await fetch("/api/photos", { cache: "no-store", headers });
+    if (response.ok) serverPhotos = (await response.json()).photos ?? [];
+  } catch { /* serveur optionnel */ }
+  grid.innerHTML = "";
   const serverById = new Map(serverPhotos.map((p) => [p.id, p]));
   const unique = new Map();
   // L'entrée locale garde le blob immédiatement disponible ; serverId permet
@@ -3506,6 +5815,12 @@ async function renderGallery() {
   serverPhotos.forEach((p) => { if (!unique.has(p.id)) unique.set(p.id, p); });
   const all = [...unique.values()].sort((a, b) => (b.date ?? b.createdAt ?? 0) - (a.date ?? a.createdAt ?? 0));
   $("gallery-count").textContent = `${all.length} photo${all.length > 1 ? "s" : ""}`;
+  // Mode sélection multiple : on purge les entrées qui n'existent plus.
+  if (_gallerySelection.size) {
+    const alive = new Set(all.map((p) => p.serverId || p.id));
+    for (const entry of [..._gallerySelection]) if (!alive.has(entry.key)) _gallerySelection.delete(entry);
+  }
+  updateGallerySelectionBar();
   if (!all.length) {
     grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l\'écran pour commencer !</p>';
     return;
@@ -3521,7 +5836,23 @@ async function renderGallery() {
     }
     img.className = photo.mediaType === "gif" ? "gallery-gif" : "";
     img.loading = "lazy";
+    const selectKey = photo.serverId || photo.id;     const selectEntry = { key: selectKey, localId: photo.id, serverId: photo.serverId || null, deleteToken: photo.deleteToken || "", isServer: Boolean(photo.serverId || serverById.has(photo.id)) };
+     const canDeleteServer = Boolean((state.guestToken && state.guestHostKey) || photo.deleteToken);
+    const isSelected = () => [..._gallerySelection].some((entry) => entry.key === selectKey);
     img.addEventListener("click", async () => {
+      // Mode sélection multiple : un appui coche/décoche au lieu d'ouvrir.
+      if (_gallerySelecting) {
+         if (selectEntry.isServer && !canDeleteServer) {
+           toast("Jeton de suppression indisponible pour cette ancienne photo");
+           return;
+         }
+         const existing = [..._gallerySelection].find((entry) => entry.key === selectKey);
+        if (existing) _gallerySelection.delete(existing);
+        else _gallerySelection.add(selectEntry);
+        wrap.classList.toggle("selected", isSelected());
+        updateGallerySelectionBar();
+        return;
+      }
       let blob = photo.blob;
       if (!blob && serverById.get(photo.id)?.url) {
         try {
@@ -3586,24 +5917,53 @@ async function renderGallery() {
       badge.title = photo.comment;
       wrap.appendChild(badge);
     }
-    // Bouton suppression (si activé)
-    if (state.deleteEnabled) {
+    // Bouton suppression individuelle (si activé) — masqué en mode sélection.
+    if (state.deleteEnabled && !_gallerySelecting && (!selectEntry.isServer || canDeleteServer)) {
       const delBtn = document.createElement("button");
       delBtn.className = "gallery-delete";
       delBtn.textContent = "✕";
       delBtn.addEventListener("click", async (event) => {
         event.stopPropagation();
         if (!confirm("Supprimer cette photo ?")) return;
-        await deletePhoto(photo.id, photo.serverId || photo.id, Boolean(photo.serverId || serverById.has(photo.id)));
+        await deletePhoto(photo.id, photo.serverId || photo.id, Boolean(photo.serverId || serverById.has(photo.id)), photo.deleteToken || "");
         renderGallery();
       });
       wrap.appendChild(delBtn);
+    }
+    // Coche de sélection (mode organisateur 🗑️)
+    if (_gallerySelecting) {
+      wrap.classList.toggle("selected", isSelected());
+      const check = document.createElement("span");
+      check.className = "gallery-select-check";
+      check.textContent = isSelected() ? "✓" : "";
+      wrap.appendChild(check);
     }
     grid.appendChild(wrap);
   });
 }
 
-async function deletePhoto(localId, serverId = null, isServer = false) {
+async function deletePhoto(localId, serverId = null, isServer = false, deleteToken = "") {
+  // Le serveur est supprimé en premier : une erreur de clé, de réseau ou de
+  // permission ne doit pas faire disparaître la seule copie locale.
+  if (isServer) {
+    try {
+      const organizerSession = loadOrganizerSession();
+      const headers = state.guestToken && state.guestHostKey
+        ? { "x-guest-token": state.guestToken, "x-guest-host-key": state.guestHostKey }
+        : {
+            ...(deleteToken ? { "x-photo-delete-token": deleteToken } : {}),
+            ...(organizerSession ? { "x-organizer-token": organizerSession.token } : {}),
+          };
+      const response = await fetch(`/api/photos/${serverId || localId}`, { method: "DELETE", headers });
+      if (!response.ok && response.status !== 404) {
+        toast(response.status === 403 ? "Suppression serveur non autorisée" : "Suppression serveur impossible");
+        return;
+      }
+    } catch {
+      toast("Serveur indisponible — photo conservée");
+      return;
+    }
+  }
   // Local : l'ID IndexedDB peut différer de l'ID du fichier serveur.
   try {
     const d = await db();
@@ -3614,20 +5974,49 @@ async function deletePhoto(localId, serverId = null, isServer = false) {
       tx.onerror = reject;
     });
   } catch { /* pas en local */ }
-  // Serveur
-  if (isServer) {
-    try {
-      const hostKey = liveGuestHostKey();
-      const headers = state.guestToken && hostKey
-        ? { "x-guest-token": state.guestToken, "x-guest-host-key": hostKey }
-        : {};
-      await fetch(`/api/photos/${serverId || localId}`, { method: "DELETE", headers });
-    } catch { /* serveur optionnel */ }
-  }
   toast("Photo supprimée");
 }
 
-/* Export ZIP de toutes les photos (délégué exclusivement au serveur Modal).
+/* ---------- Suppression multiple (organisateur, code vérifié côté serveur) ---------- */
+function updateGallerySelectionBar() {
+  const bar = $("gallery-select-bar");
+  const count = $("gallery-select-count");
+  if (bar) bar.hidden = !_gallerySelecting;
+  if (count) count.textContent = `${_gallerySelection.size} sélectionnée${_gallerySelection.size > 1 ? "s" : ""}`;
+}
+function cancelGallerySelectDelete() {
+  _gallerySelecting = false;
+  _gallerySelection.clear();
+  updateGallerySelectionBar();
+  renderGallery();
+}
+async function confirmGalleryDelete() {
+  if (!_gallerySelection.size) { toast("Aucune photo sélectionnée"); return; }
+  const authorized = await requestOrganizerAccess("Code organisateur pour confirmer la suppression :");
+  if (!authorized) return;
+  const total = _gallerySelection.size;
+  let done = 0;
+  // Chaque entrée stocke { key, localId, serverId, isServer } pour supprimer
+  // aussi bien la copie locale (id auto-incrément IndexedDB) que le fichier serveur.
+  for (const entry of [..._gallerySelection]) {     await deletePhoto(entry.localId, entry.serverId || entry.key, entry.isServer, entry.deleteToken || "");
+    done++;
+    const count = $("gallery-select-count");
+    if (count) count.textContent = `${done}/${total}…`;
+  }
+  _gallerySelecting = false;
+  _gallerySelection.clear();
+  updateGallerySelectionBar();
+  renderGallery();
+  toast(`${total} photo${total > 1 ? "s" : ""} supprimée${total > 1 ? "s" : ""}`);
+}
+function beginGallerySelectDelete() {
+  _gallerySelecting = true;
+  _gallerySelection.clear();
+  updateGallerySelectionBar();
+  renderGallery();
+  toast("Touchez les photos à supprimer, puis validez");
+}
+/* Export ZIP : le serveur effectue le traitement lourd ; aucun fallback JSzip local.
    Plus de fallback jszip local — 97 KB économisés sur l'iPhone. */
 async function exportZip() {
   const photos = await loadLocal();
@@ -3745,7 +6134,7 @@ function bindFrameTextEdit() {
   input2.value = state.frameText.line2 || "";
   const apply = () => {
     const line1 = input1.value.trim() || "18 ANS";
-    const line2 = input2.value.trim() || "Lilou & Kenza";
+    const line2 = input2.value.trim() || `${state.eventHost2 || "Lilou"} & ${state.eventHost1 || "Kenza"}`;
     state.frameText = { line1, line2 };
     toast("Titre du cadre : « " + line1 + " / " + line2 + " » ✓");
     // Si on est sur l'écran résultat, ré-appliquer le cadre sur la photo brute
@@ -3768,10 +6157,10 @@ async function reframeLatest() {
     const W = img.naturalWidth, H = img.naturalHeight;
     const canvas = document.createElement("canvas");
     canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0);
-    drawFrame(ctx, W, H, state.frameId, state.frameText);
-    drawLogo(ctx, W, H);
+    const ctx = canvas.getContext("2d");     ctx.drawImage(img, 0, 0);
+     drawFrame(ctx, W, H, state.frameId, state.frameText);
+     drawLogo(ctx, W, H);
+     drawCustomOverlays(ctx, W, H);
     canvas.toBlob((blob) => {
       if (!blob) { toast("Erreur de rendu"); return; }
       state.latestPhoto = blob;
@@ -3867,6 +6256,37 @@ function on(id, event, fn) {
 }
 
 function bindSettings() {
+  /* En Interface, les réglages pilotent uniquement la Caméra jumelée.
+     Le serveur filtre la liste des propriétés acceptées ; aucun secret n'est
+     envoyé dans cette file de commandes. */
+  const remoteControls = {
+    "set-portrait": "portraitMode",
+    "set-burst": "burstMode",
+    "set-quality": "qualityMax",
+    "set-performance": "performanceMode",
+    "set-track": "trackEnabled",
+    "set-idle": "idleEnabled",
+    "set-idle-face": "idleFaceWake",
+    "set-preroll": "prerollEnabled",
+    "set-film-bubble": "filmBubbleEnabled",
+    "set-emoji-faces": "emojiFacesEnabled",
+    "set-light-frame": "lightFrameEnabled",
+    "set-logo": "logoEnabled",
+  };
+  Object.entries(remoteControls).forEach(([id, name]) => on(id, "change", (event) => remoteSendSetting(name, event.target.type === "checkbox" ? event.target.checked : event.target.value)));
+  document.querySelectorAll("#flash-modes button").forEach((button) => button.addEventListener("click", () => remoteSendSetting("flashMode", button.dataset.flash)));
+  document.querySelectorAll("#auto-delay-modes button").forEach((button) => button.addEventListener("click", () => remoteSendSetting("autoDelay", Number(button.dataset.delay))));
+
+  // Nom d'appareil (sélection d'appareil / découverte).
+  const deviceNameInput = $("device-name-input");
+  if (deviceNameInput) {
+    deviceNameInput.value = getDeviceName();
+    deviceNameInput.addEventListener("change", () => {
+      const name = setDeviceName(deviceNameInput.value);
+      deviceNameInput.value = name;
+      toast(name ? `Nom : ${name}` : "Nom par défaut restauré");
+    });
+  }
   on("set-portrait", "change", (e) => {
     state.portraitMode = e.target.checked;
     savePreferences();
@@ -3879,6 +6299,34 @@ function bindSettings() {
     toast(state.burstMode
       ? "Rafale Flash+ : flash fort + meilleure prise parmi 7 photos"
       : "Rafale désactivée");
+  });
+  on("set-logo", "change", (e) => {
+    state.logoEnabled = e.target.checked;
+    if (state.logoEnabled) void ensureLogoForCapture();
+    savePreferences();
+    toast(state.logoEnabled ? "Logo ajouté aux photos" : "Logo retiré des photos");
+  });
+  // Rôle de l'appareil : changement possible à tout moment (corrige un rôle
+  // « Interface » mémorisé qui cachait la caméra locale sans aucun moyen de
+  // la retrouver depuis l'interface).
+  document.querySelectorAll(".settings-row [data-device-role]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const role = btn.dataset.deviceRole;
+      if (role === state.deviceRole) return;
+      setDeviceRole(role);
+      savePreferences();
+      syncPreferenceControls();
+      toast(`Rôle : ${DEVICE_ROLES[role]?.label || role}`);
+      if (role === "interface") {
+        try { state.stream?.getTracks?.().forEach((track) => track.stop()); } catch {}
+        telemetry.cameraStop();
+        state.stream = null;
+        camera.style.visibility = "hidden";
+      } else if (!state.stream) {
+        camera.style.visibility = "visible";
+        startCamera().catch(() => {});
+      }
+    });
   });
   // Flash : Auto / On / Off
   document.querySelectorAll("#flash-modes button").forEach((btn) => {
@@ -3982,6 +6430,25 @@ function bindSettings() {
     }
   });
   // Bulle « Vous êtes filmé »
+  on("set-emoji-faces", "change", (e) => {
+    state.emojiFacesEnabled = e.target.checked;
+    savePreferences();
+    toast(state.emojiFacesEnabled ? "Emojis par visage activés 😜" : "Emojis par visage désactivés");
+  });
+  on("btn-prank-bug", "click", () => remoteSendSetting("prankBug", true));
+  on("btn-prank-text", "click", () => {
+    const text = $("prank-text-input")?.value.trim() || "SURPRISE ! 🎉";
+    remoteSendSetting("prankText", text.slice(0, 80));
+    toast("Texte envoyé à la caméra");
+  });
+  on("prank-text-input", "keydown", (event) => { if (event.key === "Enter") $("btn-prank-text")?.click(); });
+  on("btn-prank-sound", "click", async () => {
+    const url = ($("prank-sound-url")?.value || "").trim();
+    if (!url) { toast("Collez d'abord une URL .mp3 de MyInstants"); return; }
+    try { new URL(url); } catch { toast("URL invalide"); return; }
+    remoteSendSetting("prankSound", url.slice(0, 300));
+    toast("Son envoyé à la caméra");
+  });
   on("set-film-bubble", "change", (e) => {
     state.filmBubbleEnabled = e.target.checked;
     savePreferences();
@@ -3998,7 +6465,7 @@ function bindSettings() {
     }
     toast(state.filmBubbleEnabled ? "Bulle « Vous êtes filmé » activée" : "Bulle désactivée");
   });
-  // Logo sur la photo : retiré — plus aucun logo n'est dessiné sur les photos.
+  // Le logo est géré par le réglage `set-logo` dans le groupe Photo.
   on("set-light-frame", "change", (e) => {
     state.lightFrameEnabled = e.target.checked;
     savePreferences();
@@ -4012,6 +6479,7 @@ function bindSettings() {
   });
   on("set-delete", "change", (e) => {
     state.deleteEnabled = e.target.checked;
+    savePreferences();
     toast(state.deleteEnabled ? "Suppression des photos activée" : "Suppression désactivée");
   });
   on("btn-clear-backdrop", "click", () => {
@@ -4032,6 +6500,22 @@ function bindSettings() {
   });
   on("btn-remote-connect", "click", () => connectRemoteCamera($("remote-connect-token")?.value || ""));
   on("btn-remote-disconnect", "click", disconnectRemoteCamera);
+  on("btn-camera-stop", "click", () => {
+    if (state.deviceRole !== "camera") return;
+    state.cameraStopRequested = true;
+    _cameraRequestId += 1;
+    _cameraRestartPending = false;
+    stopRemoteCamera();
+    stopLightMonitor();
+    try { state.stream?.getTracks?.().forEach((track) => track.stop()); } catch {}
+    telemetry.cameraStop();
+  state.stream = null;
+    camera.srcObject = null;
+    setRemoteConnectionStatus("offline", "Caméra arrêtée");
+    const button = $("btn-camera-stop");
+    if (button) { button.textContent = "Caméra arrêtée"; button.disabled = true; }
+    toast("Caméra arrêtée");
+  });
   on("btn-remote-qr", "click", () => {
     if (!state.remoteCamToken) return;
     $("remote-qr-img").src = `/api/qr?url=${encodeURIComponent($("remote-token-display")?.value || "")}`;
@@ -4043,7 +6527,16 @@ function bindSettings() {
    EVENTS
    ========================================================= */
 on("btn-auto", "click", toggleAutoMode);
-on("btn-flip", "click", flipCamera);
+on("btn-flip", "click", () => {
+  // En Interface (contrôleur distant), le flip est envoyé à la Caméra ;
+  // sinon c'est la caméra locale qui se retourne directement.
+  if (state.remoteCamMode === "controller") {
+    remoteSendSetting("flipCamera", true);
+    toast("Retournement envoyé à la caméra");
+  } else {
+    flipCamera();
+  }
+});
 on("btn-retry-camera", "click", async () => {
   const errorEl = $("camera-error");
   const title = errorEl?.querySelector(".camera-error-title");
@@ -4051,36 +6544,15 @@ on("btn-retry-camera", "click", async () => {
   if (title) title.textContent = "Caméra indisponible";
   if (text) text.textContent = "Autorisez l'accès à la caméra dans Safari : Réglages > Safari > Caméra, puis rechargez.";
   if (errorEl) errorEl.classList.add("hidden");
-  // Relance propre : coupe l'ancien flux puis redémarre
-  if (state.stream) { try { state.stream.getTracks().forEach((t) => t.stop()); } catch {} }
-  state.stream = null;
+  // Relance idempotente : libère réellement l'ancien flux puis redémarre.
+  stopCamera({ lifecycle: true });
+  state.cameraStopRequested = false;
   await startCamera();
 });
 on("btn-backdrop", "click", () => openSheet("sheet-backdrop"));
 on("btn-fx-top", "click", () => {
   if (fxPanel.classList.contains("open")) closeFxPanel();
   else openFxPanel();
-});
-
-/* Changer de mode (P0 du cahier des charges) : efface le rôle mémorisé,
-   ferme le sheet Réglages, et rouvre le portail. L'utilisateur n'a plus
-   qu'à toucher la nouvelle carte — un seul toucher. */
-on("btn-change-role", "click", () => {
-  try { localStorage.removeItem(ROLE_STORAGE_KEY); } catch {}
-  // Ferme le sheet Réglages proprement
-  const sheet = $("sheet-settings");
-  if (sheet) sheet.classList.remove("open");
-  // Stoppe l'éventuelle session remote en cours
-  try { stopRemoteCamera(); } catch {}
-  state.remoteCamMode = "off";
-  // Relit le portail
-  const portal = $("screen-role");
-  if (portal) portal.classList.remove("hidden");
-  showScreen("screen-role");
-  // Met à jour le label "Mode actuel"
-  const label = $("role-current-label");
-  if (label) label.textContent = "— choisissez —";
-  toast("Choisissez un nouveau mode");
 });
 on("fx-close", "click", closeFxPanel);
 /* Catégories : uniquement Accessoires visage / Animations.
@@ -4103,29 +6575,29 @@ let _fxScrollT = null;
 $("fx-carousel")?.addEventListener("scroll", () => {
   clearTimeout(_fxScrollT);
   _fxScrollT = setTimeout(updateFxName, 90);
-}, { passive: true });
-on("btn-settings", "click", () => openSheet("sheet-settings"));
-on("btn-gallery", "click", async () => {
-  pauseLiveProcessing();
-  screens.capture.classList.remove("active");
-  screens.result.classList.remove("active");
-  screens.gallery.classList.add("active");
-  await renderGallery();
-});
+}, { passive: true });	on("btn-settings", "click", () => openSheet("sheet-settings"));
+	/* Un seul chemin d'ouverture de la galerie : le bouton du haut et celui de
+	   la barre du bas pointent ici (plus de doublon de comportement). */
+	function openGallery() {
+	  pauseLiveProcessing();
+	  screens.capture.classList.remove("active");
+	  screens.result.classList.remove("active");
+	  screens.gallery.classList.add("active");
+	  void renderGallery();
+	}
 on("guest-share-close", "click", closeGuestSharePanel);
+on("btn-trash-access", "click", openTrashPanel);
+on("trash-close", "click", closeTrashPanel);
 on("guest-create-link", "click", createGuestLink);
 on("guest-copy-url", "click", copyGuestUrl);
-on("guest-copy-hostkey", "click", copyGuestHostKey);
 on("guest-native-share", "click", shareGuestUrl);
-on("guest-test-event", "click", testGuestEvent);
-on("guest-export-event", "click", exportGuestEvent);
 on("guest-live-toggle", "change", (event) => {
   state.guestLiveEnabled = event.target.checked;
   if (state.guestLiveEnabled) startGuestLivePublisher();
   else {
     stopGuestLivePublisher();
-    if (state.guestToken && liveGuestHostKey()) {
-      fetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, { method: "DELETE", headers: { "x-guest-host-key": liveGuestHostKey() } }).catch(() => {});
+    if (state.guestToken && state.guestHostKey) {
+      fetch(`/api/guest/${encodeURIComponent(state.guestToken)}/live`, { method: "DELETE", headers: { "x-guest-host-key": state.guestHostKey } }).catch(() => {});
     }
   }
   guestShareStatus(state.guestLiveEnabled ? "Aperçu activé — le lien doit déjà être créé." : "Aperçu désactivé.");
@@ -4168,9 +6640,17 @@ on("btn-save-comment", "click", saveComment);
 on("photo-comment", "keydown", (e) => { if (e.key === "Enter") saveComment(); });
 on("btn-frames", "click", () => openSheet("sheet-frames"));
 on("btn-reframe", "click", () => openSheet("sheet-frames"));
-on("timer-close", "click", () => sheetMap["sheet-timer"]?.classList.remove("open"));
+
+// ==== Nouveaux boutons de la barre du bas ====
+on("btn-shutter", "click", () => {
+  if (!state.counting) startCountdown();
+});
+on("btn-timer-trigger", "click", () => {
+  openSheet("sheet-timer");
+});
+
 document.querySelectorAll(".sheet-close").forEach((btn) => {
-  btn.addEventListener("click", () => btn.closest(".sheet")?.classList.remove("open"));
+  btn.addEventListener("click", () => closeSheet(btn.closest(".sheet")));
 });
 document.querySelectorAll(".share-chip:not(.no-method)").forEach((btn) => {
   btn.addEventListener("click", () => shareMethod(btn.dataset.method));
@@ -4206,8 +6686,533 @@ on("chroma-check", "change", (event) => {
   toast(state.chromaEnabled ? "Chroma activé" : "Chroma désactivé");
 });
 
+const SHEET_TRIGGERS = {
+  "sheet-timer": "btn-timer-trigger",
+  "sheet-backdrop": "btn-backdrop",
+  "sheet-settings": "btn-settings",
+  "sheet-frames": ["btn-frames", "btn-reframe"],
+};
+let _sheetReturnFocus = null;
+const SHEET_FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex=\"-1\"])"
+].join(",");
+
+function sheetFocusables(sheet) {
+  return [...(sheet?.querySelectorAll(SHEET_FOCUSABLE_SELECTOR) || [])]
+    .filter((element) => element.getClientRects().length > 0);
+}
+
+function closeSheet(sheet) {
+  if (!sheet) return;
+  sheet.classList.remove("open");
+  sheet.setAttribute("aria-hidden", "true");
+  if (sheet.id === "sheet-settings") stopCameraDiscovery();
+  for (const triggerId of [].concat(SHEET_TRIGGERS[sheet.id] || [])) $(triggerId)?.setAttribute("aria-expanded", "false");
+  if (_sheetReturnFocus && document.contains(_sheetReturnFocus)) _sheetReturnFocus.focus();
+  _sheetReturnFocus = null;
+}
+document.addEventListener("keydown", (event) => {
+  const open = Object.values(sheetMap).find((sheet) => sheet?.classList.contains("open"));
+  if (!open) return;
+  // Une feuille peut rester ouverte sous un dialogue secondaire (customizer,
+  // effets, partage invités, demande de pairage). Le dialogue au-dessus
+  // possède alors la priorité clavier et gère son propre retour de focus.
+  if (document.querySelector(".pair-request-popup, #customizer.open, .donation-popup.open, #fx-panel.open, #guest-share-panel.open")) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSheet(open);
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusables = sheetFocusables(open);
+  if (!focusables.length) return;
+  const current = document.activeElement;
+  const index = focusables.indexOf(current);
+  const nextIndex = event.shiftKey
+    ? (index <= 0 ? focusables.length - 1 : index - 1)
+    : (index === -1 || index === focusables.length - 1 ? 0 : index + 1);
+  if (index === -1 || (event.shiftKey && index === 0) || (!event.shiftKey && index === focusables.length - 1)) {
+    event.preventDefault();
+    focusables[nextIndex].focus();
+  }
+});
+
 function openSheet(id) {
-  Object.entries(sheetMap).forEach(([key, el]) => el.classList.toggle("open", key === id));
+  const target = sheetMap[id];
+  if (!target) return;
+  _sheetReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  Object.entries(sheetMap).forEach(([key, el]) => {
+    const active = key === id;
+    el.classList.toggle("open", active);
+    el.setAttribute("aria-hidden", String(!active));
+    for (const triggerId of [].concat(SHEET_TRIGGERS[key] || [])) $(triggerId)?.setAttribute("aria-expanded", String(active));
+  });
+  // Donner immédiatement un point d'entrée clavier au panneau, sans
+  // attendre une transition CSS qui pourrait être désactivée.
+  requestAnimationFrame(() => {
+    if (target.classList.contains("open")) sheetFocusables(target)[0]?.focus();
+  });
+  // Liste des caméras dans Réglages → Appareils : découverte active pendant
+  // l'ouverture de la feuille (jamais en concurrence avec le role-gate).
+  if (id === "sheet-settings") {
+    startCameraDiscovery((cameraId, cameraName) => {
+      connectToCamera(cameraId, cameraName, (token) => {
+        connectRemoteCamera(token);
+      }, (text) => {
+        const statusEl = $("remote-status-text");
+        if (statusEl) statusEl.textContent = text;
+        toast(text);
+      });
+    });
+  } else if (!$("role-gate")?.classList.contains("open")) {
+    stopCameraDiscovery();
+  }
+}
+/* Piège de focus + Échap génériques pour les panneaux plein écran hors du
+   système `.sheet` (effets, mode organisateur, partage invités) : même
+   comportement clavier/accessibilité que les sheets (Tab cyclique, Échap
+   pour fermer, retour de focus au déclencheur). */
+function bindDialogFocusTrap(panelId, onEscape) {
+  let returnFocus = null;
+  document.addEventListener("keydown", (event) => {
+    const el = $(panelId);
+    if (!el || !el.classList.contains("open")) return;
+    if (event.key === "Escape") { event.preventDefault(); onEscape(); return; }
+    if (event.key !== "Tab") return;
+    const focusables = sheetFocusables(el);
+    if (!focusables.length) return;
+    const index = focusables.indexOf(document.activeElement);
+    const nextIndex = event.shiftKey
+      ? (index <= 0 ? focusables.length - 1 : index - 1)
+      : (index === -1 || index === focusables.length - 1 ? 0 : index + 1);
+    if (index === -1 || (event.shiftKey && index === 0) || (!event.shiftKey && index === focusables.length - 1)) {
+      event.preventDefault();
+      focusables[nextIndex].focus();
+    }
+  });
+  return {
+    onOpen() {
+      returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      requestAnimationFrame(() => {
+        const el = $(panelId);
+        if (el?.classList.contains("open")) sheetFocusables(el)[0]?.focus();
+      });
+    },
+    onClose() {
+      if (returnFocus && document.contains(returnFocus)) returnFocus.focus();
+      returnFocus = null;
+    },
+  };
+}
+const fxPanelTrap = bindDialogFocusTrap("fx-panel", closeFxPanel);
+const customizerTrap = bindDialogFocusTrap("customizer", discardCustomizer);
+const guestShareTrap = bindDialogFocusTrap("guest-share-panel", closeGuestSharePanel);
+const trashPanelTrap = bindDialogFocusTrap("trash-panel", closeTrashPanel);
+/* Aperçu LIVE de l'éditeur : en Interface (pas de caméra locale), on branche le
+   canvas distant dès qu'une frame arrive. `captureStream` est testé au vol ; si
+   indisponible, le poster est rafraîchi une fois par seconde au lieu d'être figé. */
+/* ════════════════════════════════════════════════════════════
+   PERSONNALISATION PAR COMPOSANT (customizer « double »)
+   Registre des éléments de l'écran capture personnalisables :
+   position (ancre + décalage), taille, opacité, couleur d'accent,
+   visibilité, ordre dans la barre. Chaque réglage s'applique EN
+   DIRECT sur la vraie borne et sur l'aperçu (ghosts cliquables).
+   ════════════════════════════════════════════════════════════ */
+const UI_COMPONENTS = {
+  bottomBar: { label: "Barre d'outils", icon: "🛠️", selector: ".bottom-bar", positionable: true, anchor: "bc", native: true },
+  auto:      { label: "Auto", icon: "⭕", selector: "#btn-auto", orderable: true },
+  backdrop:  { label: "Fond", icon: "🖼️", selector: "#btn-backdrop", orderable: true },
+  flip:      { label: "Retourner", icon: "🔄", selector: "#btn-flip", orderable: true },
+  settings:  { label: "Réglages", icon: "⚙️", selector: "#btn-settings", orderable: true },
+  gallery:   { label: "Galerie", icon: "🖼️", selector: "#btn-gallery-top", positionable: true, anchor: "tr" },
+  fx:        { label: "Effets", icon: "✨", selector: "#btn-fx-top", positionable: true, anchor: "tc" },
+  customizeQuick: { label: "Perso rapide", icon: "🎨", selector: "#btn-customize-quick", positionable: true, anchor: "tr", offsetX: -112, managed: true },
+  rail:      { label: "Filtres couleurs", icon: "🌈", selector: "#photo-filter-rail", positionable: true, anchor: "mr", native: true },
+  countdown: { label: "Compte à rebours", icon: "⏱️", selector: "#countdown", sizeable: true },
+  qr:        { label: "QR galerie", icon: "🔳", selector: "#tablet-qr-access", positionable: true, anchor: "tl", managed: true },
+};
+const UI_COMPONENT_DEFAULTS = { hidden: false, opacity: 100, size: 100, color: "", anchor: "mc", offsetX: 0, offsetY: 0, order: 1, _moved: false };
+const UI_COMPONENT_COLORS = ["", "#FFD166", "#7EE5A7", "#FF7196", "#8B9CFF", "#FFFFFF"];
+const UI_ANCHOR_MAP = { tl: [0, 0], tc: [.5, 0], tr: [1, 0], ml: [0, .5], mc: [.5, .5], mr: [1, .5], bl: [0, 1], bc: [.5, 1], br: [1, 1] };
+
+let _selectedComponent = null;
+function componentState(key) {
+  const meta = UI_COMPONENTS[key] || {};
+  if (!state.uiComponents[key] || typeof state.uiComponents[key] !== "object") {
+    state.uiComponents[key] = { ...UI_COMPONENT_DEFAULTS, anchor: meta.anchor || "mc", offsetX: meta.offsetX || 0, order: 1 };
+  }
+  const cfg = state.uiComponents[key];
+  // Bornage des valeurs (anciennes ou corrompues).
+  cfg.opacity = Math.max(20, Math.min(100, Number(cfg.opacity) || 100));
+  cfg.size = Math.max(55, Math.min(165, Number(cfg.size) || 100));
+  cfg.offsetX = Math.max(-120, Math.min(120, Number(cfg.offsetX) || 0));
+  cfg.offsetY = Math.max(-120, Math.min(120, Number(cfg.offsetY) || 0));
+  cfg.order = Math.max(1, Math.min(4, Number(cfg.order) || 1));
+  cfg.hidden = cfg.hidden === true;
+  cfg._moved = cfg._moved === true;
+  cfg.color = typeof cfg.color === "string" ? cfg.color : "";
+  if (!UI_ANCHOR_MAP[cfg.anchor]) cfg.anchor = meta.anchor || "mc";
+  return cfg;
+}
+
+/* Positionne un élément flottant : ancre (9 points) + décalage en px.
+   Les rangées haute/basse respectent les encoches de sécurité iOS, et la
+   barre d'outils garde sa largeur et son espacement natifs par défaut. */
+function placeComponent(key, el, cfg) {
+  const [ax, ay] = UI_ANCHOR_MAP[cfg.anchor] || [.5, .5];
+  const x = Number(cfg.offsetX) || 0;
+  const y = Number(cfg.offsetY) || 0;
+  el.style.right = "auto";
+  el.style.bottom = "auto";
+  let top, left;
+  if (ay === 1) top = `calc(100% - var(--safe-bottom) - 10px + ${y}px)`;
+  else if (ay === 0) top = `calc(var(--safe-top) + 14px + ${y}px)`;
+  else top = `calc(${ay * 100}% + ${y}px)`;
+  if (ax === 1) left = `calc(100% - 14px + ${x}px)`;
+  else if (ax === 0) left = `calc(14px + ${x}px)`;
+  else left = `calc(${ax * 100}% + ${x}px)`;
+  el.style.top = top;
+  el.style.left = left;
+  el.style.transform = `translate(-${ax * 100}%, -${ay * 100}%)`;
+  if (key === "bottomBar") el.style.width = "min(92%, 430px)";
+}
+
+/* Applique le réglage d'un composant sur le VRAI élément de l'interface. */
+function applyComponentToDom(key) {
+  const meta = UI_COMPONENTS[key];
+  if (!meta) return;
+  const el = document.querySelector(meta.selector);
+  if (!el) return;
+  const cfg = componentState(key);
+  // Opacité / taille : inline uniquement quand l'utilisateur les a modifiées,
+  // pour ne jamais écraser les états CSS de l'app (veille, animations…).
+  if (cfg.opacity >= 100) el.style.opacity = "";
+  else el.style.opacity = String(cfg.opacity / 100);
+  if (cfg.size >= 100) el.style.scale = "";
+  else el.style.scale = String(cfg.size / 100);
+  // Position : les composants « natifs » (barre d'outils, demi-roue du rail)
+  // ne bougent que si l'utilisateur les a explicitement déplacés. Sinon on
+  // nettoie toute position inline résiduelle pour revenir au style natif.
+  if (meta.positionable && (!meta.native || cfg._moved)) placeComponent(key, el, cfg);
+  else if (meta.positionable) {
+    el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; el.style.transform = ""; el.style.width = "";
+  }
+  // Visibilité : « Masquer » force toujours display:none. En revanche on ne
+  // ré-affiche pas les composants dont l'app gère elle-même la visibilité
+  // (QR tablette, bouton perso rapide) pour ne pas contredire sa logique.
+  if (cfg.hidden) el.style.display = "none";
+  else if (!meta.managed) el.style.display = "";
+  if (meta.orderable) el.style.order = String(cfg.order || 1);
+  if (cfg.color) { el.style.color = cfg.color; el.style.borderColor = cfg.color; }
+  else { el.style.color = ""; el.style.borderColor = ""; }
+}
+
+/* Ghosts de l'aperçu : réplique cliquable de l'interface sur la vidéo. */
+function buildCustomizerGhosts() {
+  const box = $("customizer-ghosts");
+  if (!box) return;
+  box.innerHTML = "";
+  const mkGhost = (key, cls) => {
+    const meta = UI_COMPONENTS[key];
+    const ghost = document.createElement("button");
+    ghost.type = "button";
+    ghost.className = `cmp-ghost ${cls || ""}`;
+    ghost.dataset.cmp = key;
+    ghost.setAttribute("aria-label", `Personnaliser ${meta.label}`);
+    const label = document.createElement("span");
+    label.className = "cmp-ghost-label";
+    label.textContent = `${meta.icon} ${meta.label}`;
+    ghost.appendChild(label);
+    ghost.addEventListener("click", (event) => { event.stopPropagation(); selectComponent(key); });
+    return ghost;
+  };
+  // Réplique de la barre d'outils (conteneur + 4 boutons, ordre réel).
+  const barGhost = mkGhost("bottomBar", "cmp-ghost-bar");
+  const orderKeys = ["auto", "backdrop", "flip", "settings"]
+    .slice()
+    .sort((a, b) => (componentState(a).order || 1) - (componentState(b).order || 1));
+  orderKeys.forEach((key) => {
+    const chip = mkGhost(key, "cmp-ghost-tool");
+    chip.textContent = UI_COMPONENTS[key].icon;
+    barGhost.appendChild(chip);
+  });
+  box.appendChild(barGhost);
+  // Éléments flottants positionnés par ancre.
+  Object.keys(UI_COMPONENTS).forEach((key) => {
+    const meta = UI_COMPONENTS[key];
+    if (key === "bottomBar" || !meta.positionable) return;
+    const ghost = mkGhost(key, "cmp-ghost-float");
+    ghost.textContent = meta.icon;
+    box.appendChild(ghost);
+  });
+  // Compte à rebours (non déplaçable, ghost fixé en haut au centre).
+  const cd = mkGhost("countdown", "cmp-ghost-countdown");
+  cd.textContent = UI_COMPONENTS.countdown.icon;
+  box.appendChild(cd);
+  applyCustomizerGhostVisuals();
+}
+
+/* Reflète l'état (position, taille, opacité, visibilité) sur les ghosts,
+   sans reconstruire le DOM → les réglages restent fluides pendant le drag. */
+function applyCustomizerGhostVisuals() {
+  const box = $("customizer-ghosts");
+  if (!box) return;
+  box.querySelectorAll(".cmp-ghost").forEach((ghost) => {
+    const key = ghost.dataset.cmp;
+    const meta = UI_COMPONENTS[key];
+    const cfg = componentState(key);
+    ghost.style.opacity = String(Math.max(0.3, cfg.opacity / 100));
+    ghost.style.scale = String(cfg.size / 100);
+    ghost.classList.toggle("ghost-hidden", cfg.hidden);
+    if (meta.positionable && key !== "bottomBar") placeComponent(key, ghost, cfg);
+    if (cfg.color) { ghost.style.color = cfg.color; ghost.style.borderColor = cfg.color; }
+    else { ghost.style.color = ""; ghost.style.borderColor = ""; }
+  });
+  const bar = box.querySelector('[data-cmp="bottomBar"]');
+  if (bar) {
+    const barCfg = componentState("bottomBar");
+    placeComponent("bottomBar", bar, barCfg);
+    bar.style.opacity = String(Math.max(0.3, barCfg.opacity / 100));
+    bar.style.scale = String(barCfg.size / 100);
+    bar.classList.toggle("ghost-hidden", barCfg.hidden);
+    // Tri des boutons selon leur ordre personnalisé.
+    const chips = [...bar.querySelectorAll(".cmp-ghost-tool")]
+      .sort((a, b) => (componentState(a.dataset.cmp).order || 1) - (componentState(b.dataset.cmp).order || 1));
+    chips.forEach((chip) => bar.appendChild(chip));
+  }
+  refreshComponentSelection();
+}
+
+function buildComponentChips() {
+  const box = $("customizer-component-chips");
+  if (!box) return;
+  box.innerHTML = "";
+  Object.keys(UI_COMPONENTS).forEach((key) => {
+    const meta = UI_COMPONENTS[key];
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "cmp-chip";
+    chip.dataset.cmp = key;
+    chip.setAttribute("role", "tab");
+    chip.innerHTML = `${meta.icon} ${meta.label}`;
+    chip.addEventListener("click", () => selectComponent(key));
+    box.appendChild(chip);
+  });
+}
+
+function refreshComponentSelection() {
+  document.querySelectorAll(".cmp-ghost").forEach((g) => g.classList.toggle("selected", g.dataset.cmp === _selectedComponent));
+  document.querySelectorAll(".cmp-chip").forEach((c) => c.classList.toggle("active", c.dataset.cmp === _selectedComponent));
+}
+
+function selectComponent(key) {
+  _selectedComponent = key;
+  refreshComponentSelection();
+  buildPropsPanel(key);
+}
+
+function buildPropsPanel(key) {
+  const box = $("customizer-props");
+  if (!box) return;
+  const meta = UI_COMPONENTS[key];
+  const cfg = componentState(key);
+  const parts = [];
+  parts.push(`<div class="prop-head"><b>${meta.icon} ${meta.label}</b><button type="button" class="mini-btn" id="prop-reset">Réinitialiser</button></div>`);
+  if (meta.positionable) {
+    parts.push(`<div class="prop-group"><div class="prop-label">Position</div><div class="prop-grid">${Object.keys(UI_ANCHOR_MAP).map((a) => `<button type="button" class="prop-dot${cfg.anchor === a ? " active" : ""}" data-anchor="${a}" aria-label="Position ${a}"></button>`).join("")}</div></div>`);
+    parts.push(`<div class="prop-row"><label>Horizontal</label><input type="range" min="-120" max="121" step="2" value="${cfg.offsetX}" data-prop="offsetX"><output>${cfg.offsetX}px</output></div>`);
+    parts.push(`<div class="prop-row"><label>Vertical</label><input type="range" min="-120" max="121" step="2" value="${cfg.offsetY}" data-prop="offsetY"><output>${cfg.offsetY}px</output></div>`);
+  }
+  if (meta.orderable) {
+    parts.push(`<div class="prop-row"><label>Place dans la barre</label><div class="prop-order">${[1, 2, 3, 4].map((n) => `<button type="button" class="prop-dot${(cfg.order || 1) === n ? " active" : ""}" data-order="${n}">${n}</button>`).join("")}</div></div>`);
+  }
+  parts.push(`<div class="prop-row"><label>Taille</label><input type="range" min="55" max="165" step="5" value="${cfg.size}" data-prop="size"><output>${cfg.size}%</output></div>`);
+  parts.push(`<div class="prop-row"><label>Opacité</label><input type="range" min="20" max="100" step="5" value="${cfg.opacity}" data-prop="opacity"><output>${cfg.opacity}%</output></div>`);
+  parts.push(`<div class="prop-row"><label>Couleur</label><div class="prop-swatches">${UI_COMPONENT_COLORS.map((c) => `<button type="button" class="prop-swatch${cfg.color === c ? " active" : ""}" data-color="${c}" style="${c ? `background:${c}` : "background:linear-gradient(135deg,#6a6f84,#23293c); border-style:dashed"}" aria-label="${c || "Couleur native"}"></button>`).join("")}</div></div>`);
+  parts.push(`<div class="prop-row"><label class="customizer-toggle"><input type="checkbox" data-prop="hidden" ${cfg.hidden ? "checked" : ""}><span>Masquer ce composant</span></label></div>`);
+  box.innerHTML = parts.join("");
+  // Liaisons : clics (position, ordre, couleur, reset) → mise à jour + refresh.
+  box.querySelectorAll(".prop-dot[data-anchor]").forEach((button) => button.addEventListener("click", () => updateComponent(key, { anchor: button.dataset.anchor })));
+  box.querySelectorAll("[data-order]").forEach((button) => button.addEventListener("click", () => updateComponent(key, { order: Number(button.dataset.order) })));
+  box.querySelectorAll(".prop-swatch").forEach((swatch) => swatch.addEventListener("click", () => updateComponent(key, { color: swatch.dataset.color })));
+  const reset = $("prop-reset");
+  if (reset) reset.addEventListener("click", () => resetComponent(key));
+  // Sliders : mise à jour EN DIRECT sans reconstruire le panneau (focus gardé).
+  box.querySelectorAll("input[data-prop]").forEach((input) => {
+    const prop = input.dataset.prop;
+    const out = input.nextElementSibling;
+    input.addEventListener("input", () => {
+      const value = prop === "hidden" ? input.checked : Number(input.value);
+      if (out && out.tagName === "OUTPUT") out.textContent = prop === "hidden" ? "" : `${value}${prop === "size" || prop === "opacity" ? "%" : "px"}`;
+      componentState(key)[prop] = value;
+      applyUiCustomization();
+    });
+  });
+}
+
+function updateComponent(key, patch) {
+  const cfg = componentState(key);
+  Object.assign(cfg, patch);
+  // Un déplacement explicite « déverrouille » les composants natifs (rail).
+  if ("anchor" in patch || "offsetX" in patch || "offsetY" in patch) cfg._moved = true;
+  applyUiCustomization();
+  selectComponent(key);
+}
+
+function resetComponent(key) {
+  const meta = UI_COMPONENTS[key];
+  state.uiComponents[key] = { ...UI_COMPONENT_DEFAULTS, anchor: meta.anchor || "mc", offsetX: meta.offsetX || 0, order: 1 };
+  applyUiCustomization();
+  selectComponent(key);
+  sfxClose();
+}
+
+function snapshotUiComponents() {
+  state._uiComponentsSnapshot = JSON.stringify(state.uiComponents || {});
+}
+function restoreUiComponents() {
+  try { state.uiComponents = JSON.parse(state._uiComponentsSnapshot || "{}"); } catch { state.uiComponents = {}; }
+  state.uiComponents = state.uiComponents && typeof state.uiComponents === "object" ? state.uiComponents : {};
+  applyUiCustomization();
+}
+
+let _customizerRemoteStream = null;
+function feedCustomizerRemotePreview() {
+  const panel = $("customizer");
+  const live = $("customizer-live-video");
+  if (!panel?.classList.contains("open") || !live || !_remotePreviewCanvas) return;
+  if (live.srcObject) return; // déjà branché (flux local ou stream distant)
+  if (!_customizerRemoteStream && typeof _remotePreviewCanvas.captureStream === "function") {
+    try {
+      _customizerRemoteStream = _remotePreviewCanvas.captureStream(8);
+      live.srcObject = _customizerRemoteStream;
+      live.play?.().catch(() => {});
+      return;
+    } catch { /* captureStream indisponible : repli poster */ }
+  }
+  const now = Date.now();
+  if (!feedCustomizerRemotePreview._last || now - feedCustomizerRemotePreview._last > 1000) {
+    feedCustomizerRemotePreview._last = now;
+    live.poster = _remotePreviewCanvas.toDataURL("image/jpeg", .6);
+  }
+}
+function openCustomizer() {
+  const panel = $("customizer");
+  if (!panel) return;
+  // Instantané : la croix ✕ ferme SANS enregistrer (modifications annulées).
+  snapshotUiComponents();
+  panel.classList.add("open");
+  panel.setAttribute("aria-hidden", "false");
+  applyUiCustomization();
+  buildComponentChips();
+  buildCustomizerGhosts();
+  selectComponent("bottomBar");
+  const live = $("customizer-live-video");
+  if (live && state.stream && !live.srcObject) { live.srcObject = state.stream; live.play?.().catch(() => {}); }
+  feedCustomizerRemotePreview();
+  const preview = $("customizer-preview");
+  if (preview) preview.style.filter = liveFilterCss();
+  customizerTrap.onOpen();
+}
+function discardCustomizer() {
+  restoreUiComponents();
+  closeCustomizer();
+  toast("Modifications annulées");
+}
+function closeCustomizer() {
+  const panel = $("customizer");
+  if (!panel) return;
+  panel.classList.remove("open");
+  panel.setAttribute("aria-hidden", "true");
+  const live = $("customizer-live-video");
+  if (live) live.srcObject = null;
+  if (_customizerRemoteStream) {
+    try { _customizerRemoteStream.getTracks().forEach((track) => track.stop()); } catch {}
+    _customizerRemoteStream = null;
+  }
+  customizerTrap.onClose();
+}
+function bindCustomizer() {
+  on("customizer-close", "click", discardCustomizer);
+  // btn-customize-access est bindé tôt (avant le role-gate) pour être actif
+  // dès l'écran de choix du rôle ; on ne le rebinde pas ici pour éviter un
+  // double déclenchement d'openCustomizer().
+  on("btn-customize-quick", "click", openCustomizer);
+  on("customizer-unlock", "click", async () => {
+    const code = $("customizer-code")?.value.trim();
+    const status = $("customizer-code-status");
+    if (status) status.textContent = "Vérification…";
+    try {
+      const response = await fetch("/api/organizer/verify", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: code }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { if (status) status.textContent = data.error || "Code incorrect"; return; }
+      sessionStorage.setItem(ORGANIZER_SESSION_KEY, JSON.stringify(data));
+    } catch { if (status) status.textContent = "Vérification impossible — connexion au serveur requise"; return; }
+    $("customizer-lock")?.classList.add("hidden");
+    $("customizer-editor")?.classList.remove("hidden");
+    if (status) status.textContent = "";
+    openCustomizer();
+  });
+  on("customizer-code", "keydown", (event) => { if (event.key === "Enter") $("customizer-unlock")?.click(); });
+  document.querySelectorAll("#customizer-themes button").forEach((button) => button.addEventListener("click", () => {
+    state.uiTheme = button.dataset.theme || "midnight";
+    applyUiCustomization();
+  }));
+  on("customizer-text-scale", "input", (event) => { state.uiTextScale = Number(event.target.value) || 100; applyUiCustomization(); });
+  on("customizer-button-scale", "input", (event) => { state.uiButtonScale = Number(event.target.value) || 100; applyUiCustomization(); });
+  on("customizer-accent", "input", (event) => { state.uiAccent = /^#[0-9a-fA-F]{6}$/.test(event.target.value) ? event.target.value : ""; applyUiCustomization(); });
+  on("customizer-accent-reset", "click", () => { state.uiAccent = ""; applyUiCustomization(); });
+  bindEventIdentityFields();
+  const asset = (id, key, srcKey) => on(id, "change", async (event) => {
+    try { state[srcKey] = await readCustomizationAsset(event.target.files?.[0]); state[key] = state[srcKey]; applyUiCustomization(); } catch { toast("Image impossible à charger"); }
+  });
+  asset("custom-frame-file", "customFrameSrc", "customFrameSrc");
+  asset("custom-border-file", "customBorderSrc", "customBorderSrc");
+  on("customizer-reset", "click", () => {
+    state.uiTheme = "midnight"; state.uiTextScale = 100; state.uiButtonScale = 100;
+    state.customFrameSrc = ""; state.customBorderSrc = "";
+    state.customFrameImage = null; state.customBorderImage = null;
+    state.idlePhotos = []; state.idlePhotosEnabled = false;
+    $("custom-idle-photos-toggle").checked = false;
+    state.uiAccent = ""; state.eventHost1 = ""; state.eventHost2 = ""; state.eventWelcome = "";
+    // Réinitialise aussi la personnalisation par composant.
+    state.uiComponents = {};
+    saveUiCustomization();
+    applyUiCustomization();
+    applyEventIdentity();
+    buildComponentChips();
+    buildCustomizerGhosts();
+    selectComponent("bottomBar");
+    toast("Interface réinitialisée");
+  });
+  // Photos de veille : multi-upload compressé, max 8, puis save.
+  on("custom-idle-photos-file", "change", async (event) => {
+    try {
+      const files = [...(event.target.files || [])].slice(0, 8);
+      if (!files.length) return;
+      const loaded = [];
+      for (const file of files) {
+        try { loaded.push(await readCustomizationAsset(file)); } catch {}
+      }
+      if (!loaded.length) { toast("Aucune image valide"); return; }
+      state.idlePhotos = [...(state.idlePhotos || []), ...loaded].slice(-8);
+      state.idlePhotosEnabled = true;
+      if ($("custom-idle-photos-toggle")) $("custom-idle-photos-toggle").checked = true;
+      saveUiCustomization();
+      applyUiCustomization();
+      toast(`${loaded.length} photo${loaded.length > 1 ? "s" : ""} ajoutée${loaded.length > 1 ? "s" : ""} à la veille`);
+    } catch { toast("Impossible de charger les photos"); }
+  });
+  on("custom-idle-photos-toggle", "change", (event) => { state.idlePhotosEnabled = event.target.checked; saveUiCustomization(); });
+  on("customizer-save", "click", async () => { saveUiCustomization(); await loadCustomizationImages(); toast("Interface enregistrée ✓"); closeCustomizer(); });
+  $("customizer")?.addEventListener("click", (event) => { if (event.target.id === "customizer") closeCustomizer(); });
 }
 
 /* Groupes de réglages repliables (pattern Réglages iOS) : les sections
@@ -4219,10 +7224,9 @@ document.querySelectorAll(".settings-group-title").forEach((btn) => {
     const willCollapse = !group.classList.contains("collapsed");
     group.classList.toggle("collapsed", willCollapse);
     btn.setAttribute("aria-expanded", String(!willCollapse));
-  });
-});
+  });  });
 
-/* =========================================================
+  /* =========================================================
    INIT
    ========================================================= */
 async function init() {
@@ -4232,6 +7236,12 @@ async function init() {
   console.log("[MomentoBooth] init v" + APP_VERSION);
   try {
     const htmlVersion = document.body.dataset.appVersion;
+    /* Nettoyage de secours : si une ancienne version de l'app.js est servie
+       malgré le HTML v85, désenregistre tout contrôleur avant la suite. */
+    if (navigator.serviceWorker?.controller && htmlVersion === APP_VERSION && location.search.includes("mb-recover=" + APP_VERSION)) {
+      await Promise.all((await navigator.serviceWorker.getRegistrations()).map((registration) => registration.unregister()));
+      if ("caches" in window) await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
+    }
     const forced = sessionStorage.getItem("mb-force-reload");
     /* Anti-cache : si version mismatch, on log un warning mais on continue.
        Les reloads automatiques causaient des boucles infinies avec le SW. */
@@ -4246,14 +7256,6 @@ async function init() {
     }
     sessionStorage.removeItem("mb-force-reload");
   } catch { /* on continue normalement */ }
-
-  /* Portail de rôle : si l'utilisateur n'a pas encore choisi, on lui demande
-     EN PREMIER (avant la caméra), sinon on saute directement à l'écran capture. */
-  try { initRolePortal(); } catch (e) { console.warn("[init] role portal", e); }
-  
-  /* File d'upload persistante : démarre le processeur qui rejoue les uploads
-     en attente quand le réseau revient (P0 offline-safe). */
-  try { startUploadQueueProcessor(); } catch (e) { console.warn("[init] upload queue", e); }
   // iOS envoie plusieurs resize de visualViewport quand ses barres
   // apparaissent/disparaissent. On accepte les changements réels, mais avec
   // une petite hystérésis pour éviter que la caméra ne saute sur un micro-resize.
@@ -4347,7 +7349,10 @@ async function init() {
   window.addEventListener("focusin", () => scheduleAppViewportSync(true), { passive: true });
   window.addEventListener("focusout", () => scheduleAppViewportSync(true), { passive: true });
   ["loadedmetadata", "canplay", "playing"].forEach((eventName) => {
-    camera.addEventListener(eventName, () => scheduleAppViewportSync(true), { passive: true });
+    camera.addEventListener(eventName, () => {
+      scheduleAppViewportSync(true);
+      if (state.stream && camera.videoWidth > 0) telemetry.startupMark("cameraReady", { width: camera.videoWidth, height: camera.videoHeight, source: eventName });
+    }, { passive: true });
   });
   // L'écran peut s'éteindre pendant la capture → on relance le Wake Lock
   document.addEventListener("visibilitychange", () => {
@@ -4374,6 +7379,7 @@ async function init() {
   });
   window.addEventListener("pagehide", () => {
     _cameraNeedsRestart = true;
+    stopRemotePublishing();
     stopLightMonitor();
     stopPreroll();
     releaseFxCards();
@@ -4382,18 +7388,57 @@ async function init() {
     releaseWakeLock();
     if (_detectFaceTimer) { clearInterval(_detectFaceTimer); _detectFaceTimer = null; }
     if (state.landmarker?.close) { try { state.landmarker.close(); } catch {} }
+    if (state.landmarker) telemetry.resourceStop("activeFaceTrackers", { model: "face-landmarker" });
     state.landmarker = null;
     // Quitter l'application/PWA doit rendre immédiatement la caméra et ses
     // buffers au système, sinon iOS peut conserver la session média en RAM.
     try { state.stream?.getTracks?.().forEach((track) => track.stop()); } catch {}
+    telemetry.cameraStop();
     state.stream = null;
     camera.srcObject = null;      });
 
-  /* ⚠️ 1) LA CAMÉRA D'ABORD — plus rien ne peut la bloquer.
-     Avant : startCamera était après les awaits du service worker et du
-     stockage persistant → s'ils traînaient (réseau, iOS Safari), la caméra
-     ne démarrait JAMAIS (écran noir + interface, sans aucune erreur). */
-  startCamera().catch(() => {});
+  /* ⚠️ 1) RÔLE D'ABORD — aucune permission caméra avant ce choix.
+     Le clic sur Caméra/Mixte devient le geste utilisateur Safari/iOS qui
+     autorise ensuite getUserMedia ; Interface contourne totalement la caméra. */
+  // Le bouton « Personnaliser l'interface » du role-gate doit être actif dès
+  // l'ouverture du gate, pas seulement après la validation du rôle : tout le
+  // panneau (thème, curseurs, code organisateur, identité événement...) est
+  // donc câblé ici, tôt. Rien dans bindCustomizer() ne dépend du rôle choisi.
+  try {
+    $("btn-customize-access")?.addEventListener("click", openCustomizer);
+    bindCustomizer();
+  } catch { /* customizer indisponible : la borne démarre quand même */ }
+  await waitForDeviceRole();
+  if (pendingFallbackStream && state.deviceRole !== "interface") {
+    state.stream = pendingFallbackStream;
+    await ensureCameraPlayback(state.stream, 4);
+    if (camera.videoWidth > 0) telemetry.startupMark("cameraReady", { width: camera.videoWidth, height: camera.videoHeight, source: "fallback" });
+  } else if (pendingFallbackStream && state.deviceRole === "interface") {
+    try { pendingFallbackStream.getTracks?.().forEach((track) => track.stop()); } catch {}
+    camera.srcObject = null;
+    telemetry.cameraStop();
+    state.stream = null;
+  }
+  /* Si un flux de secours a déjà obtenu la permission, ne la redemande pas. */
+  if (state.stream && state.deviceRole !== "interface") {
+    camera.style.visibility = "visible";
+    camera.hidden = false;
+    camera.autoplay = true;
+    camera.playsInline = true;
+    camera.muted = true;
+    void ensureCameraPlayback(state.stream, 3);
+    hideSplash();
+  } else if (state.deviceRole !== "interface") {
+    // `startCamera()` peut déjà être en train d'attendre la permission. Ne
+    // masque jamais le preview dans cette course : startCamera() le rendra
+    // visible dès que loadedmetadata arrive.
+    camera.style.visibility = "visible";
+    camera.hidden = false;
+    hideSplash();
+  } else {
+    camera.style.visibility = "hidden";
+    hideSplash();
+  }
 
   /* 2) UI — protégée individuellement, ne bloque jamais */
   try { buildBackdropOptions(); } catch {}
@@ -4403,30 +7448,45 @@ async function init() {
   try { buildFxPanel(); } catch {}
   try { buildPhotoFilterRail(); } catch {}
   try { bindSettings(); } catch {}
-  // Logo MomentoBooth : retiré des photos — plus aucun préchargement d'asset inutile.
-
-  /* 3) Service worker EN ARRIÈRE-PLAN — n'a plus le droit de bloquer la caméra */
-  if (navigator.serviceWorker) {
-    void (async () => {
-      try {
-        const hadController = Boolean(navigator.serviceWorker.controller);
-        const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
-        await reg.update();
-        // Nouvelle version active → recharger, mais JAMAIS pendant une capture
-        let refreshing = false;
-        navigator.serviceWorker.addEventListener("controllerchange", () => {
-          if (refreshing || !hadController) return;
-          if (state.counting || state.autoMode) { // différé si capture en cours
-            toast("Mise à jour prête — après la photo");
-            return;
-          }
-          refreshing = true;
-          toast("Mise à jour — rechargement…");
-          setTimeout(() => window.location.reload(), 800);
-        });
-      } catch { /* offline ok */ }
-    })();
+  // bindCustomizer() est désormais appelée tôt, avant waitForDeviceRole() —
+  // voir plus haut. Pas de second appel ici (double liaison = double appel
+  // serveur au déverrouillage, double toast à l'enregistrement, etc.).
+  // Le QR tablette réutilise le lien invité, et crée silencieusement un lien
+  // au premier lancement : le bouton reste utile sans étape cachée.
+  refreshTabletQr();
+  if (window.matchMedia?.("(min-width: 768px)").matches) {
+    try {
+      const savedGuest = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
+      if (!savedGuest?.url || Date.now() >= (savedGuest.expiresAt || 0)) void createGuestLink();
+    } catch { void createGuestLink(); }
   }
+  on("tablet-qr-open", "click", openGallery);
+  on("btn-gallery-top", "click", openGallery);
+  on("btn-gallery-select-delete", "click", beginGallerySelectDelete);
+  on("gallery-select-cancel", "click", cancelGallerySelectDelete);
+  on("gallery-select-confirm", "click", confirmGalleryDelete);
+  // Le rôle Caméra publie automatiquement une session distante seulement
+  // après le montage des contrôles (le token/QR peut alors être affiché).
+  if (state.deviceRole === "camera" && state.stream) {
+    if (state.remoteCamMode === "camera" && state.remoteCamToken && state.remoteCamHostKey) {
+      showCameraPairing({ pairCode: state.remotePairCode, url: `${location.origin}/?remote=${encodeURIComponent(state.remotePairCode || state.remoteCamToken)}` });
+      $("set-remote-camera") && ($("set-remote-camera").checked = true);
+      startRemotePublishing();
+      startRemoteCommandPolling();
+    } else if (state.remoteCamMode === "off") {
+      void startRemoteCamera();
+    }
+  }
+  // Précharge uniquement si l'option a été activée sur cette borne ; le logo
+  // reste absent des exports par défaut.
+  if (state.logoEnabled) void loadLogoImage();
+
+  /* 3) Service worker volontairement non réinstallé.
+     Modal est la cible réseau principale ; un ancien SW iOS a déjà bloqué toute
+     l'interface en servant un mélange de fichiers. Le script de récupération
+     dans index.html purge les anciens contrôleurs/caches, puis l'app reste
+     réseau-first et ne recrée pas ce point de panne. */
+  console.info("[MomentoBooth] Service Worker désactivé pour la stabilité Modal");
 
   /* 4) Stockage persistant en arrière-plan */
   requestPersistentStorage().catch(() => {});
@@ -4471,137 +7531,14 @@ async function init() {
     if (!state.stream) showCameraWaiting();
   }, 6000);
 
-  /* 9) Reprise silencieuse de la session hôte pour le partage caméra optionnel.
-     On ne restaure QUE le token (sessionStorage = limité à l'onglet). Le hostKey
-     reste en RAM : si l'hôte recharge, il doit le re-saisir dans le panneau. */
+  /* 9) Reprise silencieuse de la session hôte pour le partage caméra optionnel. */
   try {
-    const savedGuest = JSON.parse(sessionStorage.getItem("momentobooth-guest-session") || "null");
-    if (savedGuest?.token && savedGuest.expiresAt > Date.now()) {
+    const savedGuest = JSON.parse(localStorage.getItem("momentobooth-guest-session") || "null");
+    if (savedGuest?.token && savedGuest?.hostKey && savedGuest.expiresAt > Date.now()) {
       state.guestToken = savedGuest.token;
-      state.guestHostKey = "";
+      state.guestHostKey = savedGuest.hostKey;
     }
   } catch {}
-}
-
-/* ════════════════════════════════════════════════════════════
-   PORTAIL DE RÔLE (P0 du cahier des charges)
-   Premier écran visible au chargement. Sélection DIRECTE en 1 seul toucher :
-   pas de case, pas de bouton "Continuer", pas de popup qui s'ouvre puis se ferme.
-   - "camera"   : l'appareil publie son flux (mode Borne = iPhone)
-   - "interface": l'appareil attend un flux distant (mode Tablette = contrôle)
-   - "mixed"    : tout-en-un, capture locale + tout le reste
-   Le rôle est mémorisé en localStorage pour ne pas le redemander.
-   On peut le changer à tout moment via #btn-change-role (à venir dans Réglages).
-   ════════════════════════════════════════════════════════════ */
-const ROLE_STORAGE_KEY = "momentobooth-role";
-const VALID_ROLES = new Set(["camera", "interface", "mixed"]);
-
-function getStoredRole() {
-  try {
-    const r = localStorage.getItem(ROLE_STORAGE_KEY);
-    if (r && VALID_ROLES.has(r)) return r;
-  } catch {}
-  return null;
-}
-function setStoredRole(role) {
-  if (!VALID_ROLES.has(role)) return;
-  try { localStorage.setItem(ROLE_STORAGE_KEY, role); } catch {}
-}
-function showScreen(id) {
-  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
-  const el = document.getElementById(id);
-  if (el) el.classList.add("active");
-}
-function applyRoleBehavior(role) {
-  // Cohérent avec le code existant : state.remoteCamMode = 'camera' | 'controller' | 'off'
-  // et le mode 'off' = mixte (capture locale).
-  // L'attribut data-role sur <body> permet au CSS de verrouiller l'UI en mode Caméra
-  // (cacher bottom-bar, rail filtres, panneaux — l'iPhone Borne n'a qu'à filmer).
-  document.body.setAttribute("data-role", role);
-  if (role === "camera") {
-    state.remoteCamMode = "camera";
-    // L'iPhone publie : on lance startRemoteCamera()
-    try { startRemoteCamera(); } catch (e) { console.warn("[role] startRemoteCamera", e); }
-  } else if (role === "interface") {
-    state.remoteCamMode = "controller";
-    // L'interface attend un flux : on ne capture PAS en local
-    toast("Recherche d'une caméra…");
-  } else {
-    // mixed : comportement par défaut, capture locale
-    state.remoteCamMode = "off";
-  }
-  // Met à jour le label dans Réglages
-  const label = document.getElementById("role-current-label");
-  if (label) {
-    const txt = role === "camera" ? "Caméra (iPhone)" : role === "interface" ? "Interface (tablette)" : "Mixte";
-    label.textContent = txt;
-  }
-  try { savePreferences(); } catch {}
-}
-function chooseRole(role) {
-  if (!VALID_ROLES.has(role)) return;
-  setStoredRole(role);
-  // Cache le portail
-  const portal = document.getElementById("screen-role");
-  if (portal) { portal.classList.remove("active"); portal.classList.add("hidden"); }
-  // Affiche l'écran capture (showCapture() existe déjà dans le code)
-  showCapture();
-  applyRoleBehavior(role);
-  // Si l'utilisateur était en mode Interface, on tente de rejoindre la session
-  if (role === "interface") {
-  // Recherche automatique d'une caméra sur le réseau local
-  setTimeout(() => { try { autoDiscoverRemoteCamera?.(); } catch {} }, 200);
-  }
-  // Si on était en mode Caméra, le splash peut enfin s'effacer
-  try { hideSplash(); } catch {}
-}
-// Exposé sur window pour les tests e2e (Playwright page.evaluate)
-window.chooseRole = chooseRole;
-function initRolePortal() {
-  // Sur le portail, on n'a pas besoin du splash (il est décoratif).
-  // On le retire tout de suite pour ne pas bloquer visuellement l'utilisateur
-  // ni intercepter les pointer events (Playwright + iOS Safari).
-  const splash = document.getElementById("app-splash");
-  if (splash) splash.remove();
-  const stored = getStoredRole();
-  // URL ?role=force le portail (?role=choisir pour le faire revenir)
-  const params = new URLSearchParams(window.location.search);
-  if (params.has("role")) {
-    const forced = params.get("role");
-    if (forced === "choisir" || !VALID_ROLES.has(forced)) {
-      // Affiche le portail, ne touche pas au storage
-      showScreen("screen-role");
-      return;
-    }
-    setStoredRole(forced);
-  }
-  if (stored) {
-    // Rôle déjà mémorisé : on saute le portail et on montre directement la capture
-    const portal = document.getElementById("screen-role");
-    if (portal) portal.classList.add("hidden");
-    showScreen("screen-capture");
-    // Comportement asynchrone pour ne pas bloquer init()
-    queueMicrotask(() => { try { applyRoleBehavior(stored); } catch (e) { console.warn("[role] apply", e); } });
-    return;
-  }
-  // Pas de rôle : on montre le portail
-  showScreen("screen-role");
-  const tiles = document.querySelectorAll(".role-tile");
-  tiles.forEach((tile) => {
-    tile.addEventListener("click", (e) => {
-      e.preventDefault();
-      const role = tile.dataset.role;
-      if (!role) return;
-      chooseRole(role);
-    });
-  });
-  // Permet aussi le clavier (Enter / Space) — accessibilité
-  document.getElementById("screen-role")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      const target = e.target.closest(".role-tile");
-      if (target) { e.preventDefault(); target.click(); }
-    }
-  });
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -4621,6 +7558,7 @@ function updateIdleClock() {
   el.textContent = `${hh}:${mm}`;
 }
 let _idleClockTimer = null;
+let _idlePhotosTimer = null;
 let _idleTimer = null;
 let _idleTriggeredAt = 0;
 let _idlePoke = null;
@@ -4630,6 +7568,7 @@ let _idleSceneTimer = null;
 let _idleSceneIndex = 0;
 const IDLE_DELAY = 30000; // 30 s sans visage ni interaction (réglable)
 const IDLE_SCENE_DELAY = 6500; // chaque écran reste lisible avant le suivant
+const IDLE_PHOTOS_DELAY = 6500; // même cadence pour les photos personnalisées
 
 function stopIdleScenes() {
   if (_idleSceneTimer) { clearInterval(_idleSceneTimer); _idleSceneTimer = null; }
@@ -4646,6 +7585,21 @@ function setIdleScene(index) {
     scene.setAttribute("aria-hidden", active ? "false" : "true");
   });
   dots.forEach((dot, i) => dot.classList.toggle("active", i === _idleSceneIndex));
+}
+
+function playIdleClickPrompt() {
+  const overlay = $("idle-overlay");
+  const clickFx = overlay?.querySelector(".idle-click-animation");
+  if (!clickFx) return;
+  /* Le GIF appartient visuellement à la scène 0 : si le carrousel a avancé,
+     on y revient avant de le jouer pour ne jamais déclencher une animation
+     cachée derrière une autre scène. */
+  setIdleScene(0);
+  clickFx.classList.remove("play");
+  void clickFx.offsetWidth;
+  clickFx.classList.add("play");
+  showFilterName("Bonjour !");
+  window.setTimeout(() => clickFx.classList.remove("play"), 900);
 }
 
 function startIdleScenes() {
@@ -4691,10 +7645,7 @@ function initIdleMode() {
     if (!document.body.classList.contains("idle") || _idleTransitionTimer) return;
     const card = overlay?.querySelector(".idle-card");
     if (!card) return;
-    const clickFx = overlay.querySelector(".idle-click-animation");
-    clickFx?.classList.remove("play");
-    void clickFx?.offsetWidth;
-    clickFx?.classList.add("play");
+    playIdleClickPrompt();
     card.style.transition = "transform .18s ease, opacity .18s ease";
     card.style.transform = "scale(.92)";
     sfxOpen();
@@ -4713,6 +7664,45 @@ function initIdleMode() {
 }
 
 
+/* Scène de veille « Mur des photos » : anime la borne avec les vrais derniers
+   souvenirs de la soirée au lieu d'un écran d'attente statique. Se met à
+   jour à chaque entrée en veille — pas besoin de rafraîchir plus souvent,
+   la scène n'est visible que quelques secondes par cycle de rotation. */
+let _idleWallUrls = [];
+async function populateIdleWallScene() {
+  const grid = $("idle-wall-grid");
+  const countEl = $("idle-wall-count");
+  const scene = document.querySelector('.idle-scene[data-idle-scene="5"]');
+  if (!grid) return;
+  _idleWallUrls.forEach((url) => URL.revokeObjectURL(url));
+  _idleWallUrls = [];
+  let entries = [];
+  try { entries = await loadLocal(); } catch { entries = []; }
+  const photosOnly = entries.filter((entry) => entry.mediaType !== "gif" && entry.blob);
+  // Préfère les variantes stylées (plus parlantes en vignette) ; si la
+  // soirée n'a que des originaux sauvegardés, on les affiche quand même.
+  const styled = photosOnly.filter((entry) => entry.label !== "Original");
+  const pool = (styled.length ? styled : photosOnly).sort((a, b) => (b.date || 0) - (a.date || 0));
+  const recent = pool.slice(0, 5);
+  grid.innerHTML = "";
+  recent.forEach((entry) => {
+    const url = URL.createObjectURL(entry.blob);
+    _idleWallUrls.push(url);
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "";
+    grid.appendChild(img);
+  });
+  const total = photosOnly.length;
+  if (countEl) {
+    countEl.textContent = total === 0
+      ? "Soyez les premiers à immortaliser la soirée !"
+      : `Déjà ${total} photo${total > 1 ? "s" : ""} prise${total > 1 ? "s" : ""} ce soir`;
+  }
+  // Rien à montrer en tout début de soirée : la scène reste dans la
+  // rotation (le message d'invitation ci-dessus suffit) mais sans grille vide.
+  if (scene) scene.classList.toggle("idle-scene-wall-empty", total === 0);
+}
 function enterIdle() {
   if (!state.idleEnabled || state.counting || state.autoMode || !screens.capture.classList.contains("active")) return;
   document.body.classList.add("idle");
@@ -4728,14 +7718,44 @@ function enterIdle() {
     overlay.setAttribute("aria-hidden", "false");
   }
   state.idleWakeHits = 0;
+  state.idleFaceAbsentSince = 0;
   startIdleScenes();
   updateIdleClock();
   clearInterval(_idleClockTimer);
   _idleClockTimer = setInterval(updateIdleClock, 60000);
+  // Veille personnalisée (organisateur) : les photos uploadées remplacent les
+  // scènes par défaut et tournent en fondu. Désactivée si aucune photo.
+  const photos = (state.idlePhotosEnabled && Array.isArray(state.idlePhotos) && state.idlePhotos.length) ? state.idlePhotos : [];
+  document.body.classList.toggle("idle-photos", photos.length > 0);
+  const stage = $("idle-photos-stage");
+  if (stage) {
+    stage.innerHTML = "";
+    photos.forEach((src, i) => {
+      const img = document.createElement("img");
+      img.src = src;
+      img.alt = "";
+      if (i === 0) img.classList.add("active");
+      stage.appendChild(img);
+    });
+  }
+  void populateIdleWallScene();
+  clearInterval(_idlePhotosTimer);
+  if (photos.length > 1) {
+    let index = 0;
+    _idlePhotosTimer = setInterval(() => {
+      const imgs = stage?.querySelectorAll("img");
+      if (!imgs?.length) return;
+      imgs[index].classList.remove("active");
+      index = (index + 1) % imgs.length;
+      imgs[index].classList.add("active");
+    }, IDLE_PHOTOS_DELAY);
+  }
   console.log("[MomentoBooth] veille activée (30 s inactif)");
 }
 
 function exitIdle() {
+  clearInterval(_idlePhotosTimer); _idlePhotosTimer = null;
+  document.body.classList.remove("idle-photos");
   clearTimeout(_idleTransitionTimer);
   _idleTransitionTimer = null;
   stopIdleScenes();
@@ -4770,16 +7790,6 @@ function showSwipeTuto() {
   }, 3400);
 }
 
-function maybeShowSwipeTuto() {
-  // L'animation d'accueil reste opt-in avec la veille pour éviter toute
-  // animation et tout travail visuel au démarrage économe.
-  if (!state.idleEnabled) return;
-  // Une seule fois par session
-  if (sessionStorage.getItem("mb-swipe-tuto")) return;
-  sessionStorage.setItem("mb-swipe-tuto", "1");
-  setTimeout(showSwipeTuto, 2600);
-}
-
 /* ════════════════════════════════════════════════════════════
    SPLASH : logo sur fond assorti au logo (bleu dégradé).
    Disparaît en fondu une fois l'interface prête (caméra OK).
@@ -4788,14 +7798,17 @@ let _splashDone = false;
 function hideSplash() {
   if (_splashDone) return;
   _splashDone = true;
+  telemetry.startupMark("uiReady");
   const splash = $("app-splash");
   if (!splash) return;
-  splash.classList.add("done");
-  // Securite absolue : force la disparition du splash apres 15s max
-  setTimeout(() => { _splashDone = false; hideSplash(); }, 15000);
-  splash.setAttribute("aria-hidden", "true");
-  // Retire du DOM après le fondu (léger)
-  setTimeout(() => splash.remove(), 1100);
+  const elapsed = performance.now() - (window.__mbBootStartedAt || performance.now());
+  const minSplashMs = 850;
+  const remaining = Math.max(0, minSplashMs - elapsed);
+  setTimeout(() => {
+    splash.classList.add("done");
+    splash.setAttribute("aria-hidden", "true");
+    setTimeout(() => splash.remove(), 600);
+  }, remaining);
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -4926,8 +7939,7 @@ function updateFilmBubble() {
    Désactivable. Léger : 6 s × ~8 fps en 240 px.
    ════════════════════════════════════════════════════════════ */
 const PREROLL_SECONDS = 6;
-const PREROLL_FPS = 8;
-const PREROLL_SIZE = 240;
+// FPS et taille réels pilotés par perfConfig() (profil éco/équilibré/max) : voir startPreroll().
 let _prerollFrames = [];   // ring buffer [{t, canvas}]
 let _prerollTimer = null;
 let _prerollRecording = false;
@@ -5058,176 +8070,21 @@ async function savePrerollClip() {
 }
 
 /* ════════════════════════════════════════════════════════════
-   AUTO-DÉCOUVERTE CAMÉRA (P0 — Mode Interface)
-   Scanne le réseau local pour trouver une caméra MomentoBooth active.
-   ════════════════════════════════════════════════════════════ */
-async function autoDiscoverRemoteCamera() {
-  if (state.remoteCamMode !== 'controller') return;
-  if (state.remoteCamToken) { startRemotePolling(); return; }
-  
-  toast("Recherche d'une caméra MomentoBooth…");
-  
-  // 1. Vérifier si on a un token sauvegardé (même session)
-  const savedToken = localStorage.getItem("momentobooth-remote-token");
-  if (savedToken) {
-    state.remoteCamToken = savedToken;
-    startRemotePolling();
-    return;
-  }
-  
-  // 2. Scanner le réseau local (192.168.x.x et 10.x.x.x) pour trouver une caméra
-  const bases = [];
-  const hostname = location.hostname;
-  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-    // On est sur un réseau : déduire le préfixe
-    const parts = hostname.split('.');
-    if (parts.length === 4) {
-      bases.push(`${parts[0]}.${parts[1]}.${parts[2]}`);
-    }
-  }
-  // Bases par défaut courantes
-  if (!bases.includes('192.168.1')) bases.push('192.168.1');
-  if (!bases.includes('192.168.0')) bases.push('192.168.0');
-  if (!bases.includes('10.0.0')) bases.push('10.0.0');
-  
-  // Test rapide : est-ce que notre propre serveur a une caméra active ?
-  try {
-    const res = await fetch('/api/remote-camera/active', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.token) {
-        state.remoteCamToken = data.token;
-        localStorage.setItem("momentobooth-remote-token", data.token);
-        startRemotePolling();
-        toast("Caméra trouvée !");
-        return;
-      }
-    }
-  } catch {}
-  
-  // Scan réseau (limité à 20 hôtes pour ne pas surcharger)
-  let found = false;
-  for (const base of bases) {
-    if (found) break;
-    const promises = [];
-    for (let i = 1; i <= 20; i++) {
-      const ip = `${base}.${i}`;
-      if (ip === hostname) continue;
-      promises.push(
-        fetch(`http://${ip}:8787/api/remote-camera/active`, { 
-          signal: AbortSignal.timeout(1500),
-          cache: 'no-store'
-        }).then(r => r.ok ? r.json() : null).catch(() => null)
-      );
-    }
-    const results = await Promise.allSettled(promises);
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value?.token) {
-        state.remoteCamToken = r.value.token;
-        localStorage.setItem("momentobooth-remote-token", r.value.token);
-        startRemotePolling();
-        toast(`Caméra trouvée sur ${base}.x !`);
-        found = true;
-        break;
-      }
-    }
-  }
-  
-  if (!found) {
-    toast("Aucune caméra trouvée. Entrez le token manuellement.");
-    // Afficher le champ de saisie manuelle
-    const tokenInput = document.getElementById("remote-connect-token");
-    if (tokenInput) {
-      tokenInput.focus();
-      tokenInput.placeholder = "Entrez le token de la caméra";
-    }
-  }
-}
-
-/* ════════════════════════════════════════════════════════════
-   FILE D'UPLOAD PERSISTANTE (P0 — PWA offline-safe)
-   Stocke les uploads échoués dans IndexedDB et les rejoue quand
-   le réseau revient.
-   ════════════════════════════════════════════════════════════ */
-const UPLOAD_QUEUE_STORE = "uploadQueue";
-let _uploadQueueTimer = null;
-
-async function db() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open("momentobooth", 2);
-    req.onupgradeneeded = (e) => {
-      const d = e.target.result;
-      if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
-      if (!d.objectStoreNames.contains("moments")) d.createObjectStore("moments", { keyPath: "id" });
-      if (!d.objectStoreNames.contains(UPLOAD_QUEUE_STORE)) d.createObjectStore(UPLOAD_QUEUE_STORE, { keyPath: "id", autoIncrement: true });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function addToUploadQueue(item) {
-  try {
-    const d = await db();
-    return new Promise((resolve, reject) => {
-      const tx = d.transaction(UPLOAD_QUEUE_STORE, "readwrite");
-      tx.objectStore(UPLOAD_QUEUE_STORE).add({ ...item, queuedAt: Date.now() });
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch { /* quota ou IDB indisponible : on perd l'upload (logué) */ }
-}
-
-async function processUploadQueue() {
-  try {
-    const d = await db();
-    const items = await new Promise((resolve, reject) => {
-      const tx = d.transaction(UPLOAD_QUEUE_STORE, "readonly");
-      const req = tx.objectStore(UPLOAD_QUEUE_STORE).getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
-    if (!items.length) return;
-    
-    for (const item of items) {
-      try {
-        const form = new FormData();
-        form.append("photo", item.blob, item.filename || "photo.jpg");
-        const headers = {};
-        if (item.guestToken) headers["x-guest-token"] = item.guestToken;
-        if (item.guestHostKey) headers["x-guest-host-key"] = item.guestHostKey;
-        
-        const res = await fetch("/api/photos", { method: "POST", headers, body: form });
-        if (res.ok) {
-          // Succès : retirer de la queue
-          const d2 = await db();
-          await new Promise((resolve, reject) => {
-            const tx = d2.transaction(UPLOAD_QUEUE_STORE, "readwrite");
-            tx.objectStore(UPLOAD_QUEUE_STORE).delete(item.id);
-            tx.oncomplete = resolve;
-            tx.onerror = () => reject(tx.error);
-          });
-        }
-      } catch { /* réseau toujours down : on réessaiera plus tard */ }
-    }
-  } catch { /* lecture queue impossible */ }
-}
-
-function startUploadQueueProcessor() {
-  if (_uploadQueueTimer) return;
-  _uploadQueueTimer = setInterval(() => { void processUploadQueue(); }, 10000);
-  // Traiter immédiatement au démarrage
-  void processUploadQueue();
-}
-
-function stopUploadQueueProcessor() {
-  if (_uploadQueueTimer) { clearInterval(_uploadQueueTimer); _uploadQueueTimer = null; }
-}
-
-/* ════════════════════════════════════════════════════════════
    INIT
    ════════════════════════════════════════════════════════════ */
-init();
+// Le module doit toujours révéler une erreur exploitable au lieu de laisser
+// l'interface figée si une régression future survient avant/pendant init().
+void init().catch((error) => {
+  console.error("[MomentoBooth] démarrage impossible:", error);
+  try {
+    hideSplash();
+    showCamDiag(`démarrage impossible: ${error?.message || "erreur inconnue"}`);
+    const cameraError = $("camera-error");
+    cameraError?.classList.remove("hidden");
+    const text = cameraError?.querySelector(".camera-error-text");
+    if (text) text.textContent = "MomentoBooth n'a pas pu démarrer complètement. Rechargez la page puis réessayez.";
+  } catch { /* même le diagnostic doit rester sans danger */ }
+});
 
 // Préchauffe le ping serveur dès l'ouverture (en arrière-plan, non bloquant) :
 // au moment de la première capture, on sait déjà si le serveur (local ou Modal)

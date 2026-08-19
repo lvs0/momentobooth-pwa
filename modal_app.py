@@ -3,7 +3,7 @@
 Déploiement :
     modal deploy modal_app.py
 
-v85 — portail de rôle, corbeille, eventId permanent, PIN organisateur, fix return app.js.
+v87 — réveil par visage, interface tablette paysage et base Lens progressive, avec récupération PWA réseau-first.
 """
 
 import subprocess
@@ -23,14 +23,12 @@ image = (
         "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
         "apt-get install -y nodejs",
     )
-    .run_commands("echo 'cache-bust-v86-'$(date +%s)")
     .workdir("/app")
     .add_local_file("server/package.json", "/app/server/package.json", copy=True)
+    .add_local_file("server/package-lock.json", "/app/server/package-lock.json", copy=True)
     .run_commands(
-        "cd /app/server && npm install --omit=dev --no-audit --no-fund",
+        "cd /app/server && npm ci --omit=dev --no-audit --no-fund",
     )
-    # Forcer Modal à réinjecter le contenu de index.html (sinon il sert la version cachée)
-    .add_local_file("public/index.html", "/app/public/index.html", copy=True)
     .add_local_dir(".", "/app", ignore=[".git", "node_modules", "photos", "__pycache__", ".venv", "server/node_modules"])
 )
 
@@ -43,6 +41,10 @@ app = modal.App(APP_NAME)
     image=image,
     volumes={PHOTOS_MOUNT: volume},
     timeout=10 * 60,
+    # Les sessions de pairage et leur code court sont un état éphémère
+    # partagé par fichiers ; un seul conteneur évite les lectures stale entre
+    # réplicas Modal tout en gardant quatre requêtes HTTP concurrentes.
+    max_containers=1,
 )
 # Plusieurs téléphones peuvent déclencher un pack (rendu) en même temps :
 # laisser 4 requêtes concurrentes par conteneur au lieu de 1 (sérialisées).

@@ -3,49 +3,64 @@
 Photobooth PWA optimisée iPhone : filtres temps réel style Snap, minuteur au tap,
 fonds personnalisables, stickers visage (MediaPipe), partage QR / WhatsApp / SMS / email.
 
-## Architecture
+## Architecture — Modal uniquement
 
 ```
-iPhone / clients
-      │  (URL permanente)
-      ▼
-Cloudflare Tunnel (momentobooth.zoe.dev)   ← passerelle permanente
-      │
-      ▼
-Serveur Node local (port 8787)             ← ton PC, stockage local photos/
-      ├── public/   → PWA (index.html, css, js, MediaPipe local, icons)
-      ├── photos/   → images uploadées (stockage local)
-      └── server.js → API + QR + static
+iPhone / tablette / invités
+          │
+          ▼
+https://use97651--momentobooth-serve.modal.run
+          │
+          ▼
+Serveur Node dans Modal
+          ├── public/   → PWA, CSS, JS, MediaPipe, icônes
+          ├── /app/photos → volume Modal persistant
+          └── server.js  → API, QR, partage, GIF, ZIP, galerie
 ```
 
-**Les photos restent sur ton PC** (`~/Projets/momentobooth-pwa/photos/`).
-L'URL fixe passe par Cloudflare (domaine zoe.dev) — pas besoin d'héberger sur Render.
+**L'application publique et les photos sont hébergées sur Modal.**
+Le volume persistant `momentobooth-photos` conserve les photos et les sessions invitées
+lorsque le conteneur s'arrête ou redémarre. Le serveur local et le tunnel Cloudflare MomentoBooth sont volontairement arrêtés et
+ désactivés. Ils ne sont pas nécessaires au fonctionnement public.
 
-## Démarrage
+## Déploiement et vérification
 
 ```bash
-# Serveur (systemd)
-sudo systemctl enable --now momentobooth.service
+# Depuis ce dossier
+modal deploy modal_app.py
 
-# Tunnel Cloudflare
-sudo systemctl enable --now cloudflared-momentobooth.service
+# URL publique permanente de l'application
+curl https://use97651--momentobooth-serve.modal.run/
+```
 
-# Test local
-curl http://localhost:8787/                 # → 200
-curl -X POST http://localhost:8787/api/photos -F "photo=@x.jpg"
+Le déploiement est décrit dans `modal_app.py`. Il construit l'image Node, copie `public/`
+et `server/`, monte le volume Modal puis expose le serveur sur HTTPS.
+
+### Configuration distante Phase 3
+
+La PWA lit `GET /api/remote-config`. La configuration est stockée dans
+`photos/.remote-config.json` sur le volume Modal, avec un soutien désactivé par défaut.
+Pour la modifier sans republier la PWA, configure `MOMENTOBOOTH_CONFIG_ADMIN_KEY` puis
+utilise `POST /api/remote-config` avec le header `x-momento-config-key`. Les champs et
+URLs HTTPS sont strictement validés par le serveur.
+
+Pour un usage normal, ouvre uniquement :
+
+```text
+https://use97651--momentobooth-serve.modal.run
 ```
 
 ## Fonctionnalités
 
 - **Caméra** : front/back (flip), plein écran, permission navigator
-- **Filtres temps réel** : 12 filtres (N&B, Sépia, Vif, Froid, Chaud, Vintage, Noir+, Néon, Drame, Douce, Tropique) — bandeau de miniatures LIVE en haut (chaque vignette = vidéo avec son filtre), swipe pour changer
-- **Minuteur** : tap n'importe où sur l'écran → 3/5/10s → compte à rebours → flash → capture
+- **Looks photo** : 13 looks actuels (Original, Studio, Clean, Golden Hour, Rose, Ice, Cinéma, Film, Soft, Barbie, Party, N&B, Noir) — bandeau de sélection live et swipe pour changer
+- **Minuteur** : tap n'importe où sur l'écran → 5/10/15/20 s → compte à rebours → flash → capture
 - **Fonds** : dégradés (8), motif, image uploadée ; option chroma (retire fond vert)
-- **Stickers visage** : 10 stickers (👑🕶️👓💋🐝🌈❤️🎩⭐🥸) positionnés sur le visage via MediaPipe Face Landmarker (WASM local, offline)
-- **Collage** : 1 / 2 / 4 photos (state.burst)
+- **Accessoires visage** : 16 accessoires + retrait (couronne, lunettes, cowboy, moustache, oreilles, cornes, lapin, etc.) positionnés via MediaPipe Face Landmarker (WASM local, offline)
+- **Série photo** : 1 à 6 prises configurables ; le mode Rafale Flash+ sélectionne automatiquement la meilleure prise
 - **Galerie** : IndexedDB locale + galerie serveur
 - **Partage** : WhatsApp / SMS / email / QR code / partage natif iPhone (Web Share)
-- **PWA** : manifest + service worker (offline-first), icônes, safe-area iPhone
+- **PWA** : manifest + service worker de purge des anciennes installations (réseau direct), icônes, safe-area iPhone
 
 ## API
 
@@ -58,48 +73,14 @@ curl -X POST http://localhost:8787/api/photos -F "photo=@x.jpg"
 | GET | `/api/photos/:id/qr` | QR code de la photo |
 | GET | `/api/qr?url=...` | QR générique |
 
-## Render (option B)
+## Déploiement
 
-`render.yaml` inclus si tu préfères tout héberger dans le cloud (⚠️ photos sur Render,
-pas sur le PC). Déploiement : push sur GitHub → New Web Service → import → Render
-lit `render.yaml`. L'option A (Cloudflare tunnel) garde les photos sur ton PC.
+Modal est l'unique cible de production actuellement utilisée. Le volume persistant
+est configuré dans `modal_app.py` ; aucune exposition Cloudflare ou serveur local
+n'est requise.
 
 ## Hardware conseillé pour un photobooth
 
 - iPhone en kiosk (verrouiller Safari, mode lecture guidée)
 - Ou tablette Android/iPad branchée sur un support
 - Imprimante photo optionnelle (export depuis la galerie)
-
-## Sécurité (post-audit v83+)
-
-Headers HTTP par défaut (toutes les routes) :
-
-- `Content-Security-Policy` : strict, compatible MediaPipe WASM (`worker-src 'self' blob:`)
-- `X-Content-Type-Options: nosniff`
-- `Referrer-Policy: no-referrer`
-- `Permissions-Policy: camera=(self), microphone=(), geolocation=()`
-- `X-Frame-Options: DENY`
-
-Autres protections :
-
-- **Rate limit** `/api/photos` : 60 uploads / 5 min par IP (`express-rate-limit`)
-- **Path canonicalisation** sur toutes les routes photos (`safePhotoPath`) — bloque les `..` et les caractères hors whitelist
-- **`hostKey` non persisté** : la clé hôte du mode event n'est plus jamais écrite en `localStorage`. Elle reste en RAM ; si l'hôte recharge l'onglet, il doit la re-saisir dans le panneau (la clé lui a été affichée à la création avec un bouton Copier). Vol par XSS ⇒ accès limité à la session de l'onglet courant, l'attaquant doit déjà être dans le même origin
-- **Purge défensive** au chargement : tout ancien `localStorage` contenant un `hostKey` est effacé
-
-## Mode event (v84+)
-
-Pour utiliser MomentoBooth à un événement réel (mariage, soirée, team-building) :
-
-1. **Pré-flight** (J-1) : voir [`public/event/runbook.html`](public/event/runbook.html) — checklist matériel + technique
-2. **Jour J** : appui long sur « Galerie » → « Accès invités » → « Créer le QR + lien » → copier la clé hôte → partager le QR
-3. **Pendant** : les invités scannent, voient la galerie en direct
-4. **Après** : « 📦 Exporter l'event » dans le panneau → ZIP avec photos + manifest
-
-Endpoints clés :
-
-- `GET /api/guest/:token/health` : dry-run (TTL, photoCount, server info) — sans clé
-- `GET /api/guest/:token/export.zip` : ZIP de l'event (photos + manifest + lisez-moi) — avec `x-guest-host-key`
-- Rate limit assoupli à **300 uploads / 5 min** quand un `x-guest-host-key` valide est envoyé
-
-Voir [`SPEC.md`](SPEC.md) pour la spec complète.
