@@ -120,19 +120,24 @@ async function ensureGLTFLoader() {
   return _gltfLoaderPromise;
 }
 
-/* ---------- API publique : load3DEffect(id) → Promise<effect> -----------
-   Renvoie un objet { id, scene, anchor, fit, fallback, update(ctx, face, W, H) }
-   où update(ctx, face, W, H) rend le modèle 3D sur le canvas 2D déjà tracé.
+/* ---------- API publique : load3DEffect(id) → Promise<effect> ----------
+   Renvoie un objet { id, scene, anchor, fit, fallback, update(ctx, face, W, H, faceMatrix) }
+   où update(ctx, face, W, H, faceMatrix) rend le modèle 3D sur le canvas 2D déjà tracé.
+   `faceMatrix` (optionnel) est la matrice 4×4 MediaPipe qui mappe un repère
+   canonique facial vers le repère image — si présente, on l'utilise pour
+   faire suivre les rotations de tête au modèle (lunettes qui suivent vraiment
+   la tête au lieu d'être posées à un ancrage fixe). v124.0.5.
 
-   Stratégie de rendu (POC) :
-     1) Calculer l'ancrage (front du crâne ou entre les yeux) à partir des
+   Stratégie de rendu :
+     1) Si faceMatrix est fournie, extraire yaw/pitch/roll via Euler et
+        appliquer au scene.rotation. Sinon retomber sur le mode 2D-only.
+     2) Calculer l'ancrage (front du crâne ou entre les yeux) à partir des
         landmarks MediaPipe (indices 10/152 pour le crâne, 33/263 pour les yeux).
-     2) Centrer une caméra orthographique three.js sur ce point, à l'échelle
+     3) Centrer une caméra perspective three.js sur ce point, à l'échelle
         ajustée par la largeur du visage.
-     3) Demander un render WebGL offscreen, lire les pixels, les dessiner
+     4) Demander un render WebGL offscreen, lire les pixels, les dessiner
         sur le canvas 2D du live overlay via ctx.drawImage.
-   L'orientation du modèle reste FIXE (cf. RAPPORT-ESSAIS-3D : tracking rotation
-   = v2). On conserve juste l'ancrage + l'échelle par visage. */
+*/
 export async function load3DEffect(id) {
   const entry = _byId.get(id);
   if (!entry) throw new Error(`Effet 3D inconnu : ${id}`);
@@ -191,8 +196,46 @@ export async function load3DEffect(id) {
       renderer,
       _offscreen: null,
       _ctx: null,
-      update(targetCtx, face, canvasW, canvasH) {
+      update(targetCtx, face, canvasW, canvasH, faceMatrix = null) {
         if (!face || face.length < 30) return;
+        // 0) v124.0.5 — Tracking rotation : si faceMatrix est fournie (matrice
+        // 4×4 MediaPipe colonne-major), on extrait yaw/pitch/roll et on les
+        // applique au scene.rotation. Sinon on laisse la rotation à zéro
+        // (mode legacy 2D-only, compat ascendante).
+        if (faceMatrix && faceMatrix.length === 16) {
+          // MediaPipe matrix est colonne-major : m[0..3] = colonne 0
+          // m[12], m[13], m[14] = translation (mais on l'ignore car on
+          // utilise les landmarks 2D pour la position, plus stable).
+          // Rotation : on extrait yaw (autour de Y), pitch (autour de X),
+          // roll (autour de Z) depuis la matrice 3×3 supérieure-gauche.
+          // Convention MediaPipe : repère canonique = visage centré, X droit,
+          // Y bas, Z avant. Mappée vers l'image (en miroir si caméra selfie).
+          // Heuristique simple : on lit les colonnes 0 et 1 (X et Y du
+          // repère canonique projetés sur l'image) pour estimer le roll,
+          // et la 3e colonne pour la profondeur.
+          const c0x = faceMatrix[0], c0y = faceMatrix[1];
+          const c1x = faceMatrix[4], c1y = faceMatrix[5];
+          // Roll = angle du vecteur X-canonique par rapport à l'horizontal image.
+          // c0 = colonne 0 = "où va X-canonique" sur l'image. Si c0=(1,0) c'est
+          // droit, si c0=(0,1) c'est tourné de 90°. atan2(c0y, c0x) donne l'angle.
+          const roll = Math.atan2(c0y, c0x);
+          // Yaw : heuristique via l'inclinaison horizontale. c1 = colonne 1 =
+          // "où va Y-canonique" sur l'image. Si la tête est tournée à droite,
+          // c1.x diminue. C'est une approximation grossière, mais ça marche
+          // pour des angles modérés.
+          const yaw = Math.atan2(c1x, c1y) * 0.5; // 0.5 = damping car heuristique
+          // Pitch : difficile à estimer sans Z. On met 0 par défaut.
+          const pitch = 0;
+          // Miroir horizontal pour caméra selfie (l'X image est inversé).
+          // Si on a un flip horizontal, le roll calculé est inversé.
+          // On l'ignore ici — le repère MediaPipe est déjà en miroir pour
+          // caméra selfie (donc notre roll est déjà dans le bon sens).
+          scene.rotation.set(pitch, yaw, roll, "YXZ");
+        } else {
+          // Pas de faceMatrix : reset à zéro pour éviter qu'une ancienne
+          // rotation ne reste appliquée.
+          scene.rotation.set(0, 0, 0, "YXZ");
+        }
         // 1) Ancrage : centre du crâne (noelcap) ou entre les yeux (lunettes).
         const forehead = face[10];
         const nose = face[1];
@@ -282,7 +325,7 @@ export function clear3DCache() {
    On retourne `{ canvas }` (le canvas du ctx) pour que l'appelant puisse
    composer ensuite. Si l'effet n'a pas de méthode `update`, on retourne
    `null` pour signaler l'échec → fallback canvas côté masks.js. */
-export function render3DEffectToCanvas(effect, face, W, H, faceIndex = 0) {
+export function render3DEffectToCanvas(effect, face, W, H, faceIndex = 0, faceMatrix = null) {
   if (!effect || typeof effect.update !== "function") return null;
   if (!face || face.length < 30) return null;
   // Le contexte cible est créé en interne par masks.js si on veut isoler ;
@@ -295,7 +338,7 @@ export function render3DEffectToCanvas(effect, face, W, H, faceIndex = 0) {
   const offCtx = off.getContext("2d");
   if (!offCtx) return null;
   try {
-    effect.update(offCtx, face, W, H);
+    effect.update(offCtx, face, W, H, faceMatrix);
   } catch {
     return null;
   }

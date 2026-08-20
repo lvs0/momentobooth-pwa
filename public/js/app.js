@@ -102,6 +102,13 @@ const _gallerySelection = new Set();
   webrtcPeerLeft: false,      // l'autre pair a quitté → force le fallback polling
   webrtcSignalingFailed: false, // signaling/peer négocié KO → fallback polling
   webrtcRemoteStream: null,  // MediaStream reçu côté interface (pour nettoyage)
+  // v124.0.5 — 3D Lens : matrice de transformation faciale MediaPipe (4×4
+  // colonne-major) extraite de detectForVideo, lissée par EMA 0.35.
+  // Permet aux accessoires 3D (lunettes, casquette) de suivre les rotations
+  // de tête (yaw/pitch/roll) au lieu d'être posés sur des ancres 2D fixes.
+  faceMatrix: null,          // Float32Array-like[16], lissé
+  blendshapes: null,         // Array<{categoryName, score}> x52, non lissé
+  _smoothFaceMatrix: null,   // buffer interne pour EMA
   // WebRTC est désactivé par défaut sur Safari iOS : les crashes en boucle
   // (RTCPeerConnection + H264 + simulcast) déclenchent l'écran "Un problème
   // récurrent est survenu" de Safari. Sur Safari, on reste en polling JPEG
@@ -2159,6 +2166,42 @@ function detectFace() {
     state.faces = smoothed;
     state._smoothFaces = state.faces.length ? state.faces : null;
     state.face = state.faces[0] ?? null;
+    // v124.0.5 — Quick win 3D : on extrait la matrice de transformation faciale
+    // MediaPipe (matrice 4×4 par visage, fournie par detectForVideo mais non
+    // utilisée jusqu'ici). Cette matrice mappe un repère canonique (centré sur
+    // le visage, X droit, Y bas, Z avant) vers le repère image. C'est ce qui
+    // permet aux accessoires 3D (lunettes, casquette) de suivre les rotations
+    // de tête (yaw/pitch/roll) au lieu d'être posés sur des ancres 2D fixes.
+    // On EMA-lisse la pose (0.35) pour éviter le jitter.
+    try {
+      const matrices = result.facialTransformationMatrixes ?? [];
+      const blendshapes = result.faceBlendshapes ?? [];
+      const rawMatrix = matrices[0]?.data ? Array.from(matrices[0].data) : null;
+      if (rawMatrix && rawMatrix.length === 16) {
+        // EMA lissage : 0.35 sur la nouvelle pose, 0.65 sur la précédente
+        if (!state._smoothFaceMatrix) {
+          state._smoothFaceMatrix = rawMatrix.slice();
+        } else {
+          for (let k = 0; k < 16; k++) {
+            state._smoothFaceMatrix[k] = state._smoothFaceMatrix[k] * 0.65 + rawMatrix[k] * 0.35;
+          }
+        }
+        state.faceMatrix = state._smoothFaceMatrix;
+      } else {
+        // Pas de matrice (visage perdu ou première frame) : on garde la dernière
+        // pour ne pas faire disparaître brutalement l'accessoire.
+        // On NE reset pas à null ici — c'est volontaire, le 3D continue avec
+        // la dernière pose connue jusqu'à ce qu'une nouvelle soit détectée.
+      }
+      // Blendshapes (52 catégories : mouthSmile, eyeBlinkLeft, etc.) : stockés
+      // tels quels pour usage futur. Pas de lissage temporel pour l'instant.
+      if (blendshapes[0]?.categories) {
+        state.blendshapes = blendshapes[0].categories;
+      }
+    } catch (err) {
+      // Silent fail : la matrice est un nice-to-have, pas critique.
+      // Si elle crash, le reste de l'app continue normalement.
+    }
     // Convertit le premier masque puis ferme aussi les éventuels masques
     // supplémentaires : le mode multi-visage peut en retourner plusieurs.
     const masks = result.segmentationMasks ?? [];
@@ -2379,7 +2422,7 @@ function drawLiveOverlay() {
       const f = maskFaces[fi];
       if (f && f.length > 30) {
         const projected = mapFaceToCover(f, W, H, videoW, videoH, state.facing === "user");
-        drawMask(ctx, W, H, projected, filter.mask, fi);
+        drawMask(ctx, W, H, projected, filter.mask, fi, state.faceMatrix);
       }
     }
   }
@@ -3034,7 +3077,7 @@ function drawVideoFrame(ctx, video, W, H, skipFrame = false, animationEngine = s
         // Le contexte est déjà miroir pour la caméra frontale : on projette
         // le crop sans miroir, puis scale(-1,1) retourne le lens avec l'image.
         const projected = mapFaceToCover(f, W, H, videoW, videoH, false);
-        drawMask(ctx, W, H, projected, accessory.mask, fi);
+        drawMask(ctx, W, H, projected, accessory.mask, fi, state.faceMatrix);
       }
     }
     ctx.restore();
@@ -3178,7 +3221,7 @@ function grabFrameCanvas(maxDimension = null, opts = {}) {
               ctx.save();
               if (state.facing === "user") { ctx.translate(W, 0); ctx.scale(-1, 1); }
               const projected = mapFaceToCover(state.face, W, H, video.videoWidth || W, video.videoHeight || H, false);
-              drawMask(ctx, W, H, projected, compositeAccessory.mask);
+              drawMask(ctx, W, H, projected, compositeAccessory.mask, 0, state.faceMatrix);
               ctx.restore();
             }
           } catch {

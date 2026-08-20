@@ -716,7 +716,7 @@ const DRAWERS = {
   starry: drawStarry,
 };
 
-export function drawMask(ctx, W, H, face, maskId, faceIndex = 0) {
+export function drawMask(ctx, W, H, face, maskId, faceIndex = 0, faceMatrix = null) {
   if (!maskId || maskId === "none" || !face || face.length < 30) return;
   // Routage des effets 3D expérimentaux (noelcap-3d, glasses-3d, glasses-3d-rose).
   // Si three.js / WebGL indisponible → fallback canvas silencieux.
@@ -726,7 +726,7 @@ export function drawMask(ctx, W, H, face, maskId, faceIndex = 0) {
   // n'utilisent jamais les effets 3D.
   if (maskId.startsWith("3d:")) {
     const id = maskId.slice(3);
-    draw3DSync(ctx, W, H, face, id, faceIndex);
+    draw3DSync(ctx, W, H, face, id, faceIndex, faceMatrix);
     return;
   }
   const drawer = DRAWERS[maskId];
@@ -769,12 +769,12 @@ const _isLiteMode = (function () {
 })();
 if (!_isLiteMode) ensureFx3D();
 
-function draw3DSync(ctx, W, H, face, id, faceIndex) {
+function draw3DSync(ctx, W, H, face, id, faceIndex, faceMatrix = null) {
   // Si le module n'est pas encore prêt, on relance le déclenchement.
   if (!_fx3dLoadTried) ensureFx3D();
   const mod = _fx3d;
   if (!mod || !mod.is3DSupported || !mod.is3DSupported()) {
-    drawMask(ctx, W, H, face, fallbackFor(id), faceIndex);
+    drawMask(ctx, W, H, face, fallbackFor(id), faceIndex, faceMatrix);
     return;
   }
   // Tente de récupérer un effet déjà chargé (cache) ; sinon fallback
@@ -783,13 +783,13 @@ function draw3DSync(ctx, W, H, face, id, faceIndex) {
   if (!cached) {
     // Lance le chargement pour les frames suivantes, fallback cette frame.
     if (mod.load3DEffect) mod.load3DEffect(id).catch(() => {});
-    drawMask(ctx, W, H, face, fallbackFor(id), faceIndex);
+    drawMask(ctx, W, H, face, fallbackFor(id), faceIndex, faceMatrix);
     return;
   }
   // Rendu immédiat.
   try {
     if (typeof mod.render3DEffectToCanvas === "function") {
-      const out = mod.render3DEffectToCanvas(cached, face, W, H, faceIndex);
+      const out = mod.render3DEffectToCanvas(cached, face, W, H, faceIndex, faceMatrix);
       if (out && out.canvas) {
         ctx.save();
         ctx.globalCompositeOperation = "source-over";
