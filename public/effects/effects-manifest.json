@@ -1,0 +1,24 @@
+{
+  "version": "127-effects-1",
+  "defaultRenderer": "canvas",
+  "effects": [
+    {"id":"original","label":"Original","kind":"look","renderer":"canvas","source":"runtime/filters","fallback":null},
+    {"id":"studio","label":"Studio","kind":"look","renderer":"canvas","source":"runtime/filters","fallback":"original"},
+    {"id":"golden","label":"Golden Hour","kind":"look","renderer":"canvas","source":"runtime/filters","fallback":"original"},
+    {"id":"rose","label":"Rose","kind":"look","renderer":"canvas","source":"runtime/filters","fallback":"original"},
+    {"id":"ice","label":"Ice","kind":"look","renderer":"canvas","source":"runtime/filters","fallback":"original"},
+    {"id":"mono","label":"N&B","kind":"look","renderer":"canvas","source":"runtime/filters","fallback":"original"},
+    {"id":"glasses","label":"Lunettes Canvas","kind":"accessory","renderer":"canvas","source":"runtime/accessories","fallback":null},
+    {"id":"glasses-3d","label":"Lunettes 3D expérimental","kind":"accessory","renderer":"gltf","asset":"assets/third-party-ar/mindar-glasses/scene.gltf","binary":"assets/third-party-ar/mindar-glasses/scene.bin","fallback":"glasses","status":"experimental"},
+    {"id":"glasses-3d-rose","label":"Lunettes 3D rose/cyan","kind":"accessory","renderer":"gltf","asset":"assets/third-party-ar/variants/mindar-glasses-rose.gltf","binary":"assets/third-party-ar/variants/scene.bin","fallback":"glasses","status":"experimental"},
+    {"id":"noelcap-3d","label":"Casquette NoelCap 3D","kind":"accessory","renderer":"glb","asset":"assets/third-party-ar/noel-cap/NoelCap.glb","fallback":"crown","status":"experimental"}
+  ],
+  "policy": {
+    "neverConvertLooksToGlb": true,
+    "neverConvertParticlesToGlb": true,
+    "neverConvertFramesToGlb": true,
+    "keepOriginalAssets": true,
+    "requireCanvasFallback": true,
+    "requireRealDeviceValidation": true
+  }
+}

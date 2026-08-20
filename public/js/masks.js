@@ -718,11 +718,84 @@ const DRAWERS = {
 
 export function drawMask(ctx, W, H, face, maskId, faceIndex = 0) {
   if (!maskId || maskId === "none" || !face || face.length < 30) return;
+  // Routage des effets 3D expérimentaux (noelcap-3d, glasses-3d, glasses-3d-rose).
+  // Si three.js / WebGL indisponible → fallback canvas silencieux.
+  // Note : on importe effects-3d.js en synchrone ici (le module est léger
+  // ~11KB). three.js lui-même reste lazy dans load3DEffect via dynamic
+  // import du CDN — donc pas de coût 600KB pour les utilisateurs qui
+  // n'utilisent jamais les effets 3D.
+  if (maskId.startsWith("3d:")) {
+    const id = maskId.slice(3);
+    draw3DSync(ctx, W, H, face, id, faceIndex);
+    return;
+  }
   const drawer = DRAWERS[maskId];
   if (!drawer) return;
   ctx.save();
   try { drawer(ctx, face, W, H, faceIndex); } catch { /* masque sauté */ }
   ctx.restore();
+}
+
+/* Routage 3D synchrone. Import dynamique de effects-3d.js mis en cache
+   au top-level : le module lui-même est léger (~11KB), mais three.js
+   (≈600KB) reste lazy dans load3DEffect via dynamic import du CDN ESM.
+   Donc pas de coût 600KB pour les utilisateurs qui n'utilisent jamais
+   les effets 3D. Le module est chargé en parallèle de masks.js. Si
+   WebGL/three indisponible → fallback canvas immédiat (silencieux). */
+let _fx3d = null;
+let _fx3dLoadTried = false;
+let _fx3dLoading = null;
+function ensureFx3D() {
+  if (_fx3dLoadTried) return _fx3d;
+  if (_fx3dLoading) return _fx3d;
+  _fx3dLoading = import("./effects-3d.js?v=3d-1")
+    .then((m) => { _fx3d = m; _fx3dLoadTried = true; return m; })
+    .catch(() => { _fx3d = null; _fx3dLoadTried = true; return null; })
+    .finally(() => { _fx3dLoading = null; });
+  return null;
+}
+// Démarre le chargement dès que masks.js est évalué.
+ensureFx3D();
+
+function draw3DSync(ctx, W, H, face, id, faceIndex) {
+  // Si le module n'est pas encore prêt, on relance le déclenchement.
+  if (!_fx3dLoadTried) ensureFx3D();
+  const mod = _fx3d;
+  if (!mod || !mod.is3DSupported || !mod.is3DSupported()) {
+    drawMask(ctx, W, H, face, fallbackFor(id), faceIndex);
+    return;
+  }
+  // Tente de récupérer un effet déjà chargé (cache) ; sinon fallback
+  // cette frame. La frame suivante déclenchera load3DEffect.
+  const cached = mod.get3DEffect ? mod.get3DEffect(id) : null;
+  if (!cached) {
+    // Lance le chargement pour les frames suivantes, fallback cette frame.
+    if (mod.load3DEffect) mod.load3DEffect(id).catch(() => {});
+    drawMask(ctx, W, H, face, fallbackFor(id), faceIndex);
+    return;
+  }
+  // Rendu immédiat.
+  try {
+    if (typeof mod.render3DEffectToCanvas === "function") {
+      const out = mod.render3DEffectToCanvas(cached, face, W, H, faceIndex);
+      if (out && out.canvas) {
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.drawImage(out.canvas, 0, 0, W, H);
+        ctx.restore();
+        return;
+      }
+    }
+  } catch { /* render failed → fallback */ }
+  drawMask(ctx, W, H, face, fallbackFor(id), faceIndex);
+}
+
+function fallbackFor(id3d) {
+  // Le fallback est résolu via l'entrée FILTERS (champ fallback) mais
+  // ici on hardcode pour éviter une dépendance circulaire masks↔filters.
+  if (id3d === "noelcap-3d") return "crown";
+  if (id3d === "glasses-3d" || id3d === "glasses-3d-rose") return "glasses";
+  return "none";
 }
 
 export { faceBox };

@@ -93,6 +93,12 @@ export const FILTERS = [
   { id: "antennas",  name: "Antennes",         css: "saturate(1.1)", ops: [["saturate",1.1]], mask: "antennas",  color: false, icon: MASK_ICONS.antennas },
   { id: "bunny",      name: "Lapin",            css: "brightness(1.04) saturate(1.12)", ops: [["brightness",1.04],["saturate",1.12]], mask: "bunny",      color: false, icon: MASK_ICONS.bunny },
   { id: "starry",     name: "Yeux étoilés",     css: "brightness(1.03) saturate(1.16)", ops: [["brightness",1.03],["saturate",1.16]], mask: "starry",     color: false, icon: MASK_ICONS.starry },
+  // Effets 3D (expérimental — policy: requireCanvasFallback, requireRealDeviceValidation).
+  // Le mask préfixé "3d:" est intercepté par masks.js (drawMask) et draw3DEffect dans effects-3d.js.
+  // Si three.js / WebGL indisponible, fallback silencieux sur le canvas du mask.
+  { id: "noelcap-3d",      name: "Casquette NoelCap 3D ★",      css: "none", ops: [], mask: "3d:noelcap-3d",      color: false, icon: MASK_ICONS.crown,     experimental: true, fallback: "crown" },
+  { id: "glasses-3d",      name: "Lunettes MindAR 3D ★",        css: "none", ops: [], mask: "3d:glasses-3d",      color: false, icon: MASK_ICONS.glasses,    experimental: true, fallback: "glasses" },
+  { id: "glasses-3d-rose", name: "Lunettes MindAR 3D rose/cyan ★", css: "none", ops: [], mask: "3d:glasses-3d-rose", color: false, icon: MASK_ICONS.glasses,    experimental: true, fallback: "glasses" },
 ];
 
 /* Compatibilité : les anciennes préférences restent valides, mais pointent
