@@ -1388,11 +1388,20 @@ function applyWheelSelection(index, announce = true) {
   const item = PHOTO_FILTERS[safeIndex];
   const list = $("photo-filter-rail-list");
   const cards = [...(list?.querySelectorAll("[data-filter]") || [])];
+  // Anneau complet : -90° = position haute, pas -58° (ancienne demi-roue).
+  // L'écart dépend du nombre de filtres ; 360°/n couvre tout le cercle, mais
+  // 270°/n garde l'arc lisible (la sélection reste vers le haut).
+  const n = PHOTO_FILTERS.length;
+  const step = n <= 4 ? 70 : n <= 6 ? 55 : n <= 8 ? 42 : 30;
+  const baseAngle = -90; // commence en haut du cercle (12h)
   cards.forEach((card, i) => {
     card.classList.toggle("active", i === safeIndex);
     card.setAttribute("aria-selected", i === safeIndex ? "true" : "false");
-    card.style.setProperty("--wheel-angle", `${-58 + (i - safeIndex) * 14}deg`);
+    card.style.setProperty("--wheel-angle", `${baseAngle + (i - safeIndex) * step}deg`);
   });
+  // Sync le label central "Filtre : X"
+  const label = $("filter-rail-label");
+  if (label) label.textContent = `Filtre : ${item.name}`;
   if (state.photoFilterId !== item.id) applyFilter(item.id);
   if (announce) showFilterName(item.name);
 }

@@ -200,11 +200,15 @@ window.__mbBootStartedAt = performance.now();
     </button>
   </header>
 
-  <!-- Carrousel vertical des filtres photo : uniquement les filtres d'image -->
+  <!-- Anneau radial des filtres photo : uniquement les filtres d'image -->
   <div class="window-stack filter-rail" id="photo-filter-rail" aria-label="Filtres photo rapides">
     <div class="rail-caption">PHOTO</div>
     <video id="filter-wheel-live" class="filter-wheel-live" autoplay playsinline muted aria-hidden="true"></video>
     <div id="photo-filter-rail-list" class="filter-rail-list"></div>
+    <div class="filter-rail-meta" aria-live="polite">
+      <div id="filter-rail-label" class="filter-rail-label">Filtre : —</div>
+      <div class="filter-rail-hint">Glissez autour de l'anneau</div>
+    </div>
   </div>
 
   <!-- Indicateur mode AUTO -->
