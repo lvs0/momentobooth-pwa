@@ -1,5 +1,5 @@
 /* =========================================================
-   MomentoBooth — core entry point (v122)
+   MomentoBooth — core entry point (v123)
 
    Responsabilités :
    1. Poser le role "pending" et la pastille de diagnostic avant
@@ -17,7 +17,7 @@
    sont importés qu'à la demande par app.js lui-même (voir
    public/js/modules/*).
    ========================================================= */
-const APP_VERSION = "122";
+const APP_VERSION = "123";
 const FALLBACK_SPLASH_MS = 2500;
 
 // Diagnostic précoce : posé avant même que app.js ne soit parsé.
