@@ -96,6 +96,12 @@ const _gallerySelection = new Set();
   remoteFrameAgeMs: null,
   remoteLastFrameId: "",
   remoteApplying: false,
+  webrtcActive: false,        // true quand le flux P2P remplace le polling JPEG
+  webrtcSocket: null,         // Socket.IO connecté (caméra ou interface)
+  webrtcPC: null,             // RTCPeerConnection active
+  webrtcPeerLeft: false,      // l'autre pair a quitté → force le fallback polling
+  webrtcSignalingFailed: false, // signaling/peer négocié KO → fallback polling
+  webrtcRemoteStream: null,  // MediaStream reçu côté interface (pour nettoyage)
   deviceRole: "mixed",      // camera | interface | mixed — choisi au démarrage
   cameraStopRequested: false,
   roleRemember: true,
@@ -4771,6 +4777,75 @@ let _deviceAnnounceResourceActive = false;
 let _pairRequestResourceActive = false;
 let _cameraDiscoveryResourceActive = false;
 
+/* ─── WebRTC peer-to-peer (signalisation via Socket.IO) ───
+   Le flux caméra déportée peut passer par deux canaux :
+     1. P2P via WebRTC (faible latence, pas de serveur dans la boucle pour les média)
+     2. Polling JPEG via HTTP (fallback robuste si WebRTC indisponible / pair KO)
+   Les deux pairs se connectent au même serveur Socket.IO qui ne fait que relayer
+   les messages SDP/ICE. La caméra est l'offerer, l'interface est l'answerer. */
+const WEBRTC_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+let _webrtcInitGeneration = 0; // borne toute tentative obsolète
+let _webrtcOfferRetryTimer = null;
+let _webrtcOfferRetries = 0;
+
+function buildWebRtcSocket(auth) {
+  // `io` est la globale posée par /socket.io/socket.io.js chargé dans index.html.
+  // Si la lib n'est pas chargée (ex. PWA installée en mode offline au démarrage),
+  // on renvoie null sans crash : le polling JPEG reste actif.
+  /* global io */
+  if (typeof io !== "function") return null;
+  try {
+    const socket = io({ auth, transports: ["websocket", "polling"], reconnection: true, timeout: 4000 });
+    return socket;
+  } catch {
+    return null;
+  }
+}
+
+function closeWebrtcPeer(reason) {
+  // Nettoie toute la peer connection + socket sans casser le reste du state.
+  // `reason` sert juste de log diagnostic.
+  if (_webrtcOfferRetryTimer) { clearTimeout(_webrtcOfferRetryTimer); _webrtcOfferRetryTimer = null; }
+  _webrtcOfferRetries = 0;
+  try {
+    if (state.webrtcPC) {
+      try { state.webrtcPC.ontrack = null; state.webrtcPC.oniceconnectionstatechange = null; state.webrtcPC.onicecandidate = null; } catch {}
+      try { state.webrtcPC.close(); } catch {}
+    }
+  } catch {}
+  try {
+    if (state.webrtcRemoteStream) {
+      state.webrtcRemoteStream.getTracks?.().forEach((t) => { try { t.stop(); } catch {} });
+    }
+  } catch {}
+  try { state.webrtcSocket?.disconnect(); } catch {}
+  state.webrtcPC = null;
+  state.webrtcSocket = null;
+  state.webrtcRemoteStream = null;
+  state.webrtcActive = false;
+  state.webrtcPeerLeft = false;
+  state.webrtcSignalingFailed = false;
+  if (reason) console.debug("[MomentoBooth][webrtc] peer closed:", reason);
+}
+
+async function makeRtcPeerConnection(stream) {
+  // Crée une RTCPeerConnection avec ICE servers publics. Si l'API n'est pas
+  // dispo (vieux navigateur, contexte non secure), renvoie null — fallback polling.
+  if (typeof RTCPeerConnection !== "function") return null;
+  try {
+    const pc = new RTCPeerConnection({ iceServers: WEBRTC_ICE_SERVERS });
+    if (stream) {
+      // Côté caméra : on publie la track vidéo locale.
+      for (const track of stream.getTracks?.() || []) {
+        try { pc.addTrack(track, stream); } catch {}
+      }
+    }
+    return pc;
+  } catch {
+    return null;
+  }
+}
+
 async function startRemoteCamera() {
   const generation = ++_remoteCameraGeneration;
   stopRemoteCommandPolling();
@@ -5273,8 +5348,20 @@ function startRemotePublishing() {
     telemetry.resourceStart("temporaryCanvases", { kind: "remote-publisher" });
     _remotePubCanvasResourceActive = true;
   }
+  // Tente une connexion WebRTC P2P (offerer). Si ça aboutit, le flux passe
+  // par la track RTC et on skip le POST JPEG. Sinon (lib absente, pas de pair,
+  // signaling KO), on retombe immédiatement sur le polling JPEG.
+  void initCameraWebrtc(generation);
   const publish = async () => {
     if (generation !== _remotePubGeneration || _remotePubBusy || !state.stream || !camera.videoWidth || document.hidden) return;
+    // WebRTC actif : le flux passe par la track, on skip le POST JPEG mais on
+    // garde la boucle vivante pour reprendre le polling si le P2P tombe.
+    if (state.webrtcActive) {
+      if (generation === _remotePubGeneration && state.remoteCamMode === "camera" && !document.hidden) {
+        _remotePubTimer = setTimeout(publish, 1000);
+      }
+      return;
+    }
     _remotePubBusy = true;
     try {
       // Flux distant : 640 px à ~1,8 i/s (cadence doublée pour réduire la
@@ -5322,6 +5409,112 @@ function stopRemotePublishing() {
     telemetry.resourceStop("temporaryCanvases", { kind: "remote-publisher" });
     _remotePubCanvasResourceActive = false;
   }
+  // Coupe la peer connection caméra (offerer). L'interface gère la sienne.
+  closeWebrtcPeer("stopRemotePublishing");
+}
+
+/* ─── WebRTC côté caméra (offerer) ───
+   - Ouvre le socket Socket.IO avec auth caméra (token session + hostKey)
+   - Crée RTCPeerConnection, ajoute la track vidéo de state.stream
+   - Crée l'offer, l'envoie via socket.emit("webrtc:offer")
+   - Écoute "webrtc:answer" pour setRemoteDescription
+   - Échange les ICE candidates via "webrtc:ice"
+   - Sur iceConnectionState "connected"/"completed", pose webrtcActive = true
+   - Sur "webrtc:peer-left" ou iceConnectionState "failed/disconnected", fallback polling
+   - Re-tente l'offer toutes les 3 s (max 4) tant qu'aucune answer n'arrive */
+async function initCameraWebrtc(generation) {
+  if (generation !== _remotePubGeneration) return;
+  if (state.webrtcActive || state.webrtcPC) return;
+  // S'assurer qu'on a un flux local à publier (la caméra peut encore démarrer).
+  let stream = state.stream;
+  if (!stream) {
+    // On attend un peu : startRemotePublishing est appelé juste après
+    // startRemoteCamera et le getUserMedia peut ne pas être prêt.
+    for (let i = 0; i < 8 && generation === _remotePubGeneration; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      stream = state.stream;
+      if (stream) break;
+    }
+  }
+  if (generation !== _remotePubGeneration || !stream) return;
+  const myGen = ++_webrtcInitGeneration;
+  const socket = buildWebRtcSocket({ token: state.remoteCamToken, role: "camera", key: state.remoteCamHostKey });
+  if (!socket) { state.webrtcSignalingFailed = true; return; }
+  state.webrtcSocket = socket;
+  state.webrtcPeerLeft = false;
+  state.webrtcSignalingFailed = false;
+  socket.on("connect_error", () => { if (myGen === _webrtcInitGeneration) state.webrtcSignalingFailed = true; });
+  socket.on("disconnect", () => {
+    if (myGen === _webrtcInitGeneration) {
+      // Reconnexion automatique : on garde la socket, on coupe juste l'active.
+      state.webrtcActive = false;
+    }
+  });
+  socket.on("webrtc:answer", async (answer) => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    try { await state.webrtcPC.setRemoteDescription(new RTCSessionDescription(answer)); }
+    catch (err) { console.warn("[MomentoBooth][webrtc] setRemoteDescription(answer) KO:", err?.message || err); state.webrtcSignalingFailed = true; }
+  });
+  socket.on("webrtc:ice", async (candidate) => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    try { if (candidate) await state.webrtcPC.addIceCandidate(new RTCIceCandidate(candidate)); }
+    catch { /* ICE race fréquent au démarrage */ }
+  });
+  socket.on("webrtc:peer-left", () => {
+    if (myGen !== _webrtcInitGeneration) return;
+    state.webrtcPeerLeft = true;
+    state.webrtcActive = false;
+    // L'interface est repartie : on relance une offer dès qu'elle revient.
+  });
+  socket.connect();
+
+  const pc = await makeRtcPeerConnection(stream);
+  if (myGen !== _webrtcInitGeneration || !pc) { state.webrtcSignalingFailed = true; return; }
+  state.webrtcPC = pc;
+
+  pc.oniceconnectionstatechange = () => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    const s = state.webrtcPC.iceConnectionState;
+    if (s === "connected" || s === "completed") {
+      state.webrtcActive = true;
+      state.webrtcSignalingFailed = false;
+      telemetry.emit("webrtc-connected", { role: "camera" });
+    } else if (s === "failed" || s === "disconnected" || s === "closed") {
+      state.webrtcActive = false;
+      if (s === "failed") state.webrtcSignalingFailed = true;
+    }
+  };
+  pc.onicecandidate = (event) => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcSocket) return;
+    state.webrtcSocket.emit("webrtc:ice", event.candidate || null);
+  };
+  // Si la track locale s'arrête (ex. caméra coupée), on coupe le peer.
+  pc.onconnectionstatechange = () => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    if (state.webrtcPC.connectionState === "failed") {
+      state.webrtcActive = false;
+      state.webrtcSignalingFailed = true;
+    }
+  };
+
+  // Envoie l'offer, et re-tente jusqu'à recevoir une answer ou épuiser les essais.
+  const sendOffer = async () => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC || !state.webrtcSocket || state.webrtcActive) return;
+    try {
+      const offer = await state.webrtcPC.createOffer({ offerToReceiveVideo: false });
+      await state.webrtcPC.setLocalDescription(offer);
+      state.webrtcSocket.emit("webrtc:offer", offer);
+      _webrtcOfferRetries += 1;
+      if (_webrtcOfferRetries < 4 && !state.webrtcActive && myGen === _webrtcInitGeneration) {
+        _webrtcOfferRetryTimer = setTimeout(sendOffer, 3000);
+      }
+    } catch (err) {
+      state.webrtcSignalingFailed = true;
+      console.warn("[MomentoBooth][webrtc] createOffer KO:", err?.message || err);
+    }
+  };
+  // Petit délai pour laisser la socket se connecter + l'interface rejoindre la room.
+  setTimeout(sendOffer, 800);
 }
 
 async function connectRemoteCamera(token) {
@@ -5776,8 +5969,20 @@ function startRemotePolling() {
     telemetry.resourceStart("activePollers", { role: "interface" });
     _remotePollResourceActive = true;
   }
+  // Tente une connexion WebRTC P2P (answerer). Si la caméra envoie une offer,
+  // on répond et on branche le flux entrant sur l'aperçu. Sinon (pas de pair,
+  // signaling KO), on retombe sur le polling JPEG.
+  void initInterfaceWebrtc(generation);
   const poll = async () => {
     if (generation !== _remotePollGeneration || _remotePollBusy || !state.remoteCamToken || document.hidden) return;
+    // WebRTC actif : le flux passe par la track, on skip le GET JPEG mais on
+    // garde la boucle vivante pour reprendre le polling si le P2P tombe.
+    if (state.webrtcActive) {
+      if (generation === _remotePollGeneration && state.remoteCamMode === "controller" && !document.hidden) {
+        _remotePollTimer = setTimeout(poll, 1000);
+      }
+      return;
+    }
     _remotePollBusy = true;
     try {
       const result = await remoteFetchBlob(`/api/remote-camera/${encodeURIComponent(state.remoteCamToken)}/frame?t=${Date.now()}`, { cache: "no-store" }, 1500);
@@ -5865,6 +6070,133 @@ function stopRemotePolling() {
     telemetry.resourceStop("activePollers", { role: "interface" });
     _remotePollResourceActive = false;
   }
+  // Coupe la peer connection interface (answerer). La caméra gère la sienne.
+  closeWebrtcPeer("stopRemotePolling");
+}
+
+/* ─── WebRTC côté interface (answerer) ───
+   - Ouvre le socket Socket.IO avec auth interface (controllerToken comme key)
+   - Crée RTCPeerConnection (pas de track locale : on ne fait que recevoir)
+   - Écoute "webrtc:offer" → setRemoteDescription + createAnswer + emit answer
+   - Échange les ICE candidates via "webrtc:ice"
+   - Sur pc.ontrack, branche le stream entrant sur _remotePreviewCanvas
+   - Sur iceConnectionState "connected"/"completed", pose webrtcActive = true
+   - Sur "webrtc:peer-left" ou iceConnectionState "failed/disconnected", fallback polling */
+async function initInterfaceWebrtc(generation) {
+  if (generation !== _remotePollGeneration) return;
+  if (state.webrtcActive || state.webrtcPC) return;
+  const myGen = ++_webrtcInitGeneration;
+  // Côté interface, state.remoteCamToken EST le controllerToken (délivré au pair).
+  const socket = buildWebRtcSocket({ token: state.remoteCamToken, role: "interface", key: state.remoteCamToken });
+  if (!socket) { state.webrtcSignalingFailed = true; return; }
+  state.webrtcSocket = socket;
+  state.webrtcPeerLeft = false;
+  state.webrtcSignalingFailed = false;
+  socket.on("connect_error", () => { if (myGen === _webrtcInitGeneration) state.webrtcSignalingFailed = true; });
+  socket.on("disconnect", () => {
+    if (myGen === _webrtcInitGeneration) state.webrtcActive = false;
+  });
+  socket.on("webrtc:offer", async (offer) => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    try {
+      await state.webrtcPC.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await state.webrtcPC.createAnswer();
+      await state.webrtcPC.setLocalDescription(answer);
+      state.webrtcSocket.emit("webrtc:answer", answer);
+    } catch (err) {
+      console.warn("[MomentoBooth][webrtc] answer KO:", err?.message || err);
+      state.webrtcSignalingFailed = true;
+    }
+  });
+  socket.on("webrtc:ice", async (candidate) => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    try { if (candidate) await state.webrtcPC.addIceCandidate(new RTCIceCandidate(candidate)); }
+    catch { /* ICE race */ }
+  });
+  socket.on("webrtc:peer-left", () => {
+    if (myGen !== _webrtcInitGeneration) return;
+    state.webrtcPeerLeft = true;
+    state.webrtcActive = false;
+  });
+  socket.connect();
+
+  const pc = await makeRtcPeerConnection(null);
+  if (myGen !== _webrtcInitGeneration || !pc) { state.webrtcSignalingFailed = true; return; }
+  state.webrtcPC = pc;
+
+  pc.ontrack = (event) => {
+    if (myGen !== _webrtcInitGeneration) return;
+    const stream = event.streams?.[0];
+    if (!stream) return;
+    state.webrtcRemoteStream = stream;
+    // Branche le flux P2P sur le canvas d'aperçu via un <video> éphémère.
+    // On réutilise _remotePreviewCanvas (déjà créé par connectRemoteCamera).
+    if (!_remotePreviewCanvas) {
+      _remotePreviewCanvas = document.createElement("canvas");
+      _remotePreviewCanvas.id = "remote-preview";
+      _remotePreviewCanvas.style.cssText = "position:absolute;inset:0;z-index:6;width:100%;height:100%;background:#000;";
+      const zone = $("camera-zone");
+      if (zone) zone.appendChild(_remotePreviewCanvas);
+    }
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    video.srcObject = stream;
+    video.style.cssText = "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;";
+    document.body.appendChild(video);
+    video.play().catch(() => {});
+    const drawFrame = () => {
+      if (myGen !== _webrtcInitGeneration || !state.webrtcActive) { video.remove(); return; }
+      if (video.videoWidth && _remotePreviewCanvas) {
+        if (_remotePreviewCanvas.width !== video.videoWidth) _remotePreviewCanvas.width = video.videoWidth;
+        if (_remotePreviewCanvas.height !== video.videoHeight) _remotePreviewCanvas.height = video.videoHeight;
+        _remotePreviewCanvas.getContext("2d").drawImage(video, 0, 0);
+        state.remoteCamW = _remotePreviewCanvas.width;
+        state.remoteCamH = _remotePreviewCanvas.height;
+        state.remoteLastFrameReceivedAt = Date.now();
+        feedCustomizerRemotePreview();
+      }
+      requestAnimationFrame(drawFrame);
+    };
+    requestAnimationFrame(drawFrame);
+  };
+  pc.oniceconnectionstatechange = () => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    const s = state.webrtcPC.iceConnectionState;
+    if (s === "connected" || s === "completed") {
+      state.webrtcActive = true;
+      state.webrtcSignalingFailed = false;
+      setRemoteConnectionStatus("connected", "Flux caméra (WebRTC P2P)");
+      telemetry.emit("webrtc-connected", { role: "interface" });
+    } else if (s === "failed" || s === "disconnected" || s === "closed") {
+      state.webrtcActive = false;
+      if (s === "failed") state.webrtcSignalingFailed = true;
+    }
+  };
+  pc.onicecandidate = (event) => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcSocket) return;
+    state.webrtcSocket.emit("webrtc:ice", event.candidate || null);
+  };
+  pc.onconnectionstatechange = () => {
+    if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
+    if (state.webrtcPC.connectionState === "failed") {
+      state.webrtcActive = false;
+      state.webrtcSignalingFailed = true;
+    }
+  };
+  // Si aucune offer n'arrive dans les ~8 s, on marque signaling failed → le
+  // polling JPEG prend le relais. On ne coupe pas la socket (reconnexion auto).
+  setTimeout(() => {
+    if (myGen !== _webrtcInitGeneration) return;
+    if (!state.webrtcActive && !state.webrtcSignalingFailed) {
+      // Laisse encore une chance : la caméra peut avoir un cold start long.
+      // On ne marque failed que si vraiment aucune offer n'a été vue.
+      if (!state.webrtcPC?.remoteDescription) {
+        // Pas fatal : le polling reste actif. On garde la socket ouverte.
+      }
+    }
+  }, 8000);
 }
 
 /* Telecharge la derniere frame distante et retourne un canvas (pour la capture). */
