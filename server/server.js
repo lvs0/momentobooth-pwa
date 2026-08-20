@@ -716,7 +716,7 @@ app.get("/api/photos", rateLimit(120), (_req, res) => {
    On refuse tout autre nom (traversée de répertoire impossible grâce à
    basename, mais surtout : jamais de lecture de .sessions.json ou d'autres
    fichiers internes via cette route publique). */
-const PHOTO_NAME_RE = /^\d{10,15}-[0-9a-f]{8}\.(jpg|gif)$/i;
+const PHOTO_NAME_RE = /^\d{10,15}-[0-9a-f]{8}(--[a-z_]+)?\.(jpg|gif)$/i;
 const PHOTO_DELETE_TOKENS_FILE = path.join(PHOTOS_DIR, ".photo-delete-tokens.json");
 const photoDeleteTokens = new Map();
 function loadPhotoDeleteTokens() {
