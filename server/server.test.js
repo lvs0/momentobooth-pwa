@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import jpeg from "jpeg-js";
+import { io as ioc } from "socket.io-client";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = 18_700 + Math.floor(Math.random() * 800);
@@ -496,5 +497,107 @@ test("le PIN organisateur n'est jamais accepté en clair et se verrouille après
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: "1818" }),
   });
   assert.equal(lockedOut.status, 429);
+});
+
+/* ════════════════════════════════════════════════════════════
+   Tests WebRTC — signalisation Socket.IO pour la caméra déportée
+   ════════════════════════════════════════════════════════════ */
+function socketConnect(auth, timeoutMs = 3000) {
+  return ioc(baseUrl, { auth, transports: ["websocket"], timeout: timeoutMs, reconnection: false, forceNew: true });
+}
+
+function socketConnected(socket, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("socket connect timeout")), timeoutMs);
+    socket.once("connect", () => { clearTimeout(timer); resolve(); });
+    socket.once("connect_error", (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
+function socketDisconnected(socket, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("socket disconnect timeout")), timeoutMs);
+    socket.once("disconnect", () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+async function createRemoteSessionForWebrtc() {
+  const sessionResponse = await fetch(`${baseUrl}/api/remote-camera/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(sessionResponse.status, 201);
+  const session = await sessionResponse.json();
+  // Jumelage pour que la session soit active et que controllerToken soit délivré.
+  const pairResponse = await fetch(`${baseUrl}/api/remote-camera/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: session.pairCode }),
+  });
+  assert.equal(pairResponse.status, 200);
+  const pair = await pairResponse.json();
+  return { token: session.token, hostKey: session.hostKey, controllerToken: pair.accessToken };
+}
+
+test("Socket.IO accepte une connexion caméra avec token + hostKey valides", async () => {
+  const session = await createRemoteSessionForWebrtc();
+  remoteSession = { token: session.token, hostKey: session.hostKey };
+  const socket = socketConnect({ token: session.token, role: "camera", key: session.hostKey });
+  try {
+    await socketConnected(socket);
+    assert.equal(socket.connected, true);
+  } finally {
+    socket.disconnect();
+  }
+  await fetch(`${baseUrl}/api/remote-camera/${session.token}`, {
+    method: "DELETE", headers: { "x-host-key": session.hostKey },
+  });
+  remoteSession = null;
+});
+
+test("Socket.IO déconnecte immédiatement une connexion sans token", async () => {
+  const socket = socketConnect({ role: "camera", key: "anything" });
+  try {
+    // Doit se déconnecter (ou refuser la connexion) rapidement : pas de connect.
+    // Le middleware serveur refuse avec next(err) → le client reçoit un
+    // connect_error (rejet de socketConnected) ou, si la connexion s'établit
+    // quand même, une déconnexion immédiate.
+    await assert.rejects(socketConnected(socket, 2500), /timeout|connect_error|disconnect|auth|session|key|invalid/i);
+    assert.equal(socket.connected, false);
+  } finally {
+    socket.disconnect();
+  }
+});
+
+test("Socket.IO relaye le signaling WebRTC entre caméra et interface", async () => {
+  const session = await createRemoteSessionForWebrtc();
+  remoteSession = { token: session.token, hostKey: session.hostKey };
+  const camSocket = socketConnect({ token: session.token, role: "camera", key: session.hostKey });
+  const ifaceSocket = socketConnect({ token: session.controllerToken, role: "interface", key: session.controllerToken });
+  try {
+    await socketConnected(camSocket);
+    await socketConnected(ifaceSocket);
+    // Laisse un instant pour que les deux pairs rejoignent la room cam:<token>.
+    await wait(150);
+    // La caméra envoie une offer factice ; l'interface doit la recevoir.
+    const offer = { type: "offer", sdp: "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\n" };
+    const received = new Promise((resolve) => { ifaceSocket.once("webrtc:offer", resolve); });
+    camSocket.emit("webrtc:offer", offer);
+    const got = await received;
+    assert.deepEqual(got, offer);
+    // Vérifie aussi le relay inverse : l'interface renvoie une answer.
+    const answer = { type: "answer", sdp: "v=0\r\no=- 2 1 IN IP4 127.0.0.1\r\ns=-\r\n" };
+    const gotAnswer = new Promise((resolve) => { camSocket.once("webrtc:answer", resolve); });
+    ifaceSocket.emit("webrtc:answer", answer);
+    assert.deepEqual(await gotAnswer, answer);
+  } finally {
+    camSocket.disconnect();
+    ifaceSocket.disconnect();
+  }
+  await fetch(`${baseUrl}/api/remote-camera/${session.token}`, {
+    method: "DELETE", headers: { "x-host-key": session.hostKey },
+  });
+  remoteSession = null;
 });
 
