@@ -111,9 +111,11 @@ const _gallerySelection = new Set();
     try {
       const ua = navigator.userAgent || "";
       const isIOS = /iP(hone|ad|od)/.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
-      const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
+      // v124 : on élargit à tout Safari (iOS + macOS) — les crashes en boucle
+      // touchent aussi Safari desktop, pas seulement iOS. Chrome/Firefox OK.
+      const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(ua);
       const force = new URLSearchParams(location.search).get("force-webrtc") === "1";
-      return isIOS && isSafari && !force;
+      return isSafari && !force;
     } catch { return false; }
   })(),
   deviceRole: "mixed",      // camera | interface | mixed — choisi au démarrage

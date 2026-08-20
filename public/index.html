@@ -26,36 +26,6 @@
 <link rel="stylesheet" href="/css/styles.css?v=124">
 </head>
 <body data-app-version="124"><!-- v124 : demi-roue des filtres + anti-crash Safari iOS + WebRTC désactivé Safari -->
-<!-- Anti-crash-loop Safari iOS (v124) : quand Safari injecte ?mb-recover=N suite
-     à 2+ crashes, on vide le cache local et on recharge une fois. Si ça replante,
-     on affiche un écran de recovery safe au lieu de laisser Safari afficher son
-     propre écran "Un problème récurrent est survenu". -->
-<script>
-(function () {
-  try {
-    var params = new URLSearchParams(window.location.search);
-    var recover = params.get("mb-recover");
-    if (recover) {
-      try { localStorage.clear(); } catch (_) {}
-      try { sessionStorage.clear(); } catch (_) {}
-      // On retire le query param et on recharge une fois (la 2e charge
-      // doit être propre car le cache est vidé).
-      var cleaned = window.location.pathname + window.location.hash;
-      if (!sessionStorage.getItem("mb-recover-cleaned")) {
-        sessionStorage.setItem("mb-recover-cleaned", "1");
-        window.location.replace(cleaned);
-        return; // stop ici, on est en train de recharger
-      } else {
-        // 2e passage : on est dans la session propre. Si ça replante
-        // encore, le crash suivant affichera un écran de recovery.
-        sessionStorage.removeItem("mb-recover-cleaned");
-      }
-    }
-  } catch (_) {
-    // Si même ce script plante, on continue normalement.
-  }
-})();
-</script>
 <script>
 window.__mbBootStartedAt = performance.now();
 (function () {
@@ -137,24 +107,32 @@ window.__mbBootStartedAt = performance.now();
     }
   };
   /* iOS peut conserver un ancien contrôleur SW même après un nouveau Modal deploy.
-     On purge une seule fois puis recharge l'URL réseau avec un cache-bust. */
+     On purge une seule fois puis recharge l'URL réseau avec un cache-bust. v124 :
+     on limite à 2 reloads max pour éviter une boucle de clignotement si la purge
+     échoue silencieusement (Safari iOS + cache API capricieux). */
   try {
-    if ("serviceWorker" in navigator && !sessionStorage.getItem(recoveryKey)) {
+    var recoveryCountKey = recoveryKey + "-count";
+    var recoveryCount = parseInt(sessionStorage.getItem(recoveryCountKey) || "0", 10);
+    if ("serviceWorker" in navigator && recoveryCount < 2) {
+      sessionStorage.setItem(recoveryCountKey, String(recoveryCount + 1));
       sessionStorage.setItem(recoveryKey, "1");
       Promise.all([
         navigator.serviceWorker.getRegistrations().then(function (regs) { return Promise.all(regs.map(function (r) { return r.unregister(); })); }),
         "caches" in window ? caches.keys().then(function (keys) { return Promise.all(keys.map(function (key) { return caches.delete(key); })); }) : Promise.resolve()
       ]).then(function () {
         var u = new URL(location.href);
-        u.searchParams.set("mb-recover", "122");
+        u.searchParams.set("mb-recover", "124");
         location.replace(u.toString());
       }).catch(function () {
-        try { sessionStorage.removeItem(recoveryKey); } catch (_) {}
+        try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
         splashFallback();
       });
+    } else if (recoveryCount >= 2) {
+      // On a déjà essayé 2 fois, on abandonne pour éviter la boucle.
+      try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
     }
   } catch (e) {
-    try { sessionStorage.removeItem(recoveryKey); } catch (_) {}
+    try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
     splashFallback();
   }
   /* Même si un module est bloqué, le contenu ne doit jamais rester sous un rideau. */
