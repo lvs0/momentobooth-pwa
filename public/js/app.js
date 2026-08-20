@@ -3905,13 +3905,25 @@ async function shareMethod(method) {
   const text = "Ma photo MomentoBooth 📸";
   try {
     if (method === "whatsapp") {
+      // Deep link WhatsApp : ouvre l'app si installée, fallback sur web.
+      // wa.me fonctionne sur iOS (Universal Link) et Android (Intent).
       window.open(`https://wa.me/?text=${encodeURIComponent(text + " " + publicUrl)}`, "_blank");
       status.textContent = "WhatsApp ouvert ✓";
     } else if (method === "snapchat") {
-      // Snapchat n'expose pas d'URL scheme public de partage.
-      // On tente navigator.share (iOS/Android récents) qui liste Snap
-      // dans la feuille système, sinon on guide vers la caméra Snap.
-      if (navigator.share) {
+      // v122.1 : on tente d'abord le scheme snapchat:// (iOS/Android),
+      // puis navigator.share (qui liste Snap dans la feuille système),
+      // puis clipboard fallback.
+      const snapUrl = `snapchat://camera?stickerUrl=${encodeURIComponent(publicUrl)}`;
+      let opened = false;
+      try {
+        // Certains navigateurs bloquent les URL schemes depuis JS ;
+        // on tente quand même, le fallback rattrape l'échec.
+        const w = window.open(snapUrl, "_blank");
+        if (w) opened = true;
+      } catch (_) { /* ignoré */ }
+      if (opened) {
+        status.textContent = "Snapchat ouvert ✓";
+      } else if (navigator.share) {
         try {
           await navigator.share({ title: "MomentoBooth", text, url: publicUrl });
           status.textContent = "Snap ouvert ✓";
@@ -3923,7 +3935,9 @@ async function shareMethod(method) {
         status.textContent = "Ouvrez Snap et collez le lien";
       }
     } else if (method === "sms") {
-      window.open(`sms:?&body=${encodeURIComponent(text + " " + publicUrl)}`, "_blank");
+      // SMS deep link : ouvre l'app Messages native.
+      // Les paramètres body= et ?body= sont supportés par iOS et Android.
+      window.open(`sms:?body=${encodeURIComponent(text + " " + publicUrl)}`, "_blank");
       status.textContent = "SMS ouvert ✓";
     } else if (method === "email") {
       window.open(`mailto:?subject=${encodeURIComponent("Ma photo MomentoBooth")}&body=${encodeURIComponent(text + " " + publicUrl)}`, "_blank");
