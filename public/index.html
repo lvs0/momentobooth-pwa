@@ -260,6 +260,24 @@ window.__mbBootStartedAt = performance.now();
     <div class="fx-hint">Swipez ↔ pour changer · filtres photo à droite</div>
   </div>
 
+  <!-- Snap pré-déclenchement : CTA géant plein écran avant le compte à rebours.
+       Tablettes paysage (iPad / Huawei Tab) : masque tout le reste, ne laisse
+       qu'un seul bouton "Prendre la photo" sur lequel il suffit d'appuyer.
+       v122.1 -->
+  <div id="snap-cta" class="snap-cta hidden" role="dialog" aria-modal="true" aria-label="Prendre une photo">
+    <div class="snap-cta-frame">
+      <div class="snap-cta-pulse"></div>
+      <button id="snap-cta-btn" class="snap-cta-btn" type="button" aria-label="Prendre la photo">
+        <span class="snap-cta-ring" aria-hidden="true"></span>
+        <span class="snap-cta-icon" aria-hidden="true">📸</span>
+        <span class="snap-cta-label">Prendre la photo</span>
+      </button>
+      <div class="snap-cta-cancel">
+        <button id="snap-cta-cancel-btn" class="snap-cta-cancel-btn" type="button" aria-label="Annuler">Annuler</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Compte à rebours -->
   <div id="countdown" class="countdown hidden">
     <div class="countdown-ring"><span id="countdown-number" class="countdown-number">5</span><span id="countdown-pause" class="countdown-pause hidden">⏸</span></div>

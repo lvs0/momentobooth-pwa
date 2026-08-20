@@ -524,6 +524,9 @@ const stickerCanvas = $("sticker-canvas");
 const fxPanel = $("fx-panel");  const countdownEl = $("countdown");
   const countdownNumber = $("countdown-number");
   const countdownCancel = $("countdown-cancel");
+const snapCtaEl = $("snap-cta");
+  const snapCtaBtn = $("snap-cta-btn");
+  const snapCtaCancelBtn = $("snap-cta-cancel-btn");
 const sheetMap = {
   "sheet-timer": $("sheet-timer"),
   "sheet-backdrop": $("sheet-backdrop"),
@@ -1815,6 +1818,32 @@ function toggleCountdownPause() {
     resume();
   }
 }
+
+/* Snap pré-déclenchement v122.1 — CTA géant plein écran.
+   Affiche le gros bouton "Prendre la photo" qui masque tout le reste.
+   Sur tap du CTA → lance startCountdown() (compte à rebours classique).
+   Sur Annuler → referme le CTA, revient à l'état normal. */
+function showSnapCta() {
+  if (!snapCtaEl || state.counting) return;
+  snapCtaEl.classList.remove("hidden");
+  document.body.classList.add("ui-hidden");
+  requestWakeLock();
+  // Pour les tablettes paysage : on centre tout, pas de barre.
+}
+function hideSnapCta() {
+  if (!snapCtaEl) return;
+  snapCtaEl.classList.add("hidden");
+  document.body.classList.remove("ui-hidden");
+  releaseWakeLock();
+}
+// Bind les événements du snap CTA
+if (snapCtaBtn) snapCtaBtn.addEventListener("click", () => {
+  hideSnapCta();
+  if (!state.counting) startCountdown();
+});
+if (snapCtaCancelBtn) snapCtaCancelBtn.addEventListener("click", () => {
+  hideSnapCta();
+});
 
 async function startCountdown() {
   if (state.counting) return;
@@ -6674,7 +6703,11 @@ on("btn-reframe", "click", () => openSheet("sheet-frames"));
 
 // ==== Nouveaux boutons de la barre du bas ====
 on("btn-shutter", "click", () => {
-  if (!state.counting) startCountdown();
+  if (state.counting) return;
+  // Snap pré-déclenchement v122.1 : affiche le CTA géant plein écran.
+  // L'utilisateur confirme en appuyant sur "Prendre la photo" → lance countdown.
+  // Annuler → referme le CTA, retour à l'interface normale.
+  showSnapCta();
 });
 on("btn-timer-trigger", "click", () => {
   openSheet("sheet-timer");
