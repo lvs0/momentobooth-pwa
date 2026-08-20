@@ -2828,3 +2828,34 @@ input[type="color"]#set-ui-accent::-webkit-color-swatch { border: none; border-r
   .theme-picker { grid-template-columns: repeat(2, 1fr); }
   .swatch-name { font-size: 11px; }
 }
+
+/* v124.0.6 — Lien organisateur (admin only) */
+.organizer-link {
+  position: absolute;
+  top: calc(var(--safe-top) + 16px);
+  right: calc(var(--safe-right, 0px) + 14px);
+  z-index: 32;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  font-size: calc(11px * var(--ui-text-scale, 1));
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(10, 16, 32, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  text-decoration: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background 0.15s, color 0.15s;
+  pointer-events: auto;
+}
+.organizer-link:hover {
+  background: rgba(255, 126, 138, 0.18);
+  color: #fff;
+  border-color: rgba(255, 126, 138, 0.5);
+}
+@media (max-width: 380px) {
+  .organizer-link { font-size: 10px; padding: 5px 8px; }
+}

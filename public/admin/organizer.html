@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>MomentoBooth — Organisateur de Composants</title>
+
+  <style>
+    /* ======================================================================
+       PALETTE & RESET
+       On suit la charte MomentoBooth : navy / corail / gold.
+       ====================================================================== */
+    :root {
+      --navy-0: #060a14;
+      --navy-1: #0a1020;
+      --navy-2: #131b32;
+      --navy-3: #1d2747;
+      --navy-4: #2a365d;
+
+      --coral:  #ff7e8a;
+      --coral-2:#ff9aa4;
+      --gold:   #e8b960;
+      --green:  #5fd6a0;
+      --red:    #ff6464;
+      --blue:   #6aa9ff;
+
+      --text:   #f0f3ff;
+      --text-d: #b5bdd6;
+      --text-m: #6c7693;
+
+      --border: rgba(255,255,255,0.08);
+      --border-2: rgba(255,255,255,0.14);
+
+      --cell: 80px;          /* taille d'une case de la grille (centre) */
+      --cols: 12;            /* nombre de colonnes */
+      --rows: 8;             /* nombre de lignes */
+
+      --shadow-1: 0 4px 18px rgba(0,0,0,0.4);
+      --shadow-2: 0 10px 30px rgba(0,0,0,0.55);
+
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+              Arial, "Noto Sans", sans-serif;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--navy-0);
+      color: var(--text);
+      overflow: hidden;
+      font-size: 14px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    button { font-family: inherit; }
+
+    /* ======================================================================
+       LAYOUT GLOBAL : 3 colonnes
+       ====================================================================== */
+    #app {
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    /* Toolbar en haut -------------------------------------------------- */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      background: linear-gradient(180deg, var(--navy-2), var(--navy-1));
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      overflow-y: hidden;
+      flex-shrink: 0;
+    }
+    #toolbar .brand {
+      display: flex; align-items: center; gap: 8px;
+      padding-right: 12px;
+      border-right: 1px solid var(--border);
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
+    #toolbar .brand .dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--coral);
+      box-shadow: 0 0 12px var(--coral);
+    }
+    #toolbar .brand h1 {
+      font-size: 14px; font-weight: 700; margin: 0;
+      white-space: nowrap;
+    }
+    #toolbar .brand small {
+      color: var(--text-m); font-weight: 400;
+    }
+
+    .tb-group {
+      display: flex; gap: 4px; align-items: center;
+      padding: 0 6px;
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .tb-group:last-child { border-right: none; }
+
+    .tb-btn {
+      background: var(--navy-3);
+      color: var(--text);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 34px;
+      transition: background 0.15s, border-color 0.15s, transform 0.05s;
+    }
+    .tb-btn:hover { background: var(--navy-4); }
+    .tb-btn:active { transform: translateY(1px); }
+    .tb-btn.primary {
+      background: var(--coral);
+      color: #2a0a10;
+      border-color: var(--coral);
+      font-weight: 700;
+    }
+    .tb-btn.primary:hover { background: var(--coral-2); }
+    .tb-btn[disabled] {
+      opacity: 0.4; cursor: not-allowed;
+    }
+    .tb-btn.active {
+      background: var(--gold);
+      color: #2a1a04;
+      border-color: var(--gold);
+      font-weight: 700;
+    }
+
+    .tb-icon {
+      width: 16px; height: 16px;
+      display: inline-block; flex-shrink: 0;
+    }
+
+    #view-toggle {
+      display: inline-flex;
+      background: var(--navy-3);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      padding: 2px;
+    }
+    #view-toggle button {
+      background: transparent;
+      color: var(--text-d);
+      border: none;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #view-toggle button.on {
+      background: var(--gold);
+      color: #2a1a04;
+      font-weight: 700;
+    }
+
+    /* Bouton hamburger visible seulement sur mobile -------------------- */
+    #menu-toggle { display: none; }
+
+    /* 3 colonnes principales ------------------------------------------- */
+    #main {
+      display: grid;
+      grid-template-columns: 240px 1fr 280px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel {
+      background: var(--navy-1);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .panel.left   { border-right: 1px solid var(--border); }
+    .panel.right  { border-left:  1px solid var(--border); }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--navy-2);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-d);
+      flex-shrink: 0;
+    }
+    .panel-header .badge {
+      background: var(--navy-3);
+      color: var(--text-d);
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 10px;
+      letter-spacing: 0;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Inventaire (colonne gauche) -------------------------------------- */
+    .tree { padding: 6px 0; }
+    .tree-section {
+      padding: 8px 14px 4px;
+      color: var(--text-m);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: background 0.1s, border-color 0.1s;
+      position: relative;
+    }
+    .tree-item:hover { background: rgba(255,255,255,0.04); }
+    .tree-item.selected {
+      background: rgba(255,126,138,0.12);
+      border-left-color: var(--coral);
+    }
+    .tree-item .ic {
+      width: 18px; height: 18px;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--coral);
+      font-size: 14px;
+    }
+    .tree-item .label { flex: 1; font-size: 13px; }
+    .tree-item .count {
+      font-size: 10px;
+      color: var(--text-m);
+      background: var(--navy-3);
+      padding: 1px 6px;
+      border-radius: 8px;
+    }
+
+    /* Centre : la grille ---------------------------------------------- */
+    .panel.center {
+      background: var(--navy-0);
+      position: relative;
+      overflow: hidden;
+    }
+    .canvas-wrap {
+      position: relative;
+      flex: 1;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      background:
+        linear-gradient(var(--navy-1) 0 0) center/var(--cell) var(--cell),
+        var(--navy-0);
+    }
+    .canvas {
+      position: relative;
+      width: calc(var(--cell) * var(--cols));
+      height: calc(var(--cell) * var(--rows));
+      background-image:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: var(--cell) var(--cell);
+      background-position: 0 0;
+      transform-origin: 0 0;
+      transition: background-color 0.2s;
+    }
+    .canvas.no-grid {
+      background-image: none;
+      background-color: var(--navy-1);
+    }
+
+    /* Sélecteur de viewport (mobile/tablette/desktop) ------------------ */
+    .canvas.mobile .canvas {
+      width:  calc(var(--cell) * 6);
+      height: calc(var(--cell) * 10);
+      margin: 20px auto;
+    }
+    .canvas.tablet .canvas {
+      width:  calc(var(--cell) * var(--cols));
+      height: calc(var(--cell) * var(--rows));
+    }
+    .canvas.desktop .canvas {
+      width:  calc(var(--cell) * 14);
+      height: calc(var(--cell) * 8);
+    }
+
+    /* Composants (rectangles draggables) ------------------------------- */
+    .widget {
+      position: absolute;
+      box-sizing: border-box;
+      border: 2px solid transparent;
+      border-radius: 10px;
+      cursor: move;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 4px;
+      padding: 6px;
+      overflow: hidden;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      transition: box-shadow 0.15s, border-color 0.1s, opacity 0.15s;
+      touch-action: none;       /* important pour le drag tactile */
+    }
+    .widget:hover  { box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
+    .widget.selected {
+      border-color: var(--coral) !important;
+      box-shadow: 0 0 0 1px var(--coral), 0 8px 24px rgba(255,126,138,0.3);
+    }
+    .widget.hidden { opacity: 0.25; }
+    .widget .w-ic {
+      font-size: 22px;
+      line-height: 1;
+    }
+    .widget .w-lb {
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.1;
+      word-break: break-word;
+      max-width: 100%;
+    }
+
+    /* Poignée de resize en bas à droite ------------------------------- */
+    .widget .handle {
+      position: absolute;
+      right: -4px; bottom: -4px;
+      width: 14px; height: 14px;
+      background: var(--coral);
+      border: 2px solid var(--navy-0);
+      border-radius: 50%;
+      cursor: nwse-resize;
+      display: none;
+    }
+    .widget.selected .handle { display: block; }
+
+    /* Bouton "œil" (toggle visible) ----------------------------------- */
+    .widget .eye {
+      position: absolute;
+      top: 4px; right: 4px;
+      width: 22px; height: 22px;
+      background: rgba(0,0,0,0.55);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .widget:hover .eye,
+    .widget.selected .eye { opacity: 1; }
+
+    /* État vide du centre --------------------------------------------- */
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      color: var(--text-m);
+      pointer-events: none;
+      text-align: center;
+      padding: 20px;
+    }
+    .empty-state .icon { font-size: 32px; opacity: 0.5; }
+    .empty-state.hidden { display: none; }
+
+    /* Panneau de propriétés (colonne droite) -------------------------- */
+    .props { padding: 0; }
+    .prop-section {
+      border-bottom: 1px solid var(--border);
+      padding: 12px 14px;
+    }
+    .prop-section h3 {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-m);
+      margin: 0 0 10px;
+      font-weight: 600;
+    }
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .field label {
+      font-size: 12px;
+      color: var(--text-d);
+      flex: 1;
+      min-width: 80px;
+    }
+    .field input[type="color"] {
+      width: 36px; height: 28px;
+      border: 1px solid var(--border-2);
+      background: var(--navy-3);
+      border-radius: 6px;
+      cursor: pointer;
+      padding: 0;
+    }
+    .field input[type="text"],
+    .field input[type="number"],
+    .field select {
+      flex: 1.2;
+      background: var(--navy-3);
+      color: var(--text);
+      border: 1px solid var(--border-2);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      min-width: 0;
+    }
+    .field input[type="range"] {
+      flex: 1.5;
+      accent-color: var(--coral);
+    }
+    .field .val {
+      font-size: 11px;
+      color: var(--text-m);
+      min-width: 36px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Icônes : grille de sélection ------------------------------------ */
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 4px;
+      max-height: 160px;
+      overflow-y: auto;
+      padding: 2px;
+    }
+    .icon-pick {
+      aspect-ratio: 1;
+      background: var(--navy-3);
+      border: 1px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .icon-pick:hover    { background: var(--navy-4); }
+    .icon-pick.selected { background: var(--coral); border-color: var(--coral); }
+
+    /* Action onclick : dropdown ---------------------------------------- */
+    .pos-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .pos-grid .field { margin-bottom: 0; }
+
+    /* ======================================================================
+       RESPONSIVE — iPhone portrait (≤ 768px)
+       Les 3 colonnes deviennent empilées, un menu hamburger permet de switcher
+       entre Inventaire / Canvas / Propriétés.
+       ====================================================================== */
+    @media (max-width: 768px) {
+      #menu-toggle { display: inline-flex; }
+      #toolbar h1 { font-size: 13px; }
+
+      #main {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+        position: relative;
+      }
+      .panel {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: none;
+      }
+      .panel.show { display: flex; }
+      .panel.left  { z-index: 6; }
+      .panel.right { z-index: 7; }
+      .panel.center { z-index: 1; }
+
+      /* Toolbar simplifiée sur mobile */
+      .tb-label { display: none; }
+    }
+
+    @media (max-width: 480px) {
+      .tb-group { padding: 0 3px; }
+      .tb-btn { padding: 6px 8px; font-size: 11px; }
+      #toolbar { gap: 2px; padding: 0 6px; }
+      .icon-grid { grid-template-columns: repeat(5, 1fr); }
+    }
+
+    /* Scrollbar discrète */
+    .panel-body::-webkit-scrollbar,
+    .canvas-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+    .panel-body::-webkit-scrollbar-thumb,
+    .canvas-wrap::-webkit-scrollbar-thumb {
+      background: var(--navy-3); border-radius: 4px;
+    }
+    .panel-body::-webkit-scrollbar-track,
+    .canvas-wrap::-webkit-scrollbar-track { background: transparent; }
+
+    /* Import file input caché */
+    #import-input { display: none; }
+
+    /* Toast notifications */
+    #toast {
+      position: fixed;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--navy-3);
+      color: var(--text);
+      border: 1px solid var(--border-2);
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      box-shadow: var(--shadow-2);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 100;
+      max-width: 90vw;
+      text-align: center;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+
+    <!-- ========================== TOOLBAR ========================== -->
+    <header id="toolbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <h1>MomentoBooth <small>· Organisateur</small></h1>
+      </div>
+
+      <button id="menu-toggle" class="tb-btn" title="Afficher le menu">
+        <span>☰</span>
+      </button>
+
+      <div class="tb-group">
+        <button class="tb-btn" id="btn-undo" title="Annuler (Ctrl+Z)">
+          <span>↶</span><span class="tb-label">Undo</span>
+        </button>
+        <button class="tb-btn" id="btn-redo" title="Refaire (Ctrl+Y)">
+          <span>↷</span><span class="tb-label">Redo</span>
+        </button>
+      </div>
+
+      <div class="tb-group">
+        <button class="tb-btn" id="btn-grid" title="Afficher/masquer la grille">
+          <span>▦</span><span class="tb-label">Grille</span>
+        </button>
+      </div>
+
+      <div class="tb-group">
+        <div id="view-toggle" title="Taille d'écran">
+          <button data-view="mobile"  title="Mobile (6×10)">📱</button>
+          <button data-view="tablet"  class="on" title="Tablette (12×8)">▭</button>
+          <button data-view="desktop" title="Desktop (14×8)">🖥</button>
+        </div>
+      </div>
+
+      <div class="tb-group" style="margin-left:auto; border-right:none;">
+        <button class="tb-btn" id="btn-import" title="Importer un layout JSON">
+          <span>📥</span><span class="tb-label">Importer</span>
+        </button>
+        <button class="tb-btn" id="btn-export" title="Exporter en JSON">
+          <span>📤</span><span class="tb-label">Exporter</span>
+        </button>
+        <button class="tb-btn primary" id="btn-save" title="Sauvegarder dans le navigateur">
+          <span>💾</span><span class="tb-label">Sauvegarder</span>
+        </button>
+      </div>
+    </header>
+
+    <input type="file" id="import-input" accept="application/json,.json" />
+
+    <!-- ========================== 3 COLONNES ========================== -->
+    <div id="main">
+
+      <!-- ----- INVENTAIRE (gauche) ----- -->
+      <aside class="panel left" id="panel-left">
+        <div class="panel-header">
+          Composants
+          <span class="badge" id="badge-count">0</span>
+        </div>
+        <div class="panel-body">
+          <div class="tree" id="tree"></div>
+        </div>
+      </aside>
+
+      <!-- ----- GRILLE (centre) ----- -->
+      <main class="panel center" id="panel-center">
+        <div class="canvas-wrap">
+          <div class="canvas tablet" id="canvas-frame">
+            <div class="canvas" id="canvas"></div>
+            <div class="empty-state" id="empty-center">
+              <div class="icon">🎛️</div>
+              <div>Sélectionne un composant<br>dans l'inventaire à gauche</div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ----- PROPRIÉTÉS (droite) ----- -->
+      <aside class="panel right" id="panel-right">
+        <div class="panel-header">
+          Propriétés
+        </div>
+        <div class="panel-body">
+          <div id="props-empty" class="empty-state" style="position:relative; height:100%;">
+            <div class="icon">⚙️</div>
+            <div>Sélectionne un composant</div>
+          </div>
+          <div id="props" class="props" style="display:none;"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+  /* =====================================================================
+     MOMENTOBOOTH ORGANIZER — JS VANILLA
+     État global, persistance localStorage, undo/redo, drag, resize, etc.
+     ===================================================================== */
+  'use strict';
+
+  // ----- Constantes -----------------------------------------------------
+  const CELL        = 80;                       // taille d'une case en px
+  const COLS        = 12;
+  const ROWS        = 8;
+  const STORAGE_KEY = 'momentoBooth.organizer.v1';
+
+  // 20+ icônes emoji (compatibles Chrome Android + Safari iOS)
+  const ICONS = [
+    '📷','🎨','✨','💾','📤','⏱️','🔄','❌','✓','🎉',
+    '🖼️','📹','⭐','🎁','💬','🔗','📸','🎬','🌟','🎈',
+    '🎵','🔍','📁','💡','🚀','🎯','🏆','❤️','🔒','⚙️'
+  ];
+
+  // Actions prédéfinies
+  const ACTIONS = [
+    { value: 'capture',       label: 'Prendre photo' },
+    { value: 'share',         label: 'Ouvrir partage' },
+    { value: 'home',          label: "Retour accueil" },
+    { value: 'toggle_filter', label: 'Toggle filtre' },
+    { value: 'open_gallery',  label: 'Ouvrir galerie' },
+    { value: 'print',         label: 'Imprimer' },
+    { value: 'idle',          label: "Mode veille" },
+    { value: 'custom',        label: 'Custom JS' }
+  ];
+
+  // Sections de l'inventaire (gauche)
+  const SECTIONS = [
+    { id: 'app',    label: 'App',          icon: '🎛️' },
+    { id: 'roles',  label: 'Rôles',        icon: '👤' },
+    { id: 'filtres',label: 'Filtres',      icon: '🎨' },
+    { id: 'capture',label: 'Capture',      icon: '📷' },
+    { id: 'galerie',label: 'Galerie',      icon: '🖼️' },
+    { id: 'partage',label: 'Partage',      icon: '📤' },
+    { id: 'idle',   label: 'Idle / Veille',icon: '🌙' }
+  ];
+
+  // ----- État -----------------------------------------------------------
+  // Un composant = { id, sectionId, name, x, y, w, h, visible,
+  //                  bg, text, accent, opacity, radius, icon, label, action, layer }
+  let state = {
+    components: [],
+    selected: [],          // ids sélectionnés (multi-select)
+    history: [],
+    future:  []
+  };
+
+  let currentView = 'tablet';   // mobile | tablet | desktop
+  let showGrid    = true;
+  let mobilePanel = 'center';   // panel visible sur mobile
+
+  // ----- Helpers --------------------------------------------------------
+  const $  = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+  function uid() {
+    return 'c' + Math.random().toString(36).slice(2, 9);
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+
+  // Convertit pixels -> cases de la grille (snapping)
+  function snapToGrid(px) {
+    return Math.round(px / CELL);
+  }
+  function gridToPx(cells) {
+    return cells * CELL;
+  }
+
+  // =====================================================================
+  // DONNÉES PAR DÉFAUT — 5 composants pré-configurés au premier lancement
+  // =====================================================================
+  function defaultComponents() {
+    return [
+      {
+        id: uid(), sectionId: 'capture', name: 'Bouton Capturer',
+        x: 4, y: 3, w: 4, h: 2, visible: true,
+        bg: '#ff7e8a', text: '#ffffff', accent: '#e8b960', opacity: 1, radius: 16,
+        icon: '📷', label: 'Capturer', action: 'capture', layer: 10
+      },
+      {
+        id: uid(), sectionId: 'filtres', name: 'Anneau Filtres',
+        x: 1, y: 6, w: 10, h: 1, visible: true,
+        bg: '#1d2747', text: '#f0f3ff', accent: '#ff7e8a', opacity: 0.85, radius: 12,
+        icon: '🎨', label: 'Filtres', action: 'toggle_filter', layer: 5
+      },
+      {
+        id: uid(), sectionId: 'partage', name: 'Bouton Partage',
+        x: 9, y: 3, w: 2, h: 2, visible: true,
+        bg: '#e8b960', text: '#2a1a04', accent: '#ff7e8a', opacity: 1, radius: 16,
+        icon: '📤', label: 'Partager', action: 'share', layer: 10
+      },
+      {
+        id: uid(), sectionId: 'galerie', name: 'Mini Galerie',
+        x: 0, y: 0, w: 3, h: 2, visible: true,
+        bg: '#131b32', text: '#f0f3ff', accent: '#e8b960', opacity: 0.95, radius: 10,
+        icon: '🖼️', label: 'Galerie', action: 'open_gallery', layer: 3
+      },
+      {
+        id: uid(), sectionId: 'idle', name: 'Écran de Veille',
+        x: 0, y: 0, w: 12, h: 8, visible: false,
+        bg: '#0a1020', text: '#ff7e8a', accent: '#e8b960', opacity: 1, radius: 0,
+        icon: '🌙', label: 'MomentoBooth', action: 'idle', layer: 0
+      }
+    ];
+  }
+
+  // =====================================================================
+  // PERSISTANCE — localStorage
+  // =====================================================================
+  function save() {
+    try {
+      const payload = { components: state.components, view: currentView };
+      _ls.setItem(STORAGE_KEY, JSON.stringify(payload));
+      toast('Sauvegardé ✓');
+    } catch (e) {
+      toast('Erreur de sauvegarde');
+      console.error(e);
+    }
+  }
+
+  // Wrapper tolérant : si localStorage est indisponible (mode privé Safari,
+  // fichier bloqué, cookies désactivés…), on retombe sur un objet en mémoire.
+  const _ls = (() => {
+    try {
+      const k = '__ls_test__';
+      window.localStorage.setItem(k, '1');
+      window.localStorage.removeItem(k);
+      return window.localStorage;
+    } catch (e) {
+      const mem = {};
+      return {
+        getItem: k => (k in mem ? mem[k] : null),
+        setItem: (k, v) => { mem[k] = String(v); },
+        removeItem: k => { delete mem[k]; }
+      };
+    }
+  })();
+
+  function load() {
+    try {
+      const raw = _ls.getItem(STORAGE_KEY);
+      if (!raw) {
+        state.components = defaultComponents();
+        save();
+        return;
+      }
+      const data = JSON.parse(raw);
+      state.components = Array.isArray(data.components) ? data.components : [];
+      currentView     = data.view || 'tablet';
+    } catch (e) {
+      console.warn('localStorage illisible, fallback par défaut', e);
+      state.components = defaultComponents();
+    }
+  }
+
+  // =====================================================================
+  // UNDO / REDO
+  // =====================================================================
+  function pushHistory() {
+    // On stocke un snapshot léger (juste les components)
+    state.history.push(JSON.stringify(state.components));
+    if (state.history.length > 50) state.history.shift();
+    state.future = [];
+    updateUndoRedoButtons();
+  }
+  function undo() {
+    if (!state.history.length) return;
+    state.future.push(JSON.stringify(state.components));
+    const prev = state.history.pop();
+    state.components = JSON.parse(prev);
+    state.selected = state.selected.filter(id =>
+      state.components.find(c => c.id === id));
+    renderAll();
+  }
+  function redo() {
+    if (!state.future.length) return;
+    state.history.push(JSON.stringify(state.components));
+    const next = state.future.pop();
+    state.components = JSON.parse(next);
+    state.selected = state.selected.filter(id =>
+      state.components.find(c => c.id === id));
+    renderAll();
+  }
+  function updateUndoRedoButtons() {
+    $('#btn-undo').disabled = state.history.length === 0;
+    $('#btn-redo').disabled = state.future.length === 0;
+  }
+
+  // =====================================================================
+  // RENDU — Inventaire (gauche)
+  // =====================================================================
+  function renderTree() {
+    const tree = $('#tree');
+    tree.innerHTML = '';
+    SECTIONS.forEach(sec => {
+      const items = state.components.filter(c => c.sectionId === sec.id);
+      const head = document.createElement('div');
+      head.className = 'tree-section';
+      head.textContent = sec.label;
+      tree.appendChild(head);
+
+      // Si pas d'items, on n'affiche rien (économie visuelle)
+      items.forEach(comp => {
+        const el = document.createElement('div');
+        el.className = 'tree-item' + (state.selected.includes(comp.id) ? ' selected' : '');
+        el.dataset.id = comp.id;
+        el.innerHTML = `
+          <span class="ic">${comp.icon}</span>
+          <span class="label">${escapeHtml(comp.name)}</span>
+          <span class="count">${comp.w}×${comp.h}</span>
+        `;
+        el.addEventListener('click', (e) => {
+          if (e.shiftKey) toggleSelect(comp.id);
+          else selectOnly(comp.id);
+        });
+        tree.appendChild(el);
+      });
+    });
+
+    // Met à jour le badge avec le total
+    $('#badge-count').textContent = state.components.length;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // =====================================================================
+  // RENDU — Canvas / widgets (centre)
+  // =====================================================================
+  function renderCanvas() {
+    const canvas = $('#canvas');
+    canvas.innerHTML = '';
+
+    // Tri par layer ascendant (les widgets "au-dessus" ont un z-index plus haut)
+    const sorted = [...state.components].sort((a, b) => a.layer - b.layer);
+
+    sorted.forEach(comp => {
+      const el = document.createElement('div');
+      el.className = 'widget';
+      el.dataset.id = comp.id;
+      if (state.selected.includes(comp.id)) el.classList.add('selected');
+      if (!comp.visible) el.classList.add('hidden');
+      applyWidgetStyle(el, comp);
+      el.innerHTML = `
+        <span class="w-ic">${comp.icon}</span>
+        <span class="w-lb">${escapeHtml(comp.label)}</span>
+        <button class="eye" title="Afficher / masquer">${comp.visible ? '👁' : '🚫'}</button>
+        <div class="handle" data-handle="br"></div>
+      `;
+      attachWidgetEvents(el, comp);
+      canvas.appendChild(el);
+    });
+
+    // Empty state
+    $('#empty-center').classList.toggle('hidden', state.selected.length > 0);
+  }
+
+  function applyWidgetStyle(el, comp) {
+    el.style.left   = gridToPx(comp.x) + 'px';
+    el.style.top    = gridToPx(comp.y) + 'px';
+    el.style.width  = gridToPx(comp.w) + 'px';
+    el.style.height = gridToPx(comp.h) + 'px';
+    el.style.background = comp.bg;
+    el.style.color      = comp.text;
+    el.style.opacity    = comp.opacity;
+    el.style.borderRadius = comp.radius + 'px';
+    el.style.zIndex     = comp.layer;
+    el.style.borderColor = comp.accent;
+  }
+
+  // ----- Sélection ----------------------------------------------------
+  function selectOnly(id) {
+    state.selected = [id];
+    renderTree();
+    renderCanvas();
+    renderProps();
+  }
+  function toggleSelect(id) {
+    if (state.selected.includes(id))
+      state.selected = state.selected.filter(x => x !== id);
+    else
+      state.selected.push(id);
+    renderTree();
+    renderCanvas();
+    renderProps();
+  }
+  function clearSelection() {
+    state.selected = [];
+    renderTree();
+    renderCanvas();
+    renderProps();
+  }
+
+  // =====================================================================
+  // DRAG & RESIZE sur les widgets
+  // =====================================================================
+  function attachWidgetEvents(el, comp) {
+    let drag = null;        // { mode: 'move'|'resize', startX, startY, origX, origY, origW, origH }
+
+    function onPointerDown(e) {
+      // Clic sur l'œil (toggle visible) ou sur la poignée de resize
+      const tgt = e.target;
+      if (tgt.classList.contains('eye')) {
+        e.stopPropagation();
+        pushHistory();
+        comp.visible = !comp.visible;
+        renderAll();
+        return;
+      }
+      if (tgt.dataset.handle === 'br' || tgt.classList.contains('handle')) {
+        e.stopPropagation();
+        e.preventDefault();
+        drag = {
+          mode: 'resize',
+          startX: e.clientX, startY: e.clientY,
+          origW: comp.w, origH: comp.h
+        };
+        el.setPointerCapture(e.pointerId);
+        return;
+      }
+      // Sinon, on sélectionne et on commence un drag
+      e.preventDefault();
+      if (e.shiftKey) toggleSelect(comp.id);
+      else if (!state.selected.includes(comp.id)) selectOnly(comp.id);
+      // On garde en mémoire l'offset entre le pointeur et le coin du widget
+      const rect = el.getBoundingClientRect();
+      drag = {
+        mode: 'move',
+        startX: e.clientX, startY: e.clientY,
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+        snapshot: state.selected.map(id => {
+          const c = state.components.find(x => x.id === id);
+          return c ? { id: c.id, x: c.x, y: c.y } : null;
+        }).filter(Boolean),
+        resized: false
+      };
+      el.setPointerCapture(e.pointerId);
+    }
+
+    function onPointerMove(e) {
+      if (!drag) return;
+      e.preventDefault();
+      if (drag.mode === 'move') {
+        // Position du curseur dans le canvas
+        const canvas = $('#canvas');
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left - drag.offsetX;
+        const py = e.clientY - rect.top  - drag.offsetY;
+        // Snap en cases
+        const newX = clamp(snapToGrid(px), 0, COLS - 1);
+        const newY = clamp(snapToGrid(py), 0, ROWS - 1);
+        const dx = newX - drag.snapshot[0].x;
+        const dy = newY - drag.snapshot[0].y;
+        if (dx === 0 && dy === 0) return;
+        drag.resized = true;
+        drag.snapshot.forEach(s => {
+          const c = state.components.find(x => x.id === s.id);
+          if (!c) return;
+          c.x = clamp(s.x + dx, 0, COLS - c.w);
+          c.y = clamp(s.y + dy, 0, ROWS - c.h);
+        });
+        renderCanvas();
+      } else if (drag.mode === 'resize') {
+        const dxs = e.clientX - drag.startX;
+        const dys = e.clientY - drag.startY;
+        const dw = clamp(snapToGrid(dxs), -comp.w + 1, COLS - comp.x);
+        const dh = clamp(snapToGrid(dys), -comp.h + 1, ROWS - comp.y);
+        comp.w = drag.origW + dw;
+        comp.h = drag.origH + dh;
+        drag.resized = true;
+        renderCanvas();
+      }
+    }
+
+    function onPointerUp(e) {
+      if (!drag) return;
+      try { el.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (drag.mode === 'move' && drag.resized) {
+        pushHistory();
+      } else if (drag.mode === 'resize' && drag.resized) {
+        pushHistory();
+      }
+      drag = null;
+      renderTree();  // pour mettre à jour x/y dans l'inventaire
+    }
+
+    el.addEventListener('pointerdown',   onPointerDown);
+    el.addEventListener('pointermove',   onPointerMove);
+    el.addEventListener('pointerup',     onPointerUp);
+    el.addEventListener('pointercancel', onPointerUp);
+  }
+
+  // Clic vide du canvas = désélection
+  $('#canvas').addEventListener('pointerdown', (e) => {
+    if (e.target.id === 'canvas' || e.target.id === 'empty-center' ||
+        e.target.classList.contains('empty-state') ||
+        e.target.classList.contains('empty-state') === false && e.target === $('#canvas')) {
+      // On s'assure que c'est bien un clic sur le fond
+      if (e.target === $('#canvas')) clearSelection();
+    }
+  });
+
+  // Empêche le menu contextuel par défaut sur les widgets (confort)
+  $('#canvas').addEventListener('contextmenu', e => e.preventDefault());
+
+  // =====================================================================
+  // RENDU — Panneau propriétés (droite)
+  // =====================================================================
+  function renderProps() {
+    const wrap = $('#props');
+    const empty = $('#props-empty');
+    if (state.selected.length === 0) {
+      wrap.style.display = 'none';
+      empty.style.display = '';
+      return;
+    }
+    empty.style.display = 'none';
+    wrap.style.display = '';
+
+    // Multi-select : on édite le premier seulement pour la v1
+    const id = state.selected[0];
+    const comp = state.components.find(c => c.id === id);
+    if (!comp) {
+      wrap.style.display = 'none';
+      empty.style.display = '';
+      return;
+    }
+
+    // On reconstruit le HTML à chaque render — simple et suffisant pour V1
+    wrap.innerHTML = `
+      <div class="prop-section">
+        <h3>${escapeHtml(comp.name)}</h3>
+        <div class="field">
+          <label>Texte / label</label>
+          <input type="text" data-prop="label" value="${escapeHtml(comp.label)}" />
+        </div>
+        <div class="field">
+          <label>Nom interne</label>
+          <input type="text" data-prop="name" value="${escapeHtml(comp.name)}" />
+        </div>
+        <div class="field">
+          <label>Visible</label>
+          <input type="checkbox" data-prop="visible" ${comp.visible ? 'checked' : ''} style="flex:0;" />
+        </div>
+      </div>
+
+      <div class="prop-section">
+        <h3>Couleurs</h3>
+        <div class="field">
+          <label>Fond</label>
+          <input type="color" data-prop="bg" value="${comp.bg}" />
+          <span class="val" style="font-family:monospace;">${comp.bg}</span>
+        </div>
+        <div class="field">
+          <label>Texte</label>
+          <input type="color" data-prop="text" value="${comp.text}" />
+          <span class="val" style="font-family:monospace;">${comp.text}</span>
+        </div>
+        <div class="field">
+          <label>Accent</label>
+          <input type="color" data-prop="accent" value="${comp.accent}" />
+          <span class="val" style="font-family:monospace;">${comp.accent}</span>
+        </div>
+        <div class="field">
+          <label>Transparence</label>
+          <input type="range" data-prop="opacity" min="0" max="100" value="${Math.round(comp.opacity*100)}" />
+          <span class="val">${Math.round(comp.opacity*100)}%</span>
+        </div>
+        <div class="field">
+          <label>Border radius</label>
+          <input type="range" data-prop="radius" min="0" max="50" value="${comp.radius}" />
+          <span class="val">${comp.radius}px</span>
+        </div>
+      </div>
+
+      <div class="prop-section">
+        <h3>Icône</h3>
+        <div class="icon-grid">
+          ${ICONS.map(ic => `
+            <div class="icon-pick ${ic === comp.icon ? 'selected' : ''}" data-icon="${ic}">${ic}</div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="prop-section">
+        <h3>Action au clic</h3>
+        <div class="field">
+          <label>Action</label>
+          <select data-prop="action">
+            ${ACTIONS.map(a => `
+              <option value="${a.value}" ${a.value === comp.action ? 'selected' : ''}>${a.label}</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="field" id="custom-js-field" style="${comp.action === 'custom' ? '' : 'display:none;'}">
+          <label>Code JS</label>
+          <input type="text" data-prop="customJs" placeholder="alert('click')" value="${escapeHtml(comp.customJs || '')}" />
+        </div>
+      </div>
+
+      <div class="prop-section">
+        <h3>Position (cases de grille)</h3>
+        <div class="pos-grid">
+          <div class="field">
+            <label>X</label>
+            <input type="number" min="0" max="${COLS-1}" data-prop="x" value="${comp.x}" />
+          </div>
+          <div class="field">
+            <label>Y</label>
+            <input type="number" min="0" max="${ROWS-1}" data-prop="y" value="${comp.y}" />
+          </div>
+          <div class="field">
+            <label>Largeur</label>
+            <input type="number" min="1" max="${COLS}" data-prop="w" value="${comp.w}" />
+          </div>
+          <div class="field">
+            <label>Hauteur</label>
+            <input type="number" min="1" max="${ROWS}" data-prop="h" value="${comp.h}" />
+          </div>
+        </div>
+        <div class="field" style="margin-top:8px;">
+          <label>Layer (z-index)</label>
+          <input type="range" data-prop="layer" min="0" max="100" value="${comp.layer}" />
+          <span class="val">${comp.layer}</span>
+        </div>
+      </div>
+
+      <div class="prop-section">
+        <h3>Zone</h3>
+        <div class="field">
+          <label>Section</label>
+          <select data-prop="sectionId">
+            ${SECTIONS.map(s => `
+              <option value="${s.id}" ${s.id === comp.sectionId ? 'selected' : ''}>${s.label}</option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+    `;
+
+    // ----- On attache tous les listeners ---------------------------------
+    wrap.querySelectorAll('[data-prop]').forEach(input => {
+      const prop = input.dataset.prop;
+      const evt = (input.type === 'checkbox' || input.type === 'range' ||
+                   input.type === 'color' || input.type === 'select-one')
+                  ? 'input' : 'input';
+      input.addEventListener(evt, () => {
+        let val = input.type === 'checkbox' ? input.checked : input.value;
+        if (prop === 'opacity') val = parseInt(val, 10) / 100;
+        else if (['x','y','w','h','layer','radius'].includes(prop)) val = parseInt(val, 10) || 0;
+        comp[prop] = val;
+        // Re-render léger
+        renderCanvas();
+        renderTree();
+        // Met à jour la valeur affichée à côté du slider
+        const valSpan = input.parentElement.querySelector('.val');
+        if (valSpan) {
+          if (prop === 'opacity') valSpan.textContent = Math.round(comp.opacity*100) + '%';
+          else if (prop === 'radius') valSpan.textContent = comp.radius + 'px';
+          else if (prop === 'layer') valSpan.textContent = comp.layer;
+          else if (prop === 'bg' || prop === 'text' || prop === 'accent')
+            valSpan.textContent = comp[prop];
+        }
+        // Affiche / cache le champ JS custom
+        if (prop === 'action') {
+          const cf = wrap.querySelector('#custom-js-field');
+          if (cf) cf.style.display = (val === 'custom') ? '' : 'none';
+        }
+        pushHistory();
+      });
+      // Sur 'change' (color picker par ex.) on commit aussi
+      input.addEventListener('change', () => pushHistory());
+    });
+
+    wrap.querySelectorAll('.icon-pick').forEach(el => {
+      el.addEventListener('click', () => {
+        comp.icon = el.dataset.icon;
+        renderCanvas();
+        renderTree();
+        renderProps();
+        pushHistory();
+      });
+    });
+  }
+
+  // =====================================================================
+  // IMPORT / EXPORT JSON
+  // =====================================================================
+  function exportJSON() {
+    const payload = {
+      version: 1,
+      view: currentView,
+      components: state.components
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)],
+                          { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `momentobooth-layout-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Export téléchargé 📤');
+  }
+
+  function importJSON(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!Array.isArray(data.components)) throw new Error('format invalide');
+        pushHistory();
+        state.components = data.components.map(c => ({ ...c, id: c.id || uid() }));
+        if (data.view) setView(data.view);
+        renderAll();
+        toast('Import réussi 📥');
+      } catch (err) {
+        toast('Fichier JSON invalide');
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // =====================================================================
+  // VUE — mobile / tablette / desktop
+  // =====================================================================
+  function setView(v) {
+    currentView = v;
+    const frame = $('#canvas-frame');
+    frame.classList.remove('mobile', 'tablet', 'desktop');
+    frame.classList.add(v);
+    $$('#view-toggle button').forEach(b =>
+      b.classList.toggle('on', b.dataset.view === v));
+  }
+
+  function toggleGrid() {
+    showGrid = !showGrid;
+    $('#canvas').classList.toggle('no-grid', !showGrid);
+    $('#btn-grid').classList.toggle('active', showGrid);
+  }
+
+  // =====================================================================
+  // RENDU GLOBAL
+  // =====================================================================
+  function renderAll() {
+    renderTree();
+    renderCanvas();
+    renderProps();
+    updateUndoRedoButtons();
+  }
+
+  // =====================================================================
+  // RACCOURCIS CLAVIER
+  // =====================================================================
+  document.addEventListener('keydown', (e) => {
+    // Ignorer si on est dans un input
+    if (['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+    const meta = e.ctrlKey || e.metaKey;
+    if (meta && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (meta && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+    else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (state.selected.length) { e.preventDefault(); deleteSelected(); }
+    } else if (e.key === 'Escape') {
+      clearSelection();
+      if (window.innerWidth <= 768) showMobilePanel('center');
+    } else if (meta && e.key === 's') {
+      e.preventDefault(); save();
+    } else if (meta && e.key === 'e') {
+      e.preventDefault(); exportJSON();
+    } else if (meta && e.key === 'd') {
+      e.preventDefault(); duplicateSelected();
+    }
+  });
+
+  function deleteSelected() {
+    if (!state.selected.length) return;
+    pushHistory();
+    state.components = state.components.filter(c => !state.selected.includes(c.id));
+    state.selected = [];
+    renderAll();
+  }
+
+  function duplicateSelected() {
+    if (!state.selected.length) return;
+    pushHistory();
+    const newOnes = [];
+    state.selected.forEach(id => {
+      const c = state.components.find(x => x.id === id);
+      if (!c) return;
+      const copy = { ...c, id: uid(),
+                     x: clamp(c.x + 1, 0, COLS - c.w),
+                     y: clamp(c.y + 1, 0, ROWS - c.h),
+                     name: c.name + ' (copie)' };
+      newOnes.push(copy);
+    });
+    state.components.push(...newOnes);
+    state.selected = newOnes.map(c => c.id);
+    renderAll();
+  }
+
+  // =====================================================================
+  // MOBILE — switch entre panels
+  // =====================================================================
+  function showMobilePanel(name) {
+    mobilePanel = name;
+    if (window.innerWidth > 768) return;
+    $$('.panel').forEach(p => p.classList.remove('show'));
+    if (name === 'left')  $('#panel-left').classList.add('show');
+    if (name === 'right') $('#panel-right').classList.add('show');
+    // center = aucun show (le centre est par défaut visible)
+  }
+
+  // =====================================================================
+  // BINDINGS TOOLBAR
+  // =====================================================================
+  function bindToolbar() {
+    $('#btn-undo').addEventListener('click', undo);
+    $('#btn-redo').addEventListener('click', redo);
+    $('#btn-save').addEventListener('click', save);
+    $('#btn-export').addEventListener('click', exportJSON);
+    $('#btn-import').addEventListener('click', () => $('#import-input').click());
+    $('#import-input').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      if (f) importJSON(f);
+      e.target.value = '';   // permet de ré-importer le même fichier
+    });
+    $('#btn-grid').addEventListener('click', toggleGrid);
+
+    $$('#view-toggle button').forEach(b => {
+      b.addEventListener('click', () => setView(b.dataset.view));
+    });
+
+    $('#menu-toggle').addEventListener('click', () => {
+      // Cycle entre center / left / right
+      const order = ['center','left','right'];
+      const next = order[(order.indexOf(mobilePanel) + 1) % order.length];
+      showMobilePanel(next);
+    });
+  }
+
+  // =====================================================================
+  // INIT
+  // =====================================================================
+  function init() {
+    load();
+    bindToolbar();
+    setView(currentView);
+    if (showGrid) $('#btn-grid').classList.add('active');
+    renderAll();
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
