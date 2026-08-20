@@ -2683,15 +2683,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
   .result-meta-card small { display: none; } /* texte redondant caché sur tablette */
   #result-grid {
     grid-column: 1 / 2;
+    grid-row: 3 / 4;
     padding: 24px 32px;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 18px;
     align-content: start;
     max-height: calc(100dvh - 200px);
+    max-width: none;  /* v124.0.8 — fix grid 448px au lieu de 60% sur tablette */
+    width: 100%;
     overflow-y: auto;
   }
   #result-grid img { width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 16px; }
+  #screen-result { grid-template-rows: auto auto 1fr auto; }  /* v124.0.8 — force la row du grid à s'étendre */
   .result-actions {
     grid-column: 2 / 3;
     grid-row: 3 / 4;

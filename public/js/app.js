@@ -171,7 +171,7 @@ const _gallerySelection = new Set();
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "121"; // choix de rôle au démarrage : doit matcher le HTML
+const APP_VERSION = "124"; // choix de rôle au démarrage : doit matcher le HTML
 telemetry.startupMark("jsReady");
 if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => telemetry.startupMark("firstPaint"));
 const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé tant que l'organisateur ne l'active pas.
