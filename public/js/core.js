@@ -83,6 +83,83 @@ if (document.readyState === "loading") {
   scheduleAppLoad();
 }
 
+// v124.0.4 — Garde "QR placeholder" : on ne révèle #tablet-qr-access que
+// quand app.js a posé un vrai src sur #tablet-qr-image (sinon le bouton
+// s'affiche avec une image 1x1 transparente = esthétique-vide). On observe
+// l'attribut src et on révèle le container dès qu'il devient non-placeholder.
+(function guardTabletQr() {
+  const PLACEHOLDER_PREFIX = "data:image/gif;base64,R0lGOD";
+  const img = document.getElementById("tablet-qr-image");
+  const wrap = document.getElementById("tablet-qr-access");
+  if (!img || !wrap) return;
+  const revealIfReal = () => {
+    const src = img.getAttribute("src") || "";
+    if (src && !src.startsWith(PLACEHOLDER_PREFIX)) {
+      wrap.removeAttribute("hidden");
+    }
+  };
+  // Cas 1 : src déjà posé avant que ce script tourne
+  revealIfReal();
+  // Cas 2 : src posé plus tard
+  new MutationObserver(revealIfReal).observe(img, {
+    attributes: true,
+    attributeFilter: ["src"],
+  });
+})();
+
+// v124.0.4 — Secours idle overlay : si app.js n'a pas chargé (crash iOS)
+// et qu'on est bloqué sur l'écran de veille, un tap sur l'overlay révèle
+// le cam-diag pour que l'user puisse forcer un reload. Le handler normal
+// d'app.js reste prioritaire (celui-ci ne fait que révéler cam-diag).
+(function guardIdleOverlay() {
+  const idle = document.getElementById("idle-overlay");
+  if (!idle) return;
+  let lastTap = 0;
+  idle.addEventListener("pointerdown", function () {
+    const now = Date.now();
+    if (now - lastTap < 2000) return; // anti double-tap
+    lastTap = now;
+    if (window.mbAppBooting) {
+      // app.js pas encore prêt : on montre cam-diag pour informer l'user
+      showCamDiag("Démarrage en cours… touchez encore pour rafraîchir");
+    }
+    // Si app.js est planté (mbAppBooting=false mais l'écran est figé),
+    // on propose un refresh manuel
+    if (!window.mbAppBooting && document.visibilityState === "visible") {
+      // On évite le spam : on n'agit qu'après un délai long
+      if (typeof window.__mbIdleRefreshTried === "undefined") {
+        window.__mbIdleRefreshTried = 0;
+      }
+      window.__mbIdleRefreshTried++;
+      if (window.__mbIdleRefreshTried >= 5) {
+        showCamDiag("L'application semble bloquée. Touchez 'Réessayer' ou videz le cache.");
+      }
+    }
+  }, { passive: true });
+})();
+
+// Cleanup __mbFallbackStream pour éviter l'accumulation de streams sur
+// Safari iOS (cause fréquente de "Un problème récurrent est survenu").
+// On stoppe toutes les pistes du fallback stream global sur beforeunload
+// et sur pagehide (le second est plus fiable sur iOS PWA).
+function cleanupFallbackStream() {
+  try {
+    const stream = window.__mbFallbackStream;
+    if (stream && typeof stream.getTracks === "function") {
+      stream.getTracks().forEach(function (t) {
+        try { t.stop(); } catch (_) {}
+      });
+    }
+    window.__mbFallbackStream = null;
+  } catch (_) {}
+}
+window.addEventListener("pagehide", cleanupFallbackStream);
+window.addEventListener("beforeunload", cleanupFallbackStream);
+// iOS PWA en background : on libère aussi quand la page perd le focus.
+document.addEventListener("visibilitychange", function () {
+  if (document.visibilityState === "hidden") cleanupFallbackStream();
+});
+
 // Une fois l'app prête, on charge phase3 (UX/PWA) en arrière-plan.
 // Aucun blocage : la donation + install prompt sont des bonus.
 window.addEventListener("mb-app-booted", () => {

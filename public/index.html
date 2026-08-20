@@ -190,7 +190,7 @@ window.__mbBootStartedAt = performance.now();
       <small>by Hope</small>
     </div>
 
-    <div id="tablet-qr-access" class="tablet-qr-access" aria-live="polite">
+    <div id="tablet-qr-access" class="tablet-qr-access" aria-live="polite" hidden>
       <button id="tablet-qr-open" type="button" aria-label="Ouvrir la galerie invités">
         <img id="tablet-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code pour accéder à la galerie">
         <span>Galerie invités&nbsp;↗</span>
@@ -584,11 +584,11 @@ window.__mbBootStartedAt = performance.now();
         <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span class="share-chip-label">JPG</span>
       </button>
-      <button class="share-chip icon-only" data-method="download-gif" aria-label="Télécharger en GIF" title="GIF">
+      <button class="share-chip icon-only" data-method="download-gif" aria-label="Télécharger en GIF (bientôt disponible)" title="GIF — bientôt disponible" disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed">
         <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><text x="6.5" y="14.5" font-family="system-ui" font-size="6.5" font-weight="900" fill="currentColor" stroke="none">GIF</text></svg>
         <span class="share-chip-label">GIF</span>
       </button>
-      <button class="share-chip icon-only" data-method="photos" aria-label="Enregistrer dans Photos" title="Photos">
+      <button class="share-chip icon-only" data-method="photos" aria-label="Enregistrer dans Photos (bientôt disponible)" title="Photos — bientôt disponible" disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed">
         <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         <span class="share-chip-label">Photos</span>
       </button>

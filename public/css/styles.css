@@ -231,7 +231,7 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
    visible en entier (clip-path uniquement sur ::before, pas sur le
    container). */
 #photo-filter-rail {
-  top: 50%; right: -140px; width: 280px; height: 280px; max-height: none; padding: 0;
+  top: 50%; right: -100px; width: 280px; height: 280px; max-height: none; padding: 0;
   transform: translateY(-50%); border: 0; border-radius: 50%; background: transparent;
   box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; overflow: visible;
 }
@@ -246,7 +246,7 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
   -webkit-clip-path: inset(0 0 0 50%);
 }
 #photo-filter-rail .rail-caption { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 2; color: rgba(255,255,255,.78); font-size: calc(10px * var(--ui-text-scale, 1)); letter-spacing: .22em; text-align: center; }
-#photo-filter-rail .filter-wheel-live { position: absolute; left: 50%; top: 50%; width: 168px; height: 168px; transform: translate(-50%, -50%); border-radius: 50%; object-fit: cover; opacity: .92; border: 3px solid rgba(255,255,255,.82); box-shadow: 0 0 32px rgba(125,211,252,.45); filter: var(--mb-live-filter, brightness(1)); z-index: 1; pointer-events: none; }
+#photo-filter-rail .filter-wheel-live { position: absolute; left: 50%; top: 50%; width: 168px; height: 168px; transform: translate(-30%, -50%); border-radius: 50%; object-fit: cover; opacity: .92; border: 3px solid rgba(255,255,255,.82); box-shadow: 0 0 32px rgba(125,211,252,.45); filter: var(--mb-live-filter, brightness(1)); z-index: 1; pointer-events: none; }
 #photo-filter-rail .filter-rail-meta {
   position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -283,16 +283,16 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
 
 /* Tablette paysage : encore plus grand, demi-roue plus large, centre calé sur le bord */
 @media (min-width: 768px) {
-  #photo-filter-rail { width: 340px; height: 340px; right: -170px; }
-  #photo-filter-rail .filter-wheel-live { width: 200px; height: 200px; }
+  #photo-filter-rail { width: 340px; height: 340px; right: -130px; }
+  #photo-filter-rail .filter-wheel-live { width: 200px; height: 200px; transform: translate(-30%, -50%); }
   #photo-filter-rail .filter-rail-card { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-128px) rotate(calc(var(--wheel-angle, 0deg) * -1)); }
   #photo-filter-rail .filter-rail-card.active { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-136px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.22); }
   #photo-filter-rail .filter-rail-card:not(.active) { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-128px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(.82); }
 }
 /* iPhone compact : un peu plus petit pour respirer, demi-roue + petit */
 @media (max-width: 380px) {
-  #photo-filter-rail { width: 220px; height: 220px; right: -110px; }
-  #photo-filter-rail .filter-wheel-live { width: 124px; height: 124px; }
+  #photo-filter-rail { width: 220px; height: 220px; right: -80px; }
+  #photo-filter-rail .filter-wheel-live { width: 124px; height: 124px; transform: translate(-30%, -50%); }
   #photo-filter-rail .filter-rail-card { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-78px) rotate(calc(var(--wheel-angle, 0deg) * -1)); }
   #photo-filter-rail .filter-rail-card.active { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-82px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.18); }
   #photo-filter-rail .filter-rail-card:not(.active) { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-78px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(.82); }
