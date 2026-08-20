@@ -19,6 +19,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import http from "node:http";
+import { Server as SocketIOServer } from "socket.io";
 
 /* Traitement délégué par le téléphone (allège le CPU/RAM de l'iPhone) :
    - gifenc   : encodeur GIF pur JS (l'encodage local gif.js coûte cher sur mobile)
@@ -2416,6 +2418,63 @@ app.use((req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 /* ---- Lancement ---- */
 const PORT = process.env.PORT || 8787;
-app.listen(PORT, "0.0.0.0", () => {
+const httpServer = http.createServer(app);
+
+/* ---- Socket.IO : signalisation WebRTC pour la caméra déportée ---- */
+/* Le serveur ne fait que relayer les messages SDP/ICE entre les deux pairs
+   (caméra + interface). Aucune média ne transite par ici : c'est du pur P2P.
+   Authentification par session distante existante (token + clé de rôle).
+   Vérifie la session à chaque connexion et ne relaye que vers le pair dans
+   la même room `cam:<sessionToken>`. */
+const io = new SocketIOServer(httpServer, { cors: { origin: "*" } });
+
+io.on("connection", (socket) => {
+  // Authentification déjà validée par le middleware io.use() ci-dessous.
+  // On peut lire l'auth et rejoindre la room.
+  const { token, role } = socket.handshake.auth || {};
+  const session = getRemoteCamSession(token);
+  // Le middleware a déjà validé la session, mais on reste défensif.
+  if (!session) { socket.disconnect(true); return; }
+  socket.data = { token, role, sessionToken: session.token };
+  socket.join(`cam:${session.token}`);
+
+  // Relai de signalisation : chaque message d'un pair est diffusé à l'autre.
+  const relay = (event) => (payload) => {
+    socket.to(`cam:${session.token}`).emit(event, payload);
+  };
+  socket.on("webrtc:offer", relay("webrtc:offer"));
+  socket.on("webrtc:answer", relay("webrtc:answer"));
+  socket.on("webrtc:ice", relay("webrtc:ice"));
+  socket.on("disconnect", () => {
+    // Préviens l'autre pair qu'on est parti — lui laisse nettoyer sa peer
+    // connection et retomber sur le polling JPEG si nécessaire.
+    socket.to(`cam:${session.token}`).emit("webrtc:peer-left", { role });
+  });
+});
+
+// Middleware d'authentification : tourne AVANT l'événement "connection". Une
+// auth invalide est refusée ici (next(err)) → le client reçoit un connect_error
+// plutôt qu'une connexion éphémère suivie d'une déconnexion (plus propre pour
+// la sémantique de fallback WebRTC côté client).
+io.use((socket, next) => {
+  const { token, role, key } = socket.handshake.auth || {};
+  if (!token || !role || !["camera", "interface"].includes(role)) {
+    next(new Error("auth-incomplete"));
+    return;
+  }
+  const session = getRemoteCamSession(token);
+  if (!session) {
+    next(new Error("session-unknown"));
+    return;
+  }
+  const expectedKey = role === "camera" ? session.hostKey : session.controllerToken;
+  if (key !== expectedKey) {
+    next(new Error("key-invalid"));
+    return;
+  }
+  next();
+});
+
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[MomentoBooth] http://0.0.0.0:${PORT} — photos: ${PHOTOS_DIR}`);
 });
