@@ -377,6 +377,9 @@ window.__mbBootStartedAt = performance.now();
     <button id="btn-shutter" class="shutter-btn" aria-label="Prendre une photo">
       <div class="shutter-btn-inner"></div>
     </button>
+    <!-- v124.0.7 — GIF incitatif "main qui pousse" sous le bouton blanc.
+         Caché automatiquement après la première capture (localStorage). -->
+    <img id="shutter-hint-gif" class="shutter-hint-gif" src="/img/idle-click.gif" alt="Appuyez ici" aria-hidden="true">
 
     <button id="btn-timer-trigger" class="tool-btn" aria-label="Régler le minuteur" aria-controls="sheet-timer" aria-expanded="false">
       <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -480,7 +483,7 @@ window.__mbBootStartedAt = performance.now();
       <div class="settings-row"><span>Taille des boutons<small class="row-sub">90% à 135% — indépendant du texte</small></span><div id="ui-button-scale" class="segmented"><button data-bscale="90">−</button><button data-bscale="100" class="active">●</button><button data-bscale="115">+</button><button data-bscale="135">++</button></div></div>
       <div class="settings-row"><span>Identité<small class="row-sub">MomentoBooth · By Hope · By l-vs</small></span><span class="settings-value">Premium</span></div>
       <div class="settings-row"><span>Animations<small class="row-sub">respecte les préférences du système</small></span><span class="settings-value">Fluides</span></div>
-      <div class="settings-row" id="donation-setting-row"><span>Soutenir By l-vs<small class="row-sub">option disponible selon la configuration</small></span><button id="btn-open-donation" class="mini-btn" type="button" hidden>Voir</button></div>
+      <div class="settings-row\" id=\"donation-setting-row\"><span>Soutenir By l-vs<small class=\"row-sub\">choisissez le mode d'affichage du lien</small></span><div class=\"segmented\" id=\"donation-mode-segmented\"><button data-dmode=\"off\" class=\"active\">Off</button><button data-dmode=\"popup\">Pop-up</button><button data-dmode=\"screensaver\">Veille</button><button data-dmode=\"button\">Bouton</button><button data-dmode=\"mode-select\">Choix</button></div></div>
     </div>
     <div class="settings-group collapsed" data-group="advanced"><button type="button" class="settings-group-title" aria-expanded="false"><span>Avancé &amp; diagnostic</span><i class="group-chevron" aria-hidden="true">▾</i></button>
       <div class="settings-row"><span>État PWA<small id="pwa-mode-detail" class="row-sub">Détection en cours…</small></span><span id="pwa-mode-status" class="settings-value">—</span></div>
@@ -587,11 +590,11 @@ window.__mbBootStartedAt = performance.now();
         <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span class="share-chip-label">JPG</span>
       </button>
-      <button class="share-chip icon-only" data-method="download-gif" aria-label="Télécharger en GIF (bientôt disponible)" title="GIF — bientôt disponible" disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed">
+      <button class="share-chip icon-only no-method" aria-label="GIF — à venir" title="GIF — à venir" disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed">
         <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><text x="6.5" y="14.5" font-family="system-ui" font-size="6.5" font-weight="900" fill="currentColor" stroke="none">GIF</text></svg>
         <span class="share-chip-label">GIF</span>
       </button>
-      <button class="share-chip icon-only" data-method="photos" aria-label="Enregistrer dans Photos (bientôt disponible)" title="Photos — bientôt disponible" disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed">
+      <button class="share-chip icon-only no-method" aria-label="Photos — à venir" title="Photos — à venir" disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed">
         <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         <span class="share-chip-label">Photos</span>
       </button>
@@ -610,24 +613,20 @@ window.__mbBootStartedAt = performance.now();
 </section>
 
 <!-- ═════════ ÉCRAN GALERIE ═════════ -->
+<!-- v124.0.7 — galerie simplifiée : uniquement un gros QR code centré.
+     Les boutons téléchargement sont retirés. L'invité scanne et télécharge
+     depuis son propre téléphone. -->
 <section id="screen-gallery" class="screen">
   <div class="gallery-head">
     <button id="btn-back-capture" class="back-btn">← Retour</button>
     <strong id="gallery-title" tabindex="0" aria-label="Galerie">Galerie</strong>
     <span id="gallery-count" class="gallery-count">0</span>
   </div>
-  <div class="gallery-tools">
-    <button id="btn-export-zip" class="mini-btn">📦 Export ZIP</button>
-    <button id="btn-save-all" class="mini-btn">📸 Enregistrer toutes</button>
-    <button id="btn-guest-qr" class="mini-btn" type="button">◈ QR invités</button>
-    <button id="btn-gallery-select-delete" class="mini-btn" type="button" hidden>🗑️ Supprimer…</button>
-    <button id="btn-trash-access" class="mini-btn" type="button">🗑️ Corbeille</button>
-  </div>
-  <!-- Bandeau de sélection multiple (organisateur : code vérifié côté serveur) -->
-  <div id="gallery-select-bar" class="gallery-select-bar" hidden>
-    <span id="gallery-select-count">0 sélectionnée</span>
-    <button id="gallery-select-cancel" class="mini-btn" type="button">Annuler</button>
-    <button id="gallery-select-confirm" class="mini-btn danger" type="button">Supprimer</button>
+  <!-- QR code centré géant style Snapchat -->
+  <div class="gallery-qr-hero" id="gallery-qr-hero">
+    <div class="gallery-qr-label">Scannez pour voir vos photos</div>
+    <img id="gallery-qr-image" class="gallery-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code de la galerie">
+    <div class="gallery-qr-hint">Depuis votre téléphone, ouvrez l'appareil photo et scannez ce code</div>
   </div>
   <!-- Accès invités volontairement discret : appui long sur « Galerie » -->
   <div id="guest-share-panel" class="guest-share-panel" aria-hidden="true">

@@ -229,9 +229,10 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
    (::before) est clippé à la moitié gauche (inset 0 50% 0 0) pour
    produire un demi-disque visible. Le preview live central reste
    visible en entier (clip-path uniquement sur ::before, pas sur le
-   container). */
+   container).
+   v124.0.7 — demi-roue à GAUCHE (centrée sur le bord gauche, s'ouvre vers la droite). */
 #photo-filter-rail {
-  top: 50%; right: -100px; width: 280px; height: 280px; max-height: none; padding: 0;
+  top: 50%; left: -100px; width: 280px; height: 280px; max-height: none; padding: 0;
   transform: translateY(-50%); border: 0; border-radius: 50%; background: transparent;
   box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; overflow: visible;
 }
@@ -240,10 +241,10 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
   background: radial-gradient(circle at 50% 50%, rgba(10,18,36,.55) 0 28%, rgba(10,18,36,.86) 60%, rgba(10,18,36,.96) 100%);
   border: 1px solid rgba(255,255,255,.22); box-shadow: 0 12px 48px rgba(0,0,0,.45), inset 0 0 24px rgba(255,255,255,.06);
   pointer-events: none;
-  /* clip-path inverse : on garde la moitié DROITE du fond pour qu'il forme
-     un demi-disque aligné sur le bord droit du viewport. */
-  clip-path: inset(0 0 0 50%);
-  -webkit-clip-path: inset(0 0 0 50%);
+  /* clip-path inverse : on garde la moitié GAUCHE du fond pour qu'il forme
+     un demi-disque aligné sur le bord gauche du viewport. */
+  clip-path: inset(0 50% 0 0);
+  -webkit-clip-path: inset(0 50% 0 0);
 }
 #photo-filter-rail .rail-caption { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 2; color: rgba(255,255,255,.78); font-size: calc(10px * var(--ui-text-scale, 1)); letter-spacing: .22em; text-align: center; }
 #photo-filter-rail .filter-wheel-live { position: absolute; left: 50%; top: 50%; width: 168px; height: 168px; transform: translate(-30%, -50%); border-radius: 50%; object-fit: cover; opacity: .92; border: 3px solid rgba(255,255,255,.82); box-shadow: 0 0 32px rgba(125,211,252,.45); filter: var(--mb-live-filter, brightness(1)); z-index: 1; pointer-events: none; }
@@ -281,17 +282,17 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
 #photo-filter-rail .filter-rail-card::after { content: attr(title); position: absolute; left: 50%; top: 100%; transform: translateX(-50%) translateY(2px); opacity: 0; pointer-events: none; white-space: nowrap; color: #fff; font-size: calc(10px * var(--ui-text-scale, 1)); font-weight: 800; text-shadow: 0 1px 4px rgba(0,0,0,.5); }
 #photo-filter-rail .filter-rail-card.active::after { opacity: 1; }
 
-/* Tablette paysage : encore plus grand, demi-roue plus large, centre calé sur le bord */
+/* Tablette paysage : encore plus grand, demi-roue gauche plus large, centre calé sur le bord */
 @media (min-width: 768px) {
-  #photo-filter-rail { width: 340px; height: 340px; right: -130px; }
+  #photo-filter-rail { width: 340px; height: 340px; left: -130px; }
   #photo-filter-rail .filter-wheel-live { width: 200px; height: 200px; transform: translate(-30%, -50%); }
   #photo-filter-rail .filter-rail-card { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-128px) rotate(calc(var(--wheel-angle, 0deg) * -1)); }
   #photo-filter-rail .filter-rail-card.active { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-136px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.22); }
   #photo-filter-rail .filter-rail-card:not(.active) { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-128px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(.82); }
 }
-/* iPhone compact : un peu plus petit pour respirer, demi-roue + petit */
+/* iPhone compact : un peu plus petit pour respirer, demi-roue gauche + petit */
 @media (max-width: 380px) {
-  #photo-filter-rail { width: 220px; height: 220px; right: -80px; }
+  #photo-filter-rail { width: 220px; height: 220px; left: -80px; }
   #photo-filter-rail .filter-wheel-live { width: 124px; height: 124px; transform: translate(-30%, -50%); }
   #photo-filter-rail .filter-rail-card { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-78px) rotate(calc(var(--wheel-angle, 0deg) * -1)); }
   #photo-filter-rail .filter-rail-card.active { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-82px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.18); }
@@ -741,6 +742,16 @@ body.focusing #sticker-canvas { opacity: .96; }
   transform: scale(0.6);
   background: #ff3b30;
 }
+/* v124.0.7 — GIF incitatif sous le bouton shutter. Caché après la 1ère capture. */
+.shutter-hint-gif {
+  position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
+  width: 72px; height: 72px; object-fit: contain; opacity: .9;
+  pointer-events: none; z-index: 5;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,.4));
+}
+.shutter-hint-gif.hidden { display: none; }
+body.ui-hidden .shutter-hint-gif { opacity: 0; transition: opacity .2s; }
+body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
 @media (max-width: 360px) {
   .camera-monitor-controls { bottom: calc(12px + var(--safe-bottom)); }
   .camera-pair-code { font-size: calc(20px * var(--ui-text-scale, 1)); letter-spacing: .15em; }
@@ -1001,9 +1012,25 @@ body.focusing #sticker-canvas { opacity: .96; }
   overscroll-behavior: contain;
 }
 #screen-gallery > .gallery-head,
-#screen-gallery > .gallery-tools,
 #screen-gallery > .gallery-select-bar,
 #screen-gallery > .guest-share-panel { flex: 0 0 auto; min-width: 0; }
+/* v124.0.7 — QR code hero centré style Snapchat */
+.gallery-qr-hero {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px; gap: 16px; text-align: center;
+}
+.gallery-qr-label {
+  font-size: calc(20px * var(--ui-text-scale, 1)); font-weight: 800;
+  color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.gallery-qr-image {
+  width: min(280px, 65vw); height: min(280px, 65vw); border-radius: 20px;
+  background: #fff; padding: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.4);
+}
+.gallery-qr-hint {
+  font-size: calc(13px * var(--ui-text-scale, 1)); color: rgba(255,255,255,.7);
+  max-width: 320px; line-height: 1.4;
+}
 #screen-gallery > .guest-share-panel { max-height: min(42dvh, 360px); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
 .guest-share-panel {
   display: none; margin: 0 18px 12px; padding: 16px; border-radius: 22px;
@@ -2120,9 +2147,8 @@ body.idle-photos .idle-scenes { min-height: 340px; }
     .customize-quick-btn { right: 172px; width: 56px; min-height: 56px; font-size: calc(26px * var(--ui-text-scale, 1)); }
     .tablet-qr-access { display: block; }
     .fx-top-btn { min-height: 58px; font-size: calc(19px * var(--ui-text-scale, 1)); padding: 12px 20px; }
-    /* left:auto annule la règle paysage `.window-stack.filter-rail` qui
-       pousserait la demi-roue à gauche : elle reste scotchée au bord droit. */
-    #photo-filter-rail { left: auto; right: -46px; width: 224px; height: 224px; }
+    /* v124.0.7 — demi-roue à GAUCHE : scotchée au bord gauche. */
+    #photo-filter-rail { right: auto; left: -46px; width: 224px; height: 224px; }
     #photo-filter-rail .filter-rail-card { width: 60px; height: 60px; transform-origin: 112px 50%; }
     #photo-filter-rail .filter-rail-card.active { transform: translateY(-50%) rotate(var(--wheel-angle, 0deg)) translateX(5px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.2); }
     #photo-filter-rail .filter-rail-preview { width: 45px; height: 45px; }
@@ -2542,6 +2568,29 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
   .role-card { padding: 38px 42px; }
   .bottom-bar { padding-inline: 14px; }
   .settings-row { padding-block: 16px; }
+}
+
+/* v124.0.7 — tablette Huawei/Android : boutons et texte agrandis.
+   Ne touche pas au mobile (iPhone 11). */
+@media (min-width: 1024px) {
+  .shutter-btn { width: 110px; height: 110px; }
+  .shutter-btn-inner { width: 100%; height: 100%; }
+  .tool-btn { width: 72px; height: 72px; }
+  .tool-btn svg { width: 34px; height: 34px; }
+  .bottom-bar { gap: 16px; padding: 16px 14px; border-radius: 28px; }
+  .shutter-hint-gif { width: 100px; height: 100px; bottom: 120px; }
+  /* Bulles de filtre plus grandes */
+  .filter-rail-card { width: 64px; height: 64px; }
+  .filter-rail-preview { width: 52px; height: 52px; }
+  /* Texte des paramètres */
+  .settings-row { font-size: calc(15px * var(--ui-text-scale, 1)); padding-block: 18px; }
+  .row-sub { font-size: calc(12px * var(--ui-text-scale, 1)); }
+  .sheet-head { font-size: calc(18px * var(--ui-text-scale, 1)); }
+  /* Preview centrale */
+  .camera-zone { max-width: 80vw; max-height: 70vh; }
+  /* Galerie QR */
+  .gallery-qr-image { width: min(360px, 55vw); height: min(360px, 55vw); }
+  .gallery-qr-label { font-size: calc(26px * var(--ui-text-scale, 1)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

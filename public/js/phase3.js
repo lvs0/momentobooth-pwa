@@ -16,6 +16,10 @@ const LOCAL_CONFIG = Object.freeze({
     cooldown: 604800,
     priority: "normal",
     showOnStartup: false,
+    // v124.0.7 — mode d'affichage du lien de don
+    // "off" = rien, "popup" = popup bas d'écran 1ère session, "screensaver" = sous le GIF main,
+    // "button" = bouton dans paramètres, "mode-select" = dans l'écran de sélection du mode
+    displayMode: "off",
   }),
 });
 
@@ -47,6 +51,7 @@ function sanitizeRemoteConfig(input) {
   const url = suppliedUrl || LOCAL_CONFIG.donation.url;
   const cooldown = Number(donation.cooldown);
   const priority = ["low", "normal", "high"].includes(donation.priority) ? donation.priority : "normal";
+  const displayMode = ["off", "popup", "screensaver", "button", "mode-select"].includes(donation.displayMode) ? donation.displayMode : "off";
   return Object.freeze({
     version: Number.isFinite(Number(raw.version)) ? Math.max(1, Math.min(99, Number(raw.version))) : 1,
     donation: Object.freeze({
@@ -58,6 +63,7 @@ function sanitizeRemoteConfig(input) {
       cooldown: Number.isFinite(cooldown) ? Math.max(3600, Math.min(2592000, cooldown)) : LOCAL_CONFIG.donation.cooldown,
       priority,
       showOnStartup: donation.showOnStartup === true,
+      displayMode,
     }),
   });
 }
@@ -308,8 +314,72 @@ function downloadDiagnostic() {
   $("diagnostic-status").textContent = "Diagnostic exporté ✓";
 }
 
+// v124.0.7 — gestion du mode d'affichage du lien de don (segmented control)
+const DONATION_DISPLAY_KEY = "momentobooth-donation-display-v1";
+function initDonationDisplayMode() {
+  const seg = document.getElementById("donation-mode-segmented");
+  if (!seg) return;
+  // Restaurer le choix sauvegardé
+  let saved = "off";
+  try { saved = localStorage.getItem(DONATION_DISPLAY_KEY) || "off"; } catch {}
+  if (!["off","popup","screensaver","button","mode-select"].includes(saved)) saved = "off";
+  // Mettre à jour la config et les boutons
+  updateDonationDisplayUI(saved);
+  seg.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.dmode;
+      if (!mode) return;
+      updateDonationDisplayUI(mode);
+      try { localStorage.setItem(DONATION_DISPLAY_KEY, mode); } catch {}
+      // Appliquer immédiatement
+      applyDonationDisplayMode(mode);
+    });
+  });
+  // Appliquer au démarrage
+  applyDonationDisplayMode(saved);
+}
+
+function updateDonationDisplayUI(mode) {
+  const seg = document.getElementById("donation-mode-segmented");
+  if (!seg) return;
+  seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.dmode === mode));
+}
+
+function applyDonationDisplayMode(mode) {
+  const donationRow = document.getElementById("donation-setting-row");
+  const popup = document.getElementById("donation-popup");
+  const hintGif = document.getElementById("shutter-hint-gif");
+  if (!donationRow) return;
+  // Off : tout caché
+  if (mode === "off") {
+    if (popup) { popup.classList.remove("open"); popup.setAttribute("aria-hidden", "true"); }
+    donationRow.style.opacity = "0.5";
+  } else {
+    donationRow.style.opacity = "1";
+  }
+  // Pop-up : afficher au démarrage si pas déjà vu
+  if (mode === "popup" && remoteConfig.donation.enabled) {
+    setTimeout(() => showDonation(), 1500);
+  }
+  // Screensaver : message discret sous le GIF main
+  if (mode === "screensaver" && hintGif) {
+    // Le message sera affiché via le GIF main
+  }
+  // Button : le bouton btn-open-donation est déjà dans la sheet
+  // Mode-select : affiché dans l'écran de sélection (à implémenter plus tard)
+  // Mettre à jour la config en mémoire
+  try {
+    remoteConfig = Object.freeze({
+      ...remoteConfig,
+      donation: Object.freeze({ ...remoteConfig.donation, displayMode: mode }),
+    });
+  } catch {}
+}
+
 function initPhase3() {
   initDonation();
+  // v124.0.7 — segmented control pour le mode d'affichage du don
+  initDonationDisplayMode();
   $("btn-install-pwa")?.addEventListener("click", promptInstall);
   $("btn-copy-diagnostic")?.addEventListener("click", copyDiagnostic);
   $("btn-download-diagnostic")?.addEventListener("click", downloadDiagnostic);

@@ -1821,6 +1821,14 @@ function resetLiveEffectsAfterCapture() {
   void Promise.resolve(window.mbUpdateFaceTracking?.()).catch(() => {});
 }
 
+// v124.0.7 — cache le GIF incitatif sous le shutter après la 1ère capture.
+function hideShutterHintGif() {
+  const gif = document.getElementById("shutter-hint-gif");
+  if (!gif) return;
+  gif.classList.add("hidden");
+  try { localStorage.setItem("momentobooth-shutter-hint-seen", "1"); } catch {}
+}
+
 function captureSummaryText(count = state.captureCount) {
   const n = `${count} ${count > 1 ? "prises" : "prise"}`;
   if (state.burstMode) return `${n} · meilleure prise par série`;
@@ -2840,7 +2848,12 @@ async function capturePack(animationEngine = state.animationEngine) {
 async function capture() {
   if (state.capturing) return;
   const count = state.autoMode ? 1 : Math.max(1, Math.min(6, Number(state.captureCount) || 1));
-  if (count === 1) return captureSingle();
+  if (count === 1) {
+    const result = await captureSingle();
+    // v124.0.7 — cache le GIF incitatif après la 1ère capture (localStorage)
+    hideShutterHintGif();
+    return result;
+  }
   state.captureBatchActive = true;
   state.captureBatchItems = [];
   try {
@@ -4798,6 +4811,8 @@ function waitForDeviceRole() {
     // Le module a réellement initialisé le sélecteur : le secours inline ne
     // doit plus ajouter de handlers concurrents après ce point.
     window.__mbAppBooted = true;
+    // v124.0.7 — si l'utilisateur a déjà pris une photo (session précédente), cacher le GIF d'emblée.
+    try { if (localStorage.getItem("momentobooth-shutter-hint-seen")) hideShutterHintGif(); } catch {}
     window.dispatchEvent(new Event("mb-app-booted"));
     document.querySelectorAll("#role-gate .role-option").forEach((button) => {
       button.addEventListener("click", () => {
@@ -7150,6 +7165,10 @@ $("fx-carousel")?.addEventListener("scroll", () => {
 	  screens.capture.classList.remove("active");
 	  screens.result.classList.remove("active");
 	  screens.gallery.classList.add("active");
+	  // v124.0.7 — QR code géant de la galerie publique
+	  const galleryUrl = `${location.origin}/api/gallery`;
+	  const qrImg = document.getElementById("gallery-qr-image");
+	  if (qrImg) qrImg.src = `/api/qr?url=${encodeURIComponent(galleryUrl)}`;
 	  void renderGallery();
 	}
 on("guest-share-close", "click", closeGuestSharePanel);
@@ -7209,16 +7228,28 @@ on("btn-frames", "click", () => openSheet("sheet-frames"));
 on("btn-reframe", "click", () => openSheet("sheet-frames"));
 
 // ==== Nouveaux boutons de la barre du bas ====
+// v124.0.7 — le bouton blanc lance directement le countdown (plus de CTA intermédiaire).
+// Le CTA géant reste disponible mais n'est plus le seul chemin pour shooter.
 on("btn-shutter", "click", () => {
   if (state.counting) return;
-  // Snap pré-déclenchement v122.1 : affiche le CTA géant plein écran.
-  // L'utilisateur confirme en appuyant sur "Prendre la photo" → lance countdown.
-  // Annuler → referme le CTA, retour à l'interface normale.
-  showSnapCta();
+  startCountdown();
 });
 on("btn-timer-trigger", "click", () => {
   openSheet("sheet-timer");
 });
+// v124.0.7 — "tap to shoot" : un tap n'importe où dans la zone caméra déclenche la photo.
+// Ne pas tirer si le tap est sur un bouton, un sheet ouvert, ou en idle.
+if (cameraZone) {
+  cameraZone.addEventListener("pointerdown", (event) => {
+    if (state.counting) return;
+    if (document.body.classList.contains("idle")) return;
+    if (!screens.capture?.classList.contains("active")) return;
+    // Ignorer les taps sur les éléments interactifs (boutons, filtres, sheets)
+    const target = event.target;
+    if (target.closest("button, a, input, select, textarea, [role='button'], [role='dialog'], .sheet, .filter-rail-card, .bottom-bar, .tool-btn, .shutter-btn")) return;
+    startCountdown();
+  }, { passive: true });
+}
 
 document.querySelectorAll(".sheet-close").forEach((btn) => {
   btn.addEventListener("click", () => closeSheet(btn.closest(".sheet")));

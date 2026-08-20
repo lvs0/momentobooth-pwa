@@ -17,7 +17,7 @@
    sont importés qu'à la demande par app.js lui-même (voir
    public/js/modules/*).
    ========================================================= */
-const APP_VERSION = "123";
+const APP_VERSION = "124";
 const FALLBACK_SPLASH_MS = 2500;
 
 // Diagnostic précoce : posé avant même que app.js ne soit parsé.

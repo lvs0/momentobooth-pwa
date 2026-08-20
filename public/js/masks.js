@@ -771,6 +771,8 @@ if (!_isLiteMode) ensureFx3D();
 
 function draw3DSync(ctx, W, H, face, id, faceIndex, faceMatrix = null) {
   // Si le module n'est pas encore prêt, on relance le déclenchement.
+  // v124.0.7 — même en mode lite, forcer le chargement quand l'utilisateur
+  // clique sur un effet 3D (le mode lite empêche seulement le preload au boot).
   if (!_fx3dLoadTried) ensureFx3D();
   const mod = _fx3d;
   if (!mod || !mod.is3DSupported || !mod.is3DSupported()) {
