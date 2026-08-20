@@ -118,6 +118,21 @@ const _gallerySelection = new Set();
       return isSafari && !force;
     } catch { return false; }
   })(),
+  // v124.0.3 — mode "lite" pour Safari iOS : on désactive tout ce qui peut
+  // crasher Safari (MediaPipe WASM, three.js, Service Worker) et on garde le
+  // strict minimum (caméra + capture + partage + filtres CSS 2D). Le user
+  // peut forcer le mode complet avec `?force-full=1` dans l'URL après diag.
+  // Sur iPhone la cible finale est Chrome iOS, mais Safari reste un mode de
+  // repli. La cible principale = Chrome sur Huawei Tab.
+  liteMode: (function () {
+    try {
+      const ua = navigator.userAgent || "";
+      const isIOS = /iP(hone|ad|od)/.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
+      const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(ua);
+      const force = new URLSearchParams(location.search).get("force-full") === "1";
+      return isIOS && isSafari && !force;
+    } catch { return false; }
+  })(),
   deviceRole: "mixed",      // camera | interface | mixed — choisi au démarrage
   cameraStopRequested: false,
   roleRemember: true,
@@ -1960,6 +1975,11 @@ countdownCancel?.addEventListener("click", (event) => {
 async function initFaceLandmarker() {
   if (state.landmarker) return state.landmarker;
   if (_faceTrackingPromise) return _faceTrackingPromise;
+  // v124.0.3 — mode lite Safari iOS : MediaPipe WASM est le suspect #1 de
+  // crash récurrent. On désactive complètement le face tracking et on
+  // retourne null. Les effets qui dépendent du face mesh tombent en fallback
+  // canvas (déjà géré par drawMask).
+  if (state.liteMode) return null;
   // Un asset MediaPipe absent ou trop lourd ne doit pas provoquer une
   // nouvelle importation à chaque geste : l'app reste utilisable sans tracking
   // et retentera plus tard, de façon bornée.

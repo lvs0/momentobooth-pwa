@@ -755,7 +755,19 @@ function ensureFx3D() {
   return null;
 }
 // Démarre le chargement dès que masks.js est évalué.
-ensureFx3D();
+// v124.0.3 — mode lite Safari iOS : on ne lance pas le dynamic import
+// effects-3d.js au boot (suspect crash Safari). Le 3D sera tenté seulement
+// si l'user clique explicitement sur un effet "3d:*".
+const _isLiteMode = (function () {
+  try {
+    const ua = navigator.userAgent || "";
+    const isIOS = /iP(hone|ad|od)/.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
+    const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(ua);
+    const force = new URLSearchParams(location.search).get("force-full") === "1";
+    return isIOS && isSafari && !force;
+  } catch { return false; }
+})();
+if (!_isLiteMode) ensureFx3D();
 
 function draw3DSync(ctx, W, H, face, id, faceIndex) {
   // Si le module n'est pas encore prêt, on relance le déclenchement.
