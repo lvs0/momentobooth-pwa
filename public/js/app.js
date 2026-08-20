@@ -397,6 +397,16 @@ function applyUiCustomization() {
   // vraie borne, puis on reflète l'état sur les « ghosts » de l'aperçu.
   for (const key of Object.keys(UI_COMPONENTS)) applyComponentToDom(key);
   applyCustomizerGhostVisuals();
+  // Sync settings sheet (theme picker + text/button segmented + accent).
+  document.querySelectorAll("#theme-picker .theme-swatch").forEach((b) => {
+    const active = b.dataset.themeOption === state.uiTheme;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-checked", active ? "true" : "false");
+  });
+  document.querySelectorAll("#ui-text-scale button").forEach((b) => b.classList.toggle("active", Number(b.dataset.scale) === state.uiTextScale));
+  document.querySelectorAll("#ui-button-scale button").forEach((b) => b.classList.toggle("active", Number(b.dataset.bscale) === state.uiButtonScale));
+  const settingsAccent = $("set-ui-accent");
+  if (settingsAccent) settingsAccent.value = state.uiAccent || settingsAccent.value || "#7dd3fc";
 }
 /* Identité de l'événement (prénoms des hôtes + message d'accueil veille) :
    personnalisable par l'organisateur, avec les valeurs d'origine de cette
@@ -6350,6 +6360,61 @@ function bindSettings() {
   Object.entries(remoteControls).forEach(([id, name]) => on(id, "change", (event) => remoteSendSetting(name, event.target.type === "checkbox" ? event.target.checked : event.target.value)));
   document.querySelectorAll("#flash-modes button").forEach((button) => button.addEventListener("click", () => remoteSendSetting("flashMode", button.dataset.flash)));
   document.querySelectorAll("#auto-delay-modes button").forEach((button) => button.addEventListener("click", () => remoteSendSetting("autoDelay", Number(button.dataset.delay))));
+
+  // Picker de thème : 4 vignettes cliquables (Midnight / Studio / Party / Pearl).
+  // L'UI est rendue par index.html, le state est géré par applyUiCustomization().
+  document.querySelectorAll("#theme-picker .theme-swatch").forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = button.dataset.themeOption;
+      if (!["midnight", "studio", "party", "pearl"].includes(next)) return;
+      state.uiTheme = next;
+      applyUiCustomization();
+      saveUiCustomization();
+      // Sync visuelle (état actif).
+      document.querySelectorAll("#theme-picker .theme-swatch").forEach((b) => {
+        const active = b.dataset.themeOption === state.uiTheme;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-checked", active ? "true" : "false");
+      });
+      toast(`Thème : ${state.uiTheme}`);
+    });
+  });
+
+  // Picker d'accent custom : color input.
+  const accentInput = $("set-ui-accent");
+  if (accentInput) {
+    accentInput.addEventListener("input", () => {
+      state.uiAccent = /^#[0-9a-fA-F]{6}$/.test(accentInput.value) ? accentInput.value : "";
+      applyUiCustomization();
+      saveUiCustomization();
+    });
+  }
+
+  // Segmented : taille du texte (90/100/115/130/145 %).
+  document.querySelectorAll("#ui-text-scale button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const v = Number(button.dataset.scale);
+      if (!Number.isFinite(v)) return;
+      state.uiTextScale = v;
+      applyUiCustomization();
+      saveUiCustomization();
+      document.querySelectorAll("#ui-text-scale button").forEach((b) => b.classList.toggle("active", Number(b.dataset.scale) === v));
+      toast(`Texte : ${v}%`);
+    });
+  });
+
+  // Segmented : taille des boutons (90/100/115/135 %).
+  document.querySelectorAll("#ui-button-scale button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const v = Number(button.dataset.bscale);
+      if (!Number.isFinite(v)) return;
+      state.uiButtonScale = v;
+      applyUiCustomization();
+      saveUiCustomization();
+      document.querySelectorAll("#ui-button-scale button").forEach((b) => b.classList.toggle("active", Number(b.dataset.bscale) === v));
+      toast(`Boutons : ${v}%`);
+    });
+  });
 
   // Nom d'appareil (sélection d'appareil / découverte).
   const deviceNameInput = $("device-name-input");

@@ -443,7 +443,26 @@ window.__mbBootStartedAt = performance.now();
       <div class="settings-row"><span>Rejoindre une caméra<small class="row-sub">code affiché sur la borne caméra</small></span><input id="remote-connect-token" type="text" maxlength="8" inputmode="text" placeholder="Code" class="mini-input" aria-label="Code de la caméra"><button id="btn-remote-connect" class="mini-btn primary">OK</button></div>
       <div class="settings-row" id="remote-controller-status" style="display:none"><span id="remote-status-text" role="status" aria-live="polite"></span><button id="btn-remote-disconnect" class="mini-btn">Déconnecter</button></div>
     </div>
-    <div class="settings-group collapsed" data-group="appearance"><button type="button" class="settings-group-title" aria-expanded="false"><span>Apparence</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+    <div class="settings-group" data-group="appearance"><button type="button" class="settings-group-title" aria-expanded="true"><span>Apparence</span><i class="group-chevron" aria-hidden="true">▾</i></button>
+      <div class="settings-row settings-row-stack"><span>Thème<small class="row-sub">4 ambiances au choix — prévisualisation en direct</small></span>
+        <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="Thème de l'interface">
+          <button type="button" class="theme-swatch" data-theme-option="midnight" role="radio" aria-checked="true" aria-label="Thème Midnight (sombre, bleu/violet)">
+            <span class="swatch-preview" data-preview="midnight"></span><span class="swatch-name">Midnight</span>
+          </button>
+          <button type="button" class="theme-swatch" data-theme-option="studio" role="radio" aria-checked="false" aria-label="Thème Studio (sombre, doré/cuivre)">
+            <span class="swatch-preview" data-preview="studio"></span><span class="swatch-name">Studio</span>
+          </button>
+          <button type="button" class="theme-swatch" data-theme-option="party" role="radio" aria-checked="false" aria-label="Thème Party (sombre, magenta/cyan)">
+            <span class="swatch-preview" data-preview="party"></span><span class="swatch-name">Party</span>
+          </button>
+          <button type="button" class="theme-swatch" data-theme-option="pearl" role="radio" aria-checked="false" aria-label="Thème Pearl (clair, pastel)">
+            <span class="swatch-preview" data-preview="pearl"></span><span class="swatch-name">Pearl</span>
+          </button>
+        </div>
+      </div>
+      <div class="settings-row"><span>Couleur d'accent<small class="row-sub">remplace --accent et --accent-2 (override custom)</small></span><input id="set-ui-accent" type="color" value="#7dd3fc" aria-label="Couleur d'accent personnalisée"></div>
+      <div class="settings-row"><span>Taille du texte<small class="row-sub">90% à 145% — appliqué globalement</small></span><div id="ui-text-scale" class="segmented"><button data-scale="90">A−</button><button data-scale="100" class="active">A</button><button data-scale="115">A+</button><button data-scale="130">A++</button><button data-scale="145">A+++</button></div></div>
+      <div class="settings-row"><span>Taille des boutons<small class="row-sub">90% à 135% — indépendant du texte</small></span><div id="ui-button-scale" class="segmented"><button data-bscale="90">−</button><button data-bscale="100" class="active">●</button><button data-bscale="115">+</button><button data-bscale="135">++</button></div></div>
       <div class="settings-row"><span>Identité<small class="row-sub">MomentoBooth · By Hope · By l-vs</small></span><span class="settings-value">Premium</span></div>
       <div class="settings-row"><span>Animations<small class="row-sub">respecte les préférences du système</small></span><span class="settings-value">Fluides</span></div>
       <div class="settings-row" id="donation-setting-row"><span>Soutenir By l-vs<small class="row-sub">option disponible selon la configuration</small></span><button id="btn-open-donation" class="mini-btn" type="button" hidden>Voir</button></div>
