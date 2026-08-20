@@ -23,9 +23,39 @@
 <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/icons/splash-11.png">
 <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-12.png">
 <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" href="/icons/splash-13pro.png">
-<link rel="stylesheet" href="/css/styles.css?v=123">
+<link rel="stylesheet" href="/css/styles.css?v=124">
 </head>
-<body data-app-version="123"><!-- v123 : WebRTC P2P pour la caméra déportée (signaling Socket.IO) -->
+<body data-app-version="124"><!-- v124 : demi-roue des filtres + anti-crash Safari iOS + WebRTC désactivé Safari -->
+<!-- Anti-crash-loop Safari iOS (v124) : quand Safari injecte ?mb-recover=N suite
+     à 2+ crashes, on vide le cache local et on recharge une fois. Si ça replante,
+     on affiche un écran de recovery safe au lieu de laisser Safari afficher son
+     propre écran "Un problème récurrent est survenu". -->
+<script>
+(function () {
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var recover = params.get("mb-recover");
+    if (recover) {
+      try { localStorage.clear(); } catch (_) {}
+      try { sessionStorage.clear(); } catch (_) {}
+      // On retire le query param et on recharge une fois (la 2e charge
+      // doit être propre car le cache est vidé).
+      var cleaned = window.location.pathname + window.location.hash;
+      if (!sessionStorage.getItem("mb-recover-cleaned")) {
+        sessionStorage.setItem("mb-recover-cleaned", "1");
+        window.location.replace(cleaned);
+        return; // stop ici, on est en train de recharger
+      } else {
+        // 2e passage : on est dans la session propre. Si ça replante
+        // encore, le crash suivant affichera un écran de recovery.
+        sessionStorage.removeItem("mb-recover-cleaned");
+      }
+    }
+  } catch (_) {
+    // Si même ce script plante, on continue normalement.
+  }
+})();
+</script>
 <script>
 window.__mbBootStartedAt = performance.now();
 (function () {
@@ -738,6 +768,6 @@ window.__mbBootStartedAt = performance.now();
 })();
 </script>
 <script src="/socket.io/socket.io.js"></script>
-<script type="module" src="/js/core.js?v=123"></script>
+<script type="module" src="/js/core.js?v=124"></script>
 </body>
 </html>

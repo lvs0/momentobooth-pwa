@@ -1,5 +1,5 @@
 /* =========================================================
-   MomentoBooth — core entry point (v123)
+   MomentoBooth — core entry point (v124)
 
    Responsabilités :
    1. Poser le role "pending" et la pastille de diagnostic avant

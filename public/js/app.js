@@ -102,6 +102,20 @@ const _gallerySelection = new Set();
   webrtcPeerLeft: false,      // l'autre pair a quitté → force le fallback polling
   webrtcSignalingFailed: false, // signaling/peer négocié KO → fallback polling
   webrtcRemoteStream: null,  // MediaStream reçu côté interface (pour nettoyage)
+  // WebRTC est désactivé par défaut sur Safari iOS : les crashes en boucle
+  // (RTCPeerConnection + H264 + simulcast) déclenchent l'écran "Un problème
+  // récurrent est survenu" de Safari. Sur Safari, on reste en polling JPEG
+  // (toujours fonctionnel). L'utilisateur peut le réactiver via
+  // `?force-webrtc=1` dans l'URL après diagnostic. Voir RECETTE-PHYSIQUE.md.
+  webrtcDisabled: (function () {
+    try {
+      const ua = navigator.userAgent || "";
+      const isIOS = /iP(hone|ad|od)/.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
+      const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
+      const force = new URLSearchParams(location.search).get("force-webrtc") === "1";
+      return isIOS && isSafari && !force;
+    } catch { return false; }
+  })(),
   deviceRole: "mixed",      // camera | interface | mixed — choisi au démarrage
   cameraStopRequested: false,
   roleRemember: true,
@@ -5425,6 +5439,14 @@ function stopRemotePublishing() {
 async function initCameraWebrtc(generation) {
   if (generation !== _remotePubGeneration) return;
   if (state.webrtcActive || state.webrtcPC) return;
+  // Safari iOS : WebRTC désactivé par défaut pour éviter l'écran "Un
+  // problème récurrent est survenu" de Safari. Le polling JPEG continue
+  // à fonctionner (1-2 fps, fluide, pas de crash). Réactiver via
+  // ?force-webrtc=1 dans l'URL après diagnostic manuel.
+  if (state.webrtcDisabled) {
+    state.webrtcSignalingFailed = true;
+    return;
+  }
   // S'assurer qu'on a un flux local à publier (la caméra peut encore démarrer).
   let stream = state.stream;
   if (!stream) {
