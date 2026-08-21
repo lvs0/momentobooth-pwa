@@ -248,23 +248,35 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
 }
 #photo-filter-rail .rail-caption { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 2; color: rgba(255,255,255,.78); font-size: calc(10px * var(--ui-text-scale, 1)); letter-spacing: .22em; text-align: center; }
 #photo-filter-rail .filter-wheel-live { position: absolute; left: 50%; top: 50%; width: 168px; height: 168px; transform: translate(-30%, -50%); border-radius: 50%; object-fit: cover; opacity: .92; border: 3px solid rgba(255,255,255,.82); box-shadow: 0 0 32px rgba(125,211,252,.45); filter: var(--mb-live-filter, brightness(1)); z-index: 1; pointer-events: none; }
+/* Lévy 2026-08-21 : texte "Filtre : X" sort de la roulette pour ne plus chevaucher */
 #photo-filter-rail .filter-rail-meta {
-  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  pointer-events: none; z-index: 3; text-align: center;
+  position: absolute;
+  /* Ancré à droite de la roulette, plus centré dedans */
+  left: calc(50% + 100px);
+  right: auto;
+  bottom: 50%;
+  transform: translateY(50%);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  pointer-events: none; z-index: 5; text-align: left;
   color: #fff; max-width: 220px;
+  background: rgba(10, 18, 36, 0.55);
+  padding: 8px 14px;
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 #photo-filter-rail .filter-rail-label {
-  font-size: calc(13px * var(--ui-text-scale, 1));
+  font-size: calc(15px * var(--ui-text-scale, 1));
   font-weight: 800;
   letter-spacing: -.01em;
   text-shadow: 0 1px 8px rgba(0,0,0,.6);
   white-space: nowrap;
 }
 #photo-filter-rail .filter-rail-hint {
-  font-size: calc(10px * var(--ui-text-scale, 1));
+  font-size: calc(11px * var(--ui-text-scale, 1));
   font-weight: 600;
-  color: rgba(255,255,255,.62);
+  color: rgba(255,255,255,.72);
   letter-spacing: .02em;
 }
 #photo-filter-rail .filter-rail-list {
@@ -1355,7 +1367,13 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
   transition: background .15s ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  /* Lévy 2026-08-21 : pas de mouvement au clic (transform fixe, position stable) */
+  transform: translate(0, 0) !important;
+  position: relative;
+  will-change: background;
 }
+.gallery-toggle-view:hover { background: rgba(255,255,255,.12); }
+.gallery-toggle-view:focus-visible { outline: 2px solid var(--accent, #7dd3fc); outline-offset: 2px; }
 .gallery-toggle-view:active { background: rgba(255,255,255,.18); }
 /* Grid view (toggle) */
 .gallery-grid-view {
@@ -2861,7 +2879,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
   .row-sub { font-size: calc(12px * var(--ui-text-scale, 1)); }
   .sheet-head { font-size: calc(18px * var(--ui-text-scale, 1)); }
   /* Preview centrale */
-  .camera-zone { max-width: 80vw; max-height: 70vh; }
+  /* Lévy 2026-08-21 : caméra doit faire 100% de la largeur, pas 80vw */
+  .camera-zone { max-width: 100vw !important; max-height: 100dvh !important; }
   /* Galerie QR — v124.0.11: QR compact, ne bouffe pas la galerie */
   .gallery-qr-hero { max-width: 380px; padding: 10px 14px; }
   .gallery-qr-image { width: 100px; height: 100px; }

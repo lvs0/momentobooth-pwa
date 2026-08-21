@@ -1394,7 +1394,13 @@ function writeRemoteJson(file, value) {
 }
 function writeRemoteFrame(file, buffer) {
   const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
-  fs.writeFileSync(tmp, buffer);
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeFileSync(fd, buffer);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   fs.renameSync(tmp, file);
 }
 function persistDiscoveryEntry(entry) {
