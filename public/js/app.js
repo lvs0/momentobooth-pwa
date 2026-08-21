@@ -4714,6 +4714,15 @@ function updateRoleGateSelection(role) {
 function showRoleGate() {
   const gate = $("role-gate");
   if (!gate) return;
+  // v124.0.10 — assigner _roleGateFinish au boot (sinon click sur
+  // Caméra/Mixte appelle un finish=null → TypeError → Safari crash).
+  if (!_roleGateFinish) {
+    _roleGateFinish = (role, token) => {
+      _roleGateFinish = null;
+      setDeviceRole(role, token);
+      hideRoleGate();
+    };
+  }
   // v124.0.9 — si l'URL force un rôle (?role=mixed/camera/interface),
   // on l'applique directement sans afficher la modale (évite un crash
   // Safari iOS où le click sur la modale déclenche un recovery).
