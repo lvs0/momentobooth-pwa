@@ -196,7 +196,7 @@ window.__mbBootStartedAt = performance.now();
 
     <div id="tablet-qr-access" class="tablet-qr-access" aria-live="polite" hidden>
       <button id="tablet-qr-open" type="button" aria-label="Ouvrir la galerie invités">
-        <img id="tablet-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code pour accéder à la galerie">
+        <img id="tablet-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code pour accéder à la galerie" onerror="this.style.visibility='hidden';" loading="lazy">
         <span>Galerie invités&nbsp;↗</span>
       </button>
     </div>

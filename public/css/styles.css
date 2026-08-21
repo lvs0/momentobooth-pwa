@@ -352,7 +352,7 @@ body.idle .tablet-qr-access,
 body.ui-hidden .tablet-qr-access,
 body[data-device-role="camera"] .tablet-qr-access { display: none !important; }
 .tablet-qr-access button { display: grid; grid-template-columns: 56px 92px; gap: 8px; align-items: center; padding: 6px; color: #fff; background: rgba(9,17,36,.66); border: 1px solid rgba(255,255,255,.22); border-radius: 12px; text-align: left; font-size: calc(11px * var(--ui-text-scale, 1)); font-weight: 850; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tablet-qr-access img { width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 7px; }
+.tablet-qr-access img { width: 56px; height: 56px; object-fit: contain; background: rgba(255,255,255,0.08); border-radius: 7px; /* P0-G : fond grisâtre subtil au lieu de carré blanc quand l'image QR échoue */ }
 
 /* Editeur organisateur : aperçu isolé + réglages grands sur tablette. */
 .customizer { position: fixed; inset: 0; z-index: 140; display: none; align-items: center; justify-content: center; padding: calc(18px + var(--safe-top)) 16px calc(18px + var(--safe-bottom)); background: rgba(3,8,20,.76); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
@@ -2822,7 +2822,7 @@ body.idle-photos .idle-scenes { min-height: 340px; }
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .tablet-qr-access img { width: 44px; height: 44px; }
+  .tablet-qr-access img { width: 44px; height: 44px; background: rgba(255,255,255,0.08); }
   /* Garde une marge de sécurité pour le nom temporaire du filtre. */
   #photo-filter-rail .filter-rail-card.active::after { right: 48px; max-width: 92px; overflow: hidden; text-overflow: ellipsis; }
 }
