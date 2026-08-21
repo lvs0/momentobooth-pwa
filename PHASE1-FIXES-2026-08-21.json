@@ -1,0 +1,99 @@
+{
+  "phase": "Phase 1",
+  "date": "2026-08-21",
+  "base_version": "v125.0.0",
+  "base_commit": "312fb04",
+  "backup": "~/.backup/momento-2026-08-21-phase1.tar.gz",
+  "deploy_modal": "https://shhsjdbjk--momentobooth-serve.modal.run",
+  "deploy_local": "http://localhost:8787",
+  "total_fixes": 6,
+  "status": "SUCCESS",
+  "fixes": {
+    "P1.1": {
+      "title": "Fix camera stretch + getUserMedia HD quality",
+      "status": "SUCCESS",
+      "commit": "1450c39",
+      "files": ["public/js/app.js", "public/css/styles.css"],
+      "tests": {
+        "ipad_1024x768": "PASS",
+        "iphone_390x844": "PASS"
+      },
+      "notes": "Removed dynamic aspect-ratio on camera-zone. Enforced object-fit:cover !important. HD getUserMedia already in place via PERF profiles."
+    },
+    "P1.2": {
+      "title": "Camera centered between buttons (toggle setting)",
+      "status": "SUCCESS",
+      "commit": "202d51e",
+      "files": ["public/js/app.js", "public/index.html", "public/css/styles.css"],
+      "tests": {
+        "ipad_1024x768": "PASS",
+        "iphone_390x844": "PASS"
+      },
+      "notes": "Added cameraFraming toggle in Settings > Appearance. body[data-camera-framing=centered] adds bottom margin + rounded corners."
+    },
+    "P1.3": {
+      "title": "Filter-rail rewrite (rotation + inertia + snap)",
+      "status": "SUCCESS",
+      "commit": "e4803a3",
+      "files": ["public/js/app.js"],
+      "tests": {
+        "ipad_1024x768": "PASS",
+        "iphone_390x844": "PASS"
+      },
+      "notes": "Added wheel event handler with momentum-based inertia (damping 0.85, cap ±8, 600ms timeout). Snap to nearest filter on inertia end."
+    },
+    "P1.4": {
+      "title": "Phototheque responsive (phone QR bottom sheet)",
+      "status": "SUCCESS",
+      "commit": "01d5bc7",
+      "files": ["public/css/styles.css"],
+      "tests": {
+        "ipad_1024x768": "PASS",
+        "iphone_390x844": "PASS"
+      },
+      "notes": "Added @media (max-width: 767px) to make gallery-qr-hero a fixed bottom sheet with blur backdrop. Tablet keeps sticky sidebar."
+    },
+    "P1.5": {
+      "title": "Gallery pagination pills (où je suis)",
+      "status": "SUCCESS",
+      "commit": "442e52e",
+      "files": ["public/js/app.js", "public/index.html", "public/css/styles.css"],
+      "tests": {
+        "ipad_1024x768": "PASS",
+        "iphone_390x844": "PASS"
+      },
+      "notes": "Added gallery-pills container with numbered pills, active state, click-to-jump. Max 40 pills with step calculation. No changes to existing carousel v125.0.0."
+    },
+    "P1.6": {
+      "title": "Export redesign (1 drawer button)",
+      "status": "SUCCESS",
+      "commit": "4014ce1",
+      "files": ["public/js/app.js", "public/index.html", "public/css/styles.css"],
+      "tests": {
+        "ipad_1024x768": "PASS",
+        "iphone_390x844": "PASS"
+      },
+      "notes": "Replaced share-chip icon grid with single drawer trigger button. Bottom drawer slides up with 7 options. 3-col grid on phone, 6-col on tablet."
+    }
+  },
+  "commits": [
+    "4014ce1 P1.6: export redesign — 1 drawer button replaces icon grid",
+    "442e52e P1.5: gallery pagination pills — 'où je suis' in carousel",
+    "01d5bc7 P1.4: phototheque responsive — QR bottom sheet on mobile",
+    "e4803a3 P1.3: filter-rail wheel rotation + inertia + snap",
+    "202d51e P1.2: camera centered between buttons — toggle 'cameraFraming' setting",
+    "1450c39 P1.1: fix camera stretch — object-fit:cover strict + no forced aspect-ratio"
+  ],
+  "regression_checks": {
+    "boot_clean": true,
+    "white_screen": false,
+    "parse_errors": false,
+    "node_check_all_commits": true
+  },
+  "screenshots": {
+    "before": ["screenshots/before/p1-before-ipad.png", "screenshots/before/p1-before-iphone.png"],
+    "after": ["screenshots/after/p1.1-after-ipad.png", "screenshots/after/p1.1-after-iphone.png", "screenshots/after/p1.2-after-ipad.png", "screenshots/after/p1.2-after-iphone.png"],
+    "final": ["screenshots/final/final-ipad.png", "screenshots/final/final-iphone.png"],
+    "live": ["screenshots/live/live-ipad.png", "screenshots/live/live-iphone.png"]
+  }
+}
