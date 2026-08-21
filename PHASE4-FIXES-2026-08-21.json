@@ -1,0 +1,142 @@
+{
+  "phase": "4",
+  "date": "2026-08-21",
+  "branch": "fix/levy-2026-08-21-p0",
+  "head": "c0f8419",
+  "status": "completed",
+  "project": "MomentoBooth PWA",
+  "deploy_url": "https://shhsjdbjk--momentobooth-serve.modal.run",
+  "deploy_status": "success",
+  "total_fixes": 7,
+  "fixes": [
+    {
+      "id": "P0-A",
+      "title": "Toolbar droite (shutter + icônes) alignement + safe-area",
+      "status": "completed",
+      "commit": "b97a123",
+      "files": ["public/index.html", "public/css/styles.css"],
+      "changes": [
+        "bottom-bar: position absolute, right/ top 50%, transform translateY(-50%)",
+        "shutter-btn: 80x80px scale(1.4) translateZ(0)",
+        "shutter-hint-gif: display none (removed !important)",
+        "icon-btn: 56x56px",
+        "backdrop-filter: blur(14px) + rgba(10,18,38,0.7)",
+        "safe-area env() padding"
+      ],
+      "verification": {
+        "1024x768": { "right": "14px", "visible": true, "hasBackdrop": true, "gifDisplay": "none" },
+        "390x844": { "right": "14px", "visible": true, "hasBackdrop": true, "gifDisplay": "none" }
+      }
+    },
+    {
+      "id": "P0-B",
+      "title": "Zone centrale vide (placeholder caméra)",
+      "status": "completed",
+      "commit": "0dbc627",
+      "files": ["public/index.html", "public/css/styles.css", "public/js/app.js"],
+      "changes": [
+        "camera-error: position absolute, inset 0, flex center column",
+        "background: rgba(0,0,0,0.4)",
+        "backdrop-filter: blur(8px)",
+        "z-index: 20"
+      ],
+      "verification": {
+        "1024x768": { "backdrop": "blur(8px)", "bgRgba": "rgba(0, 0, 0, 0.4)", "visible": true },
+        "390x844": { "backdrop": "blur(8px)", "bgRgba": "rgba(0, 0, 0, 0.4)", "visible": true }
+      }
+    },
+    {
+      "id": "P0-C",
+      "title": "Tooltip 'Filtre' superposé à l'anneau",
+      "status": "completed",
+      "commit": "c8ac0ce",
+      "files": ["public/index.html", "public/css/styles.css"],
+      "changes": [
+        "HTML: filter-rail-meta moved outside #photo-filter-rail to sibling",
+        "CSS: position fixed, right 24px, top 50%, transform translateY(-50%)",
+        "max-width 220px, background rgba(0,0,0,0.7), border-radius 12px",
+        "Mobile media query: left calc(296px+12px), max-width 70px"
+      ],
+      "verification": {
+        "1024x768": { "position": "fixed", "right": "24px", "overlapRing": false, "overflowRight": false },
+        "390x844": { "position": "fixed", "right": "12px", "overlapRing": false, "overflowRight": false }
+      }
+    },
+    {
+      "id": "P0-D",
+      "title": "Anneau coupé sur bord gauche",
+      "status": "completed",
+      "commit": "c8ac0ce",
+      "files": ["public/css/styles.css"],
+      "changes": [
+        "#photo-filter-rail: left -100px -> left 16px",
+        "3 media query overrides adjusted to left 16px"
+      ],
+      "verification": {
+        "1024x768": { "left": 16, "visibleLeft": true },
+        "390x844": { "left": 16, "visibleLeft": true }
+      }
+    },
+    {
+      "id": "P0-E",
+      "title": "Bouton 'Galerie invités' texte 2 lignes",
+      "status": "completed",
+      "commit": "d1a1054",
+      "files": ["public/css/styles.css", "public/index.html"],
+      "changes": [
+        ".tablet-qr-access button: white-space nowrap, overflow hidden, text-overflow ellipsis",
+        "Mobile media query: grid-template-columns 44px minmax(0px, 110px)"
+      ],
+      "verification": {
+        "1024x768": { "gridCols": "56px 92px" },
+        "390x844": { "gridCols": "44px minmax(0px, 110px)" }
+      }
+    },
+    {
+      "id": "P0-F",
+      "title": "Lettres orphelines 'M' et 'h'",
+      "status": "completed",
+      "commit": "4d301e1",
+      "files": ["public/css/styles.css"],
+      "changes": [
+        ".brand-lockup strong: white-space nowrap, overflow hidden, text-overflow ellipsis",
+        ".brand-lockup small: white-space nowrap"
+      ],
+      "verification": {
+        "1024x768": { "whiteSpace": "nowrap" },
+        "390x844": { "whiteSpace": "nowrap" }
+      }
+    },
+    {
+      "id": "P0-G",
+      "title": "Carré blanc placeholder (asset manquant)",
+      "status": "completed",
+      "commit": "77517d5",
+      "files": ["public/css/styles.css", "public/index.html"],
+      "changes": [
+        ".tablet-qr-access img: background #fff -> rgba(255,255,255,0.08)",
+        "img: added onerror visibility=hidden handler",
+        "img: added loading=lazy"
+      ],
+      "verification": {
+        "1024x768": { "hasOnerror": true, "bgColor": "rgba(255, 255, 255, 0.08)" },
+        "390x844": { "hasOnerror": true, "bgColor": "rgba(255, 255, 255, 0.08)" }
+      }
+    }
+  ],
+  "tests": {
+    "framework": "Playwright 1.62.1",
+    "resolutions": ["1024x768", "390x844"],
+    "all_pass": true
+  },
+  "backup": {
+    "tag": "phase4-backup-1787332085",
+    "method": "git stash + tag before modifications"
+  },
+  "modal": {
+    "app_name": "momentobooth",
+    "app_id": "shhsjdbjk",
+    "url": "https://shhsjdbjk--momentobooth-serve.modal.run",
+    "port": 8787
+  }
+}
