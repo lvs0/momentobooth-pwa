@@ -728,7 +728,25 @@ app.post("/api/photos", rateLimit(40), upload.single("photo"), (req, res) => {
 /* Galerie propriétaire historique : les invités passent par /api/guest/:token/gallery. */
 app.get("/api/photos", rateLimit(120), (_req, res) => {
   const files = fs.readdirSync(PHOTOS_DIR).filter((f) => /\.(jpg|gif)$/i.test(f)).sort().reverse();
-  res.set("Cache-Control", "no-store").json({ photos: files.map((f) => ({ id: f, url: `/api/photos/${f}` })) });
+  res.set("Cache-Control", "no-store").json({
+    photos: files.map((f) => {
+      // v124.0.11 — Le nom de fichier est <timestamp_ms>-<hex>.<ext>, on peut extraire
+      // la date de prise de vue sans toucher au FS (perf). Le timestamp est en ms
+      // depuis epoch. On renvoie aussi la taille du fichier.
+      const m = f.match(/^(\d{10,15})-([0-9a-f]{8})(?:--([a-z_]+))?\.(jpg|gif)$/i);
+      const ts = m ? parseInt(m[1], 10) : null;
+      let size = 0;
+      try { size = fs.statSync(path.join(PHOTOS_DIR, f)).size; } catch {}
+      return {
+        id: f,
+        url: `/api/photos/${f}`,
+        createdAt: ts ? new Date(ts).toISOString() : null,
+        timestamp: ts,
+        size,
+        kind: m && m[3] === "original" ? "original" : (/\.gif$/i.test(f) ? "gif" : "filter"),
+      };
+    })
+  });
 });
 
 /* Les fichiers stockés suivent toujours le schéma `<timestamp>-<hex>.<ext>`.

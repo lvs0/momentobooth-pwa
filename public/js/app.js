@@ -815,6 +815,47 @@ async function requestWakeLock() {
     _wakeLock.addEventListener("release", () => { _wakeLock = null; });
   } catch { _wakeLock = null; }
 }
+
+/* v124.0.11 — Empêche iOS Safari de couper la caméra après un moment
+   d'inactivité : on relance le wake lock toutes les 25s tant que l'écran
+   de capture est visible, et on "réveille" le flux vidéo en rejouant la
+   balise <video>. C'est ce qui fait que la caméra "se coupe" sur iPad
+   Safari sans interaction. */
+let _cameraKeepAliveTimer = null;
+function startCameraKeepAlive() {
+  stopCameraKeepAlive();
+  if (_cameraKeepAliveTimer) return;
+  _cameraKeepAliveTimer = setInterval(async () => {
+    try {
+      // 1. Wake lock (renouvelle si perdu)
+      if (document.visibilityState === "visible" && screens.capture?.classList.contains("active")) {
+        try { await requestWakeLock(); } catch {}
+        // 2. "Réveille" le flux vidéo en rejouant
+        const v = $("camera");
+        if (v && v.srcObject && v.paused) {
+          try { await v.play(); } catch {}
+        }
+        // 3. Re-applique les contraintes pour forcer iOS à maintenir le track
+        const stream = state.stream;
+        if (stream) {
+          for (const track of stream.getTracks()) {
+            try {
+              if (track.kind === "video" && typeof track.applyConstraints === "function") {
+                await track.applyConstraints({ frameRate: 30 });
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+  }, 25000);
+}
+function stopCameraKeepAlive() {
+  if (_cameraKeepAliveTimer) {
+    clearInterval(_cameraKeepAliveTimer);
+    _cameraKeepAliveTimer = null;
+  }
+}
 function releaseWakeLock() {
   try { _wakeLock?.release(); } catch {}
   _wakeLock = null;
@@ -1074,6 +1115,7 @@ function stopCamera({ lifecycle = false } = {}) {
   _cameraRequestId += 1;
   _cameraRestartPending = false;
   state.cameraStopRequested = true;
+  stopCameraKeepAlive();  // v124.0.11
   stopLightMonitor();
   stopPreroll();
   stopRemotePublishing();
@@ -1155,6 +1197,7 @@ async function startCamera() {
       try { state.stream.getTracks().forEach((track) => track.stop()); } catch {}
     }
     state.stream = stream;
+    startCameraKeepAlive();  // v124.0.11 — heartbeat caméra anti-coupure iOS
     telemetry.cameraStart(camera, state.stream, {
       width: profile.cameraWidth,
       height: profile.cameraHeight,

@@ -623,11 +623,19 @@ window.__mbBootStartedAt = performance.now();
     <strong id="gallery-title" tabindex="0" aria-label="Galerie">Galerie</strong>
     <span id="gallery-count" class="gallery-count">0</span>
   </div>
-  <!-- QR code centré géant style Snapchat -->
-  <div class="gallery-qr-hero" id="gallery-qr-hero">
-    <div class="gallery-qr-label">Scannez pour voir vos photos</div>
-    <img id="gallery-qr-image" class="gallery-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code de la galerie">
-    <div class="gallery-qr-hint">Depuis votre téléphone, ouvrez l'appareil photo et scannez ce code</div>
+  <!-- v124.0.11 — QR compact à gauche, galerie scrollable à droite (sur tablette).
+       Sur mobile, le QR reste au-dessus et la grille en dessous. -->
+  <div class="gallery-layout">
+    <!-- QR code compact, ne bouffe plus toute la galerie -->
+    <div class="gallery-qr-hero" id="gallery-qr-hero">
+      <img id="gallery-qr-image" class="gallery-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code de la galerie">
+      <div class="gallery-qr-text">
+        <div class="gallery-qr-label">Scannez vos photos</div>
+        <div class="gallery-qr-hint">Ouvrez l'appareil photo depuis votre téléphone</div>
+      </div>
+    </div>
+    <!-- Grille photos scrollable -->
+    <div id="gallery-grid" class="gallery-grid"></div>
   </div>
   <!-- Accès invités volontairement discret : appui long sur « Galerie » -->
   <div id="guest-share-panel" class="guest-share-panel" aria-hidden="true">
