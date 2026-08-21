@@ -95,10 +95,29 @@ function readRemoteConfig() {
   try { return sanitizeRemoteConfig(JSON.parse(fs.readFileSync(REMOTE_CONFIG_FILE, "utf8"))); }
   catch { return sanitizeRemoteConfig(DEFAULT_REMOTE_CONFIG); }
 }
+/* Écriture JSON atomique ET durable : tmp + rename + fsync.
+   Le fsync (fichier puis répertoire parent) garantit que les métadonnées
+   (sessions, jetons, corbeille, captures, remote-cam) survivent à un crash
+   ou power-loss, y compris sur volume réseau Modal. */
+function writeJsonAtomic(file, data, opts = {}) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  const fd = fs.openSync(tmp, "w", opts.mode ?? 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(data, null, opts.pretty ? 2 : 0));
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+  // fsync du répertoire parent : rend le rename durable après un crash.
+  try {
+    const dirFd = fs.openSync(path.dirname(file), "r");
+    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+  } catch { /* certains FS (EIO) ne supportent pas fsync de dossier */ }
+}
+
 function writeRemoteConfig(value) {
-  const temp = `${REMOTE_CONFIG_FILE}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(sanitizeRemoteConfig(value), null, 2), { mode: 0o600 });
-  fs.renameSync(temp, REMOTE_CONFIG_FILE);
+  writeJsonAtomic(REMOTE_CONFIG_FILE, sanitizeRemoteConfig(value), { pretty: true });
   return readRemoteConfig();
 }
 
@@ -737,12 +756,9 @@ function loadPhotoDeleteTokens() {
   }
 }
 function savePhotoDeleteTokens() {
-  const temp = `${PHOTO_DELETE_TOKENS_FILE}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(temp, JSON.stringify(Object.fromEntries(photoDeleteTokens)), { mode: 0o600 });
-    fs.renameSync(temp, PHOTO_DELETE_TOKENS_FILE);
+    writeJsonAtomic(PHOTO_DELETE_TOKENS_FILE, Object.fromEntries(photoDeleteTokens));
   } catch (error) {
-    try { fs.rmSync(temp, { force: true }); } catch {}
     console.error("[MomentoBooth] sauvegarde des jetons photo :", error);
   }
 }
@@ -776,12 +792,9 @@ function loadTrashMeta() {
   }
 }
 function saveTrashMeta() {
-  const temp = `${TRASH_META_FILE}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(temp, JSON.stringify(Object.fromEntries(trashMeta)), { mode: 0o600 });
-    fs.renameSync(temp, TRASH_META_FILE);
+    writeJsonAtomic(TRASH_META_FILE, Object.fromEntries(trashMeta));
   } catch (error) {
-    try { fs.rmSync(temp, { force: true }); } catch {}
     console.error("[MomentoBooth] sauvegarde de la corbeille :", error);
   }
 }
@@ -978,7 +991,6 @@ function saveGuestSessions() {
   if (_sessionsSaveTimer) clearTimeout(_sessionsSaveTimer);
   _sessionsSaveTimer = setTimeout(() => {
     _sessionsSaveTimer = null;
-    const temp = `${SESSIONS_FILE}.${process.pid}.tmp-${crypto.randomBytes(4).toString("hex")}`;
     try {
       const data = {};
       for (const [token, session] of guestSessions) {
@@ -989,12 +1001,10 @@ function saveGuestSessions() {
           photoIds: [...session.photoIds],
         };
       }
-      // Un arrêt du processus pendant l’écriture ne doit pas tronquer le
-      // fichier persistant et rendre toutes les galeries invitées illisibles.
-      fs.writeFileSync(temp, JSON.stringify(data), { mode: 0o600 });
-      fs.renameSync(temp, SESSIONS_FILE);
+      // Écriture atomique + fsync : un arrêt du processus ne tronque pas le
+      // fichier persistant (toutes les galeries invitées restent lisibles).
+      writeJsonAtomic(SESSIONS_FILE, data);
     } catch (error) {
-      try { fs.rmSync(temp, { force: true }); } catch {}
       console.error("[MomentoBooth] sauvegarde des sessions :", error);
     }
   }, 400);

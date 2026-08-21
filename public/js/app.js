@@ -4714,6 +4714,18 @@ function updateRoleGateSelection(role) {
 function showRoleGate() {
   const gate = $("role-gate");
   if (!gate) return;
+  // v124.0.9 — si l'URL force un rôle (?role=mixed/camera/interface),
+  // on l'applique directement sans afficher la modale (évite un crash
+  // Safari iOS où le click sur la modale déclenche un recovery).
+  const urlRole = new URLSearchParams(location.search).get("role");
+  if (urlRole && ["camera", "interface", "mixed"].includes(urlRole)) {
+    state.deviceRole = urlRole;
+    window.mbDeviceRole = urlRole;
+    document.body.dataset.deviceRole = urlRole;
+    if (typeof setDeviceRole === "function") setDeviceRole(urlRole);
+    if (typeof hideRoleGate === "function") hideRoleGate();
+    return;
+  }
   gate.classList.add("open");
   gate.setAttribute("aria-hidden", "false");
   telemetry.startupMark("firstInteractive");
