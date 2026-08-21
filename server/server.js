@@ -1390,9 +1390,7 @@ function remoteFramePath(token) { return path.join(REMOTE_CAM_DIR, `${token}.jpg
 function discoveryMetaPath(id) { return path.join(REMOTE_CAM_DIR, `discovery-${id}.json`); }
 function pairRequestMetaPath(id) { return path.join(REMOTE_CAM_DIR, `pair-request-${id}.json`); }
 function writeRemoteJson(file, value) {
-  const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
-  fs.writeFileSync(tmp, JSON.stringify(value));
-  fs.renameSync(tmp, file);
+  writeJsonAtomic(file, value);
 }
 function writeRemoteFrame(file, buffer) {
   const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
