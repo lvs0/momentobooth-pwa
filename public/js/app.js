@@ -7568,6 +7568,31 @@ document.querySelectorAll(".sheet-close").forEach((btn) => {
 document.querySelectorAll(".share-chip:not(.no-method)").forEach((btn) => {
   btn.addEventListener("click", () => shareMethod(btn.dataset.method));
 });
+/* P1.6 — drawer export: trigger + items */
+const drawerTrigger = $("btn-share-drawer");
+const drawer = $("share-drawer");
+const drawerClose = $("btn-share-drawer-close");
+if (drawerTrigger && drawer) {
+  drawerTrigger.addEventListener("click", () => {
+    const open = drawer.classList.toggle("open");
+    drawer.setAttribute("aria-hidden", String(!open));
+    drawerTrigger.setAttribute("aria-expanded", String(open));
+  });
+}
+if (drawerClose && drawer) {
+  drawerClose.addEventListener("click", () => {
+    drawer.classList.remove("open");
+    drawer.setAttribute("aria-hidden", "true");
+    if (drawerTrigger) drawerTrigger.setAttribute("aria-expanded", "false");
+  });
+}
+document.querySelectorAll(".share-drawer-item").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const method = btn.dataset.method;
+    if (method) void shareMethod(method);
+    if (drawer) { drawer.classList.remove("open"); drawer.setAttribute("aria-hidden", "true"); if (drawerTrigger) drawerTrigger.setAttribute("aria-expanded", "false"); }
+  });
+});
 on("backdrop-file", "change", (event) => {
   const file = event.target.files?.[0];
   if (file) void Promise.resolve(window.mbEnsureFaceTracking?.()).catch(() => {});
