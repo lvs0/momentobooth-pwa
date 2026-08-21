@@ -189,6 +189,12 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
 
 
 /* --- Accès filtres en haut : bouton lisible, sans rectangle permanent en bas --- */
+/* Empêche le texte/ branding de passer derrière le bouton Effets en capture. */
+.capture-header { position: relative; }
+#btn-fx-top { position: relative; z-index: 32; }
+.brand-lockup { z-index: 30; }
+
+/* --- Accès filtres en haut : bouton lisible, sans rectangle permanent en bas --- */
 .fx-top-btn {
   position: absolute;
   top: calc(var(--safe-top) + 14px);
@@ -1892,9 +1898,9 @@ body.idle-photos .idle-scenes { min-height: 340px; }
   50% { transform: scale(1.06); box-shadow: 0 0 90px rgba(125,211,252,.6), inset 0 1px 0 rgba(255,255,255,.5); }
 }
 .idle-cam { font-size: calc(48px * var(--ui-text-scale, 1)); filter: drop-shadow(0 6px 18px rgba(0,0,0,.5)); }
-.idle-click-visual, .idle-scene-click-visual { width: 72%; height: 72%; object-fit: contain; border-radius: 24px; mix-blend-mode: screen; filter: drop-shadow(0 8px 22px rgba(125,211,252,.45)); }
+.idle-click-visual, .idle-scene-click-visual { width: clamp(48px, 12vw, 72px); height: clamp(48px, 12vw, 72px); object-fit: contain; border-radius: 18px; mix-blend-mode: screen; filter: drop-shadow(0 6px 16px rgba(125,211,252,.35)); opacity: .9; }
 .idle-tap .idle-click-visual, .idle-scene-click-visual { pointer-events: none; }
-.idle-scene-click-visual { width: clamp(112px, 30vw, 164px); height: clamp(112px, 30vw, 164px); }
+.idle-scene-click-visual { width: clamp(56px, 14vw, 88px); height: clamp(56px, 14vw, 88px); }
 .idle-title {
   font-size: calc(26px * var(--ui-text-scale, 1)); font-weight: 900; letter-spacing: var(--letter-tight);
   text-align: center; color: #fff;
@@ -2576,6 +2582,10 @@ body.idle-photos .idle-scenes { min-height: 340px; }
 }
 
 /* Tablettes Android : ajustements pour écrans larges */
+@media (max-width: 480px) {
+  .sheet, .fx-panel, .guest-share-panel { max-width: 100vw; }
+  .settings-row { flex-wrap: wrap; }
+}
 @media (min-width: 768px) and (display-mode: standalone) {
   :root {
     --app-height: 100dvh;

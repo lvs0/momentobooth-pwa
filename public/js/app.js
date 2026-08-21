@@ -75,6 +75,9 @@ const _gallerySelection = new Set();
   idleFaceAbsentSince: 0,  // réarme le GIF seulement après une vraie absence
   idlePromptAt: 0,         // garantit que le GIF reste visible avant le réveil
   lightFrameEnabled: false,// opt-in : analyse basse lumière
+  glassEnabled: false,     // glassmorphism panels
+  countdownFixed: false,   // fixed big countdown
+  captureDisabled: false,  // disable shutter
   focusing: false,         // focus manuel actif (appui long)
   focusX: 0, focusY: 0,
   focusSupported: false,
@@ -7286,6 +7289,18 @@ function bindSettings() {
     document.body.setAttribute("data-camera-framing", state.cameraFraming ? "centered" : "fill");
     savePreferences();
     toast(state.cameraFraming ? "Caméra centrée entre les boutons" : "Caméra plein écran");
+  });
+  on("set-glass", "change", (e) => {
+    state.glassEnabled = e.target.checked;
+    savePreferences();
+  });
+  on("set-countdown-fixed", "change", (e) => {
+    state.countdownFixed = e.target.checked;
+    savePreferences();
+  });
+  on("set-capture-disabled", "change", (e) => {
+    state.captureDisabled = e.target.checked;
+    savePreferences();
   });
   on("set-performance", "change", async (e) => {
     state.performanceMode = PERF[e.target.value] ? e.target.value : "eco";
