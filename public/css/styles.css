@@ -485,7 +485,8 @@ body.focusing #sticker-canvas { opacity: .96; }
   position: absolute; inset: 0; z-index: 35;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 14px; text-align: center;
-  background: linear-gradient(160deg, rgba(6,6,14,.88), rgba(20,20,40,.92));
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(8px);
   padding: 40px 34px;
   /* L'erreur explique la panne sans devenir un rideau au-dessus des outils.
      Seul le bouton Réessayer capture le toucher ; la barre et Effets restent
