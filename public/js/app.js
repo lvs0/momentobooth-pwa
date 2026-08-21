@@ -6468,7 +6468,7 @@ async function renderGallery() {
     if (state.galleryPage < 0) state.galleryPage = 0;
   }
   if (!all.length) {
-    grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l\'écran pour commencer !</p>';
+    grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l\u2019écran pour commencer !</p>';
     return;
   }
   // --- Helpers carrousel ---
