@@ -1620,6 +1620,7 @@ body.idle-photos .idle-scenes { min-height: 340px; }
   box-shadow: 0 0 70px rgba(125,211,252,.45), inset 0 1px 0 rgba(255,255,255,.4);
   backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
   animation: none;
+  pointer-events: none;  /* v124.0.12 — ne pas bloquer le click sur Activer caméra derrière */
 }
 .idle-overlay.show .idle-tap { animation: idle-pulse 1.8s ease-in-out infinite; }
 @keyframes idle-pulse {
