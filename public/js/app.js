@@ -8684,24 +8684,15 @@ function initIdleMode() {
     if (screens.capture.classList.contains("active") && performance.now() - _idleTriggeredAt >= IDLE_DELAY) enterIdle();
   }, 2000);
   _idleOverlayHandler = (e) => {
+    e.preventDefault();
     e.stopPropagation();
-    if (!document.body.classList.contains("idle") || _idleTransitionTimer) return;
-    const card = overlay?.querySelector(".idle-card");
-    if (!card) return;
-    playIdleClickPrompt();
-    card.style.transition = "transform .18s ease, opacity .18s ease";
-    card.style.transform = "scale(.92)";
-    sfxOpen();
-    // Le clic fourni doit avoir sa phase dédiée avant le swipe.
-    _idleTransitionTimer = setTimeout(() => {
-      card.style.transition = "transform .45s cubic-bezier(.2,.8,.2,1), opacity .45s ease";
-      card.style.transform = "scale(1.06)";
-      card.style.opacity = "0";
-      exitIdle();
-      showSwipeTuto();
-      // Le tutoriel dure 3,4 s : aucune capture ne doit le recouvrir.
-      _idleTransitionTimer = setTimeout(() => startCountdown(), 3600);
-    }, 720);
+    if (!document.body.classList.contains("idle")) return;
+    // BUG-2.1/2.2 — Un seul tap : cache la veille, PAS de countdown/ swipe.
+    // L'utilisateur a juste tapé pour enlever la veille. Le countdown se
+    // déclenche uniquement via le bouton shutter.
+    exitIdle();
+    clearTimeout(_idleTransitionTimer);
+    _idleTransitionTimer = null;
   };
   overlay?.addEventListener("pointerdown", _idleOverlayHandler);
 }

@@ -1725,16 +1725,16 @@ body.idle-photos .idle-overlay { background: linear-gradient(180deg, rgba(4,6,14
 .idle-overlay:not(.show) { pointer-events: none; }
 .idle-card {
   position: relative; z-index: 2;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-  width: min(92vw, 390px); min-height: min(78vh, 640px);
-  padding: 26px 20px 22px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  width: min(92vw, 390px); min-height: min(68vh, 520px);
+  padding: 20px 16px 18px;
   transform: translateY(14px) scale(.94);
   transition: transform .6s cubic-bezier(.2,.8,.2,1);
   text-align: center;
 }
-.idle-scenes { position: relative; width: 100%; min-height: 468px; display: grid; place-items: center; }
+.idle-scenes { position: relative; width: 100%; min-height: 340px; display: grid; place-items: center; }
 .idle-scene {
-  grid-area: 1 / 1; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  grid-area: 1 / 1; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px;
   opacity: 0; transform: translateX(24px) scale(.96); pointer-events: none;
   transition: opacity .55s ease, transform .55s cubic-bezier(.2,.8,.2,1);
 }
@@ -1743,8 +1743,8 @@ body.idle-photos .idle-overlay { background: linear-gradient(180deg, rgba(4,6,14
 .idle-scene-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.28); transition: width .3s ease, background .3s ease; }
 .idle-scene-dots i.active { width: 20px; border-radius: 99px; background: #fff; box-shadow: 0 0 14px rgba(255,255,255,.75); }
 .idle-party-orb {
-  width: clamp(112px, 28vw, 156px);
-  height: clamp(112px, 28vw, 156px);
+  width: clamp(88px, 22vw, 120px);
+  height: clamp(88px, 22vw, 120px);
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%;
   background: conic-gradient(from 0deg, #ff4d8d, #ffcf5a, #65e6c8, #62a8ff, #c084fc, #ff4d8d);
@@ -1782,7 +1782,7 @@ body.idle-photos .idle-overlay { background: linear-gradient(180deg, rgba(4,6,14
 @keyframes idle-disco { to { transform: rotate(360deg); } }
 @keyframes idle-orb-pulse { 0%,100% { box-shadow: 0 0 36px rgba(255,87,176,.42), 0 0 90px rgba(98,168,255,.34), inset 0 0 30px rgba(255,255,255,.3); } 50% { box-shadow: 0 0 58px rgba(255,207,90,.62), 0 0 120px rgba(101,230,200,.42), inset 0 0 40px rgba(255,255,255,.42); } }
 .idle-party-copy { max-width: 290px; line-height: 1.35; }
-.idle-cta { font-size: calc(18px * var(--ui-text-scale, 1)); font-weight: 900; color: #fff; text-shadow: 0 3px 20px rgba(0,0,0,.55); }
+.idle-cta { font-size: calc(16px * var(--ui-text-scale, 1)); font-weight: 900; color: #fff; text-shadow: 0 3px 20px rgba(0,0,0,.55); }
 .idle-scene-icon, .idle-ready-mark { width: 132px; height: 132px; display: grid; place-items: center; border-radius: 42px; font-size: calc(64px * var(--ui-text-scale, 1)); background: linear-gradient(145deg, rgba(255,255,255,.26), rgba(125,211,252,.12)); border: 1px solid rgba(255,255,255,.35); box-shadow: 0 0 58px rgba(125,211,252,.32), inset 0 1px 0 rgba(255,255,255,.5); }
 .gradient-icon { background: conic-gradient(from 180deg, #ff7196, #ffd166, #65e6c8, #62a8ff, #c084fc, #ff7196); animation: idle-disco 8s linear infinite; }
 .idle-scene-prompt { display: flex; gap: 28px; color: #fff; font-size: calc(22px * var(--ui-text-scale, 1)); text-shadow: 0 0 22px #7dd3fc; animation: idle-prompt-float 1.8s ease-in-out infinite; }
@@ -1888,17 +1888,17 @@ body.idle-photos .idle-scenes { min-height: 340px; }
 .idle-tap .idle-click-visual, .idle-scene-click-visual { pointer-events: none; }
 .idle-scene-click-visual { width: clamp(112px, 30vw, 164px); height: clamp(112px, 30vw, 164px); }
 .idle-title {
-  font-size: calc(34px * var(--ui-text-scale, 1)); font-weight: 900; letter-spacing: var(--letter-tight);
+  font-size: calc(26px * var(--ui-text-scale, 1)); font-weight: 900; letter-spacing: var(--letter-tight);
   text-align: center; color: #fff;
   font-family: var(--font-display);
   text-shadow: 0 4px 30px rgba(0,0,0,.6);
   max-width: 320px;
 }
-.idle-sub { font-size: calc(16px * var(--ui-text-scale, 1)); color: var(--muted); font-weight: 700; }
+.idle-sub { font-size: calc(14px * var(--ui-text-scale, 1)); color: var(--muted); font-weight: 700; }
 .idle-clock {
-  margin-top: 10px;
+  margin-top: 8px;
   font-family: var(--font-display);
-  font-size: calc(46px * var(--ui-text-scale, 1)); font-weight: 900;
+  font-size: calc(36px * var(--ui-text-scale, 1)); font-weight: 900;
   letter-spacing: .02em;
   font-variant-numeric: tabular-nums;
   color: rgba(255,255,255,.92);
@@ -1906,7 +1906,7 @@ body.idle-photos .idle-scenes { min-height: 340px; }
   background: rgba(10,10,24,.4);
   border: 1px solid rgba(255,255,255,.22);
   border-radius: 20px;
-  padding: 8px 26px;
+  padding: 6px 20px;
   backdrop-filter: blur(16px) saturate(150%); -webkit-backdrop-filter: blur(16px) saturate(150%);
   animation: none;
 }
