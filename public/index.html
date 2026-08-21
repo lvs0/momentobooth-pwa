@@ -621,21 +621,40 @@ window.__mbBootStartedAt = performance.now();
   <div class="gallery-head">
     <button id="btn-back-capture" class="back-btn">← Retour</button>
     <strong id="gallery-title" tabindex="0" aria-label="Galerie">Galerie</strong>
+    <button id="gallery-toggle-view" class="gallery-toggle-view" title="Basculer vue grille / carrousel" aria-label="Basculer vue grille / carrousel">⊞</button>
     <span id="gallery-count" class="gallery-count">0</span>
+  </div>
+  <!-- v125.0.0 — Carrousel photomaton : une photo à la fois, navigation par flèches -->
+  <div id="gallery-carousel" class="gallery-carousel">
+    <span id="gallery-counter" class="gallery-counter" aria-live="polite">0 / 0</span>
+    <div class="gallery-carousel-stage">
+      <button id="gallery-prev" class="gallery-arrow gallery-arrow-left" aria-label="Photo précédente" hidden>‹</button>
+      <div id="gallery-carousel-view" class="gallery-carousel-view">
+        <div class="gallery-carousel-placeholder">Aucune photo — touchez l'écran pour commencer !</div>
+      </div>
+      <button id="gallery-next" class="gallery-arrow gallery-arrow-right" aria-label="Photo suivante" hidden>›</button>
+    </div>
+    <div id="gallery-select-bar" class="gallery-select-bar" hidden>
+      <button id="gallery-select-cancel" class="mini-btn" type="button">Annuler</button>
+      <span id="gallery-select-count" class="gallery-select-count">0 sélectionnée</span>
+      <button id="gallery-select-confirm" class="mini-btn primary" type="button">🗑️ Supprimer</button>
+    </div>
   </div>
   <!-- v124.0.11 — QR compact à gauche, galerie scrollable à droite (sur tablette).
        Sur mobile, le QR reste au-dessus et la grille en dessous. -->
-  <div class="gallery-layout">
-    <!-- QR code compact, ne bouffe plus toute la galerie -->
-    <div class="gallery-qr-hero" id="gallery-qr-hero">
-      <img id="gallery-qr-image" class="gallery-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code de la galerie">
-      <div class="gallery-qr-text">
-        <div class="gallery-qr-label">Scannez vos photos</div>
-        <div class="gallery-qr-hint">Ouvrez l'appareil photo depuis votre téléphone</div>
+  <div id="gallery-grid-view" class="gallery-grid-view" hidden>
+    <div class="gallery-layout">
+      <!-- QR code compact, ne bouffe plus toute la galerie -->
+      <div class="gallery-qr-hero" id="gallery-qr-hero">
+        <img id="gallery-qr-image" class="gallery-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code de la galerie">
+        <div class="gallery-qr-text">
+          <div class="gallery-qr-label">Scannez vos photos</div>
+          <div class="gallery-qr-hint">Ouvrez l'appareil photo depuis votre téléphone</div>
+        </div>
       </div>
+      <!-- Grille photos scrollable -->
+      <div id="gallery-grid" class="gallery-grid"></div>
     </div>
-    <!-- Grille photos scrollable -->
-    <div id="gallery-grid" class="gallery-grid"></div>
   </div>
   <!-- Accès invités volontairement discret : appui long sur « Galerie » -->
   <div id="guest-share-panel" class="guest-share-panel" aria-hidden="true">
@@ -662,7 +681,6 @@ window.__mbBootStartedAt = performance.now();
     </div>
     <div id="trash-grid" class="trash-grid"></div>
   </div>
-  <div id="gallery-grid" class="gallery-grid"></div>
 </section>
 
 <!-- Éditeur d’interface protégé : accessible depuis le chargement ou le bouton ✦ -->
