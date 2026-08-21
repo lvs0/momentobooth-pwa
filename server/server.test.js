@@ -425,6 +425,76 @@ test("POST /api/photos/batch enregistre plusieurs variantes liées par captureId
   assert.ok(!body.variants.portrait);
 });
 
+test("DELETE /api/captures exige un token organisateur valide et déplace en corbeille", async () => {
+  await wait(1500); // laisse le rate-limit souffler
+  // L'ancien header fantôme x-organizer-session ne doit PLUS produire de 500.
+  const ghost = await fetch(`${baseUrl}/api/captures/nonexistent`, {
+    method: "DELETE",
+    headers: { "x-organizer-session": "bogus" },
+  });
+  assert.equal(ghost.status, 403);
+  const ghostBody = await ghost.json();
+  assert.equal(ghostBody.error, "Accès organisateur requis");
+
+  // Une vraie capture, puis suppression avec un token organisateur valide.
+  const form = new FormData();
+  form.append("captureId", "1700000000000-abcd1234");
+  form.append("eventId", "levy-26ans");
+  form.append("original", new Blob([jpegFixture()], { type: "image/jpeg" }), "o.jpg");
+  const created = await fetch(`${baseUrl}/api/photos/batch`, { method: "POST", body: form });
+  assert.equal(created.status, 201);
+  const createdBody = await created.json();
+  const originalFilename = Object.values(createdBody.variants || {})[0]?.split("/").pop();
+
+  const verify = await fetch(`${baseUrl}/api/organizer/verify`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: "1818" }),
+  });
+  const organizer = await verify.json();
+
+  const del = await fetch(`${baseUrl}/api/captures/1700000000000-abcd1234`, {
+    method: "DELETE",
+    headers: { "x-organizer-token": organizer.token },
+  });
+  assert.equal(del.status, 200);
+  const delBody = await del.json();
+  assert.equal(delBody.ok, true);
+  assert.ok(Array.isArray(delBody.moved) && delBody.moved.length >= 1);
+
+  // Le fichier doit être dans la corbeille (restauration organisateur possible).
+  if (originalFilename) {
+    const restore = await fetch(`${baseUrl}/api/photos/${originalFilename}/restore`, {
+      method: "POST",
+      headers: { "x-organizer-token": organizer.token },
+    });
+    assert.equal(restore.status, 200);
+    const restoreBody = await restore.json();
+    assert.equal(restoreBody.restored, true);
+  }
+
+  // Sans token organisateur : refus net.
+  const noAuth = await fetch(`${baseUrl}/api/captures/1700000000000-abcd1234`, { method: "DELETE" });
+  assert.equal(noAuth.status, 403);
+});
+
+test("POST /api/photos/batch assainit un captureId hostile (path traversal)", async () => {
+  await wait(1500); // laisse le rate-limit souffler
+  const form = new FormData();
+  form.append("captureId", "../../evil");
+  form.append("eventId", "test-traversal");
+  form.append("original", new Blob([jpegFixture()], { type: "image/jpeg" }), "o.jpg");
+  const res = await fetch(`${baseUrl}/api/photos/batch`, { method: "POST", body: form });
+  assert.equal(res.status, 201);
+  const body = await res.json();
+  // Le captureId renvoyé doit être assaini (digits-hex), jamais "../../evil".
+  assert.match(body.captureId, /^\d{10,15}-[0-9a-f]{8}$/i);
+  assert.notEqual(body.captureId, "../../evil");
+  // Le filename doit porter le même captureId (cohérence réponse/fichiers).
+  const firstUrl = Object.values(body.variants || {})[0] || "";
+  const filename = String(firstUrl).split("/").pop() || "";
+  const fileCaptureId = filename.match(/^([0-9]{10,15}-[0-9a-f]{8})--/)?.[1];
+  assert.equal(fileCaptureId, body.captureId);
+});
+
 test("GET /api/gallery liste les captures sans token invité, ordre anti-chronologique", async () => {
   await wait(1500);
   const form = new FormData();

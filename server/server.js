@@ -2178,6 +2178,15 @@ loadCaptures();
 function generateVariantFilename(captureId, kind, ext) {
   return `${captureId}--${kind}.${ext}`;
 }
+/* Un captureId ne peut contenir que des chiffres + tiret + hex : le filename
+   multer est résolu via path.join(destination, filename), donc un `../` dans
+   le captureId écrirait le fichier HORS de PHOTOS_DIR (CWE-22 write). */
+function safeCaptureId(raw) {
+  const s = String(raw || "");
+  return /^\d{10,15}-[0-9a-f]{8}$/i.test(s)
+    ? s
+    : `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+}
 const CAPTURE_NAME_RE = /^(\\d{10,15}-[0-9a-f]{8})--([a-z_]+)\\.(jpg|gif|mp4|webm|m4a)$/i;
 function parseVariantFromName(name) {
   const match = String(name).match(CAPTURE_NAME_RE);
@@ -2191,7 +2200,9 @@ const batchUpload = multer({
     destination: PHOTOS_DIR,
     filename: (req, file, cb) => {
       const kind = String(file.fieldname || "photo").toLowerCase();
-      const captureId = String(req.body.captureId || `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`);
+      // Assainissement strict : un captureId hostile (`../`) ne doit JAMAIS
+      // atteindre le filename multer (voir safeCaptureId).
+      const captureId = safeCaptureId(req.body.captureId);
       let ext = "jpg";
       if (/^image\/gif$/i.test(file.mimetype)) ext = "gif";
       else if (/^video\/(mp4|webm)$/i.test(file.mimetype)) ext = file.mimetype.endsWith("webm") ? "webm" : "mp4";
@@ -2255,7 +2266,6 @@ app.post("/api/photos/batch", rateLimit(20), batchUpload.fields([
       return res.status(403).json({ error: "Session invitée invalide" });
     }
   }
-  const captureId = String(req.body.captureId || `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`);
   const eventId = String(req.body.eventId || "default").slice(0, 64);
   const messageInvite = String(req.body.messageInvite || "").slice(0, 200);
   const variants = {};
@@ -2269,6 +2279,13 @@ app.post("/api/photos/batch", rateLimit(20), batchUpload.fields([
     variants[kind] = file.filename;
   }
   if (!Object.keys(variants).length) return res.status(400).json({ error: "Aucune variante valide" });
+  // Le captureId de référence est celui des FILENAMES réellement écrits par
+  // multer (préfixe avant `--`) : il a été assaini par safeCaptureId dans le
+  // filename callback. Si le corps a régénéré une autre valeur (timestamp
+  // différent), on aligne sur les fichiers pour que la réponse soit cohérente.
+  const firstFilename = Object.values(variants).find(Boolean);
+  const firstMatch = firstFilename ? String(firstFilename).match(/^([0-9]{10,15}-[0-9a-f]{8})--/) : null;
+  const captureId = firstMatch ? firstMatch[1] : safeCaptureId(req.body.captureId);
   const record = {
     id: captureId,
     eventId,
@@ -2333,34 +2350,39 @@ app.get("/api/event/:eventId/captures", rateLimit(120), (req, res) => {
 
 /* Suppression complète d'une capture (corbeille). Organisateur requis. */
 app.delete("/api/captures/:captureId", rateLimit(30), (req, res) => {
-  const sessionId = String(req.get("x-organizer-session") || "");
-  if (!sessionId || !isOrganizerSession(sessionId)) {
+  // Auth organisateur : le header standard est x-organizer-token (vérifié
+  // par isOrganizerAuthorized), PAS x-organizer-session qui n'existe pas.
+  if (!isOrganizerAuthorized(req)) {
     return res.status(403).json({ error: "Accès organisateur requis" });
   }
   const captureId = String(req.params.captureId);
   const capture = captures.get(captureId);
   if (!capture) return res.status(404).json({ error: "Capture inconnue" });
+  const moved = [];
+  const failed = [];
   for (const [kind, filename] of Object.entries(capture.variants)) {
     if (!filename) continue;
     const photoPath = path.join(PHOTOS_DIR, filename);
-    const trashId = `${Date.now()}-${crypto.randomBytes(2).toString("hex")}--${kind}--${filename}`;
-    const trashPath = path.join(TRASH_DIR, trashId);
+    if (!fs.existsSync(photoPath)) { failed.push(filename); continue; }
+    const trashPath = path.join(TRASH_DIR, filename);
     try {
       fs.renameSync(photoPath, trashPath);
-      trashPhotos.set(trashId, {
-        id: trashId,
-        originalId: filename,
-        variant: kind,
-        deletedAt: Date.now(),
-        deletedBy: "organizer",
-        file: trashPath,
-      });
-    } catch {}
+      trashMeta.set(filename, { deletedAt: Date.now(), deletedBy: "organizer", variant: kind });
+      moved.push(filename);
+    } catch (err) {
+      console.error(`[MomentoBooth] échec déplacement corbeille ${filename} :`, err?.message || err);
+      failed.push(filename);
+    }
+  }
+  // Si AUCUNE variante n'a été déplacée, on ne retire pas la capture de la
+  // galerie : les fichiers restent référencés et visibles.
+  if (moved.length === 0) {
+    return res.status(500).json({ error: "Aucune variante déplaçable", captureId });
   }
   captures.delete(captureId);
   saveCaptures();
   saveTrashMeta();
-  res.json({ ok: true, captureId });
+  res.json({ ok: true, captureId, moved, ...(failed.length ? { failed } : {}) });
 });
 
 /* ---------- PhotoStrip verticale (3-6 photos, style photomaton) ---------- */
@@ -2418,6 +2440,15 @@ app.use((req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 /* ---- Lancement ---- */
 const PORT = process.env.PORT || 8787;
+// Garde-fou sécurité : en production (env ni "development" ni "test"),
+// refuser de démarrer SANS MOMENTOBOOTH_ORGANIZER_PIN configuré. Le repli
+// "1818" n'est toléré qu'en dev local, jamais en prod/Modal.
+const _isProd = !["development", "test"].includes(process.env.NODE_ENV || "");
+if (_isProd && !process.env.MOMENTOBOOTH_ORGANIZER_PIN) {
+  console.error("[MomentoBooth] REFUS DE DÉMARRER : MOMENTOBOOTH_ORGANIZER_PIN n'est pas défini (mode production).");
+  console.error("[MomentoBooth] Définissez la variable d'environnement MOMENTOBOOTH_ORGANIZER_PIN avant de lancer le serveur.");
+  process.exit(1);
+}
 const httpServer = http.createServer(app);
 
 /* ---- Socket.IO : signalisation WebRTC pour la caméra déportée ---- */
