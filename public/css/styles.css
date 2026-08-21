@@ -3141,3 +3141,135 @@ input[type="color"]#set-ui-accent::-webkit-color-swatch { border: none; border-r
 @media (max-width: 380px) {
   .organizer-link { font-size: 10px; padding: 5px 8px; }
 }
+
+/* =========================================================
+   DESIGN-SYSTEM-AUDIT-QW (2026-08-21)
+   Quick wins: focus visible, toast unifié, boutons standardisés,
+   transitions cohérentes, variables sémantiques d'état.
+   Isolé en fin de fichier pour ne pas entrer en conflit avec
+   les patches en cours des autres subagents.
+   ========================================================= */
+:root {
+  /* QW#5 — variables sémantiques d'état (utilisées par les states ci-dessous) */
+  --color-success: #4ade80;
+  --color-warn:    #facc15;
+  --color-error:   #f87171;
+  --color-info:    #7dd3fc;
+  --focus-ring: 0 0 0 3px rgba(125, 211, 252, .55);
+  --focus-ring-inset: inset 0 0 0 2px rgba(11, 16, 32, .9);
+}
+
+/* QW#1 — Focus visible global (touch + clavier, WCAG 2.4.7) */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+/* Préserve le look des champs texte (souris seulement) */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 1px;
+  box-shadow: var(--focus-ring);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* QW#3 — Boutons standardisés (taille touch, hover cohérent) */
+button, .btn, [role="button"] {
+  transition:
+    background-color var(--motion-fast) var(--ease-organic),
+    transform         var(--motion-fast) var(--ease-organic),
+    box-shadow        var(--motion-fast) var(--ease-organic),
+    border-color      var(--motion-fast) var(--ease-organic);
+  min-height: 44px; /* WCAG 2.5.5 target size */
+}
+button:hover, .btn:hover, [role="button"]:hover {
+  transform: translateY(-1px);
+}
+button:active, .btn:active, [role="button"]:active {
+  transform: translateY(0);
+}
+button:disabled, .btn:disabled, [role="button"][aria-disabled="true"] {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* QW#2 — Toast unifié (variantes success/warn/error/info) */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 24px);
+  transform: translateX(-50%) translateY(8px);
+  padding: 12px 20px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--stroke-bright);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -.01em;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1000;
+  max-width: min(90vw, 480px);
+  text-align: center;
+  transition:
+    opacity   var(--motion-normal) var(--ease-organic),
+    transform var(--motion-normal) var(--ease-organic);
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast[role="status"], .toast[role="alert"] { pointer-events: auto; }
+/* Variantes sémantiques (utilisables via class sur l'élément toast) */
+.toast.success { border-color: var(--color-success); }
+.toast.warn    { border-color: var(--color-warn); }
+.toast.error   { border-color: var(--color-error); }
+.toast.info    { border-color: var(--color-info); }
+.toast::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: currentColor;
+  opacity: .9;
+}
+.toast.success::before { color: var(--color-success); }
+.toast.warn::before    { color: var(--color-warn); }
+.toast.error::before   { color: var(--color-error); }
+.toast.info::before    { color: var(--color-info); }
+
+/* QW#4 — Transitions cohérentes (liens, cartes, overlays) */
+a, .card, .panel, .overlay, .modal, [data-transition] {
+  transition:
+    background-color var(--motion-normal) var(--ease-organic),
+    color            var(--motion-normal) var(--ease-organic),
+    border-color     var(--motion-normal) var(--ease-organic),
+    box-shadow       var(--motion-normal) var(--ease-organic),
+    opacity          var(--motion-normal) var(--ease-organic);
+}
+
+/* QW#5 — Confort visuel pour erreurs/succès (utilise les variables sémantiques) */
+.has-error, [aria-invalid="true"] {
+  border-color: var(--color-error) !important;
+  box-shadow: 0 0 0 1px var(--color-error) inset;
+}
+.is-success { color: var(--color-success); }
+.is-warn    { color: var(--color-warn); }
+.is-error   { color: var(--color-error); }
+.is-info    { color: var(--color-info); }
