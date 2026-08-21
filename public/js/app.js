@@ -682,19 +682,33 @@ async function requestOrganizerAccess(promptText) {
   }
 }
 
-function toast(message) {
+// QW#2 — toast() accepte un 2e arg: { type: 'success'|'warn'|'error'|'info', duration?: ms }
+// Backward compatible: toast("msg") marche toujours comme avant.
+function toast(message, opts) {
+  const type = (opts && opts.type) || "info";
+  const duration = (opts && opts.duration) || 2600;
   let el = $("toast");
   if (!el) {
     el = document.createElement("div");
     el.id = "toast";
     el.className = "toast";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
     document.body.appendChild(el);
   }
+  // Variante sémantique
+  el.classList.remove("success", "warn", "error", "info");
+  el.classList.add(type);
   el.textContent = message;
   el.classList.add("show");
   clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.remove("show"), 2600);
+  el._t = setTimeout(() => el.classList.remove("show"), duration);
 }
+// Helpers rapides (QW#2)
+toast.success = (m, d) => toast(m, { type: "success", duration: d });
+toast.warn    = (m, d) => toast(m, { type: "warn",    duration: d });
+toast.error   = (m, d) => toast(m, { type: "error",   duration: d });
+toast.info    = (m, d) => toast(m, { type: "info",    duration: d });
 
 /* --- Audio : contexte partagé + sons d'interface forts ---
    iOS Safari exige qu'un AudioContext soit réveillé depuis un geste tactile.
