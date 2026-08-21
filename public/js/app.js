@@ -4765,7 +4765,14 @@ function updateRoleGateSelection(role) {
   const needsToken = role === "interface";
   remoteFields?.classList.toggle("hidden", !needsToken);
   if (tokenInput && !tokenInput.value) tokenInput.value = remoteTokenFromUrl() || (state.remoteCamMode === "controller" ? state.remoteCamToken : "");
-  if (status) status.textContent = needsToken ? "Recherche d'une caméra…" : "";
+  // BUG-1.3 — Auto-presse-papier pour pré-remplir le token caméra.
+  if (needsToken && tokenInput && !tokenInput.value) {
+    navigator.clipboard?.readText?.().then((text) => {
+      if (tokenInput && !tokenInput.value && /^[A-Z0-9]{6,}$/i.test(text)) tokenInput.value = text;
+    }).catch(() => {});
+    tokenInput.setAttribute("placeholder", "Code caméra ou coller ici");
+  }
+  if (status) status.textContent = needsToken ? "Touchez une caméra ci-dessous ou entrez le code" : "";
   // Sélection d'appareil : dès que le rôle Interface est actif dans le gate,
   // on découvre les caméras pour un appui direct (le code reste en secours).
   if (needsToken && $("role-gate")?.classList.contains("open")) {
@@ -5549,14 +5556,13 @@ function startRemotePublishing() {
     }
     _remotePubBusy = true;
     try {
-      // Flux distant : 640 px à ~1,8 i/s (cadence doublée pour réduire la
-      // latence perçue). La compression JPEG est la plus coûteuse ; on la garde
-      // petite et on évite de saturer le thread principal de la Caméra.
-      const W = Math.min(camera.videoWidth, 640);
+      // Flux distant : 800 px large, qualité 0.78 pour un rendu net.
+      // Le canvas garde le ratio d'aspect natif de la caméra.
+      const W = Math.min(camera.videoWidth, 800);
       const H = Math.max(1, Math.round(W / (camera.videoWidth / camera.videoHeight)));
       if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
       canvas.getContext("2d").drawImage(camera, 0, 0, W, H);
-      const blob = await canvasToJpegBlob(canvas, 0.62, "remote-live");
+      const blob = await canvasToJpegBlob(canvas, 0.78, "remote-live");
       if (!blob || generation !== _remotePubGeneration) return;
       const frameId = telemetry.recordFrame("remote-live", { width: W, height: H, sizeBytes: blob.size });
       const form = new FormData();
@@ -5959,8 +5965,15 @@ function showPairRequestPopup(request) {
   acceptButton?.focus();
   el.querySelector('[data-pr="accept"]')?.addEventListener("click", () => { void respondOnce(true); });
   el.querySelector('[data-pr="refuse"]')?.addEventListener("click", () => { void respondOnce(false); });
+  // BUG-1.4 — Auto-dismiss après 30s pour éviter le loop de popup.
+  // La popup ne réapparaît pas car _pairRequestShown garde l'ID.
+  _pairRequestAutoDismissTimer = setTimeout(() => {
+    if (_pairRequestEl === el) { void respondOnce(false); }
+  }, 30000);
 }
+let _pairRequestAutoDismissTimer = null;
 function hidePairRequestPopup() {
+  if (_pairRequestAutoDismissTimer) { clearTimeout(_pairRequestAutoDismissTimer); _pairRequestAutoDismissTimer = null; }
   if (_pairRequestEl) { _pairRequestEl.remove(); _pairRequestEl = null; }
   const previous = _pairRequestPreviousFocus;
   _pairRequestPreviousFocus = null;
@@ -6226,13 +6239,35 @@ function startRemotePolling() {
         _remotePreviewCanvas.width = frame.width;
         _remotePreviewCanvas.height = frame.height;
       }
-      try {
-        const ctx = _remotePreviewCanvas.getContext("2d");
-        ctx.drawImage(frame.source, 0, 0);
-        state.remoteCamW = _remotePreviewCanvas.width;
-        state.remoteCamH = _remotePreviewCanvas.height;
-      } finally {
-        frame.close();
+      // Calque l'image en object-fit:cover pour éviter l'étirement.
+      // Le canvas backing store reste à la taille native de la frame,
+      // le CSS width/height=100% étire → on contre avec le crop.
+      const canvasEl = _remotePreviewCanvas;
+      const cw = canvasEl.offsetWidth, ch = canvasEl.offsetHeight;
+      if (cw && ch && (frame.width !== cw || frame.height !== ch)) {
+        const frameRatio = frame.width / frame.height;
+        const canvasRatio = cw / ch;
+        let sx = 0, sy = 0, sw = frame.width, sh = frame.height;
+        if (frameRatio > canvasRatio) {
+          sw = frame.height * canvasRatio;
+          sx = (frame.width - sw) / 2;
+        } else {
+          sh = frame.width / canvasRatio;
+          sy = (frame.height - sh) / 2;
+        }
+        try {
+          const ctx = canvasEl.getContext("2d");
+          ctx.drawImage(frame.source, sx, sy, sw, sh, 0, 0, cw, ch);
+        } finally {
+          frame.close();
+        }
+      } else {
+        try {
+          const ctx = canvasEl.getContext("2d");
+          ctx.drawImage(frame.source, 0, 0);
+        } finally {
+          frame.close();
+        }
       }
       feedCustomizerRemotePreview();
       state.remoteCamW = _remotePreviewCanvas.width;
