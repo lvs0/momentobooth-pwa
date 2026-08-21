@@ -168,10 +168,17 @@ const _gallerySelection = new Set();
   eventHost2: "",     // identité événement : prénom hôte 2 ("" = défaut "Lilou")
   eventWelcome: "",   // identité événement : message d'accueil veille personnalisé
 
+  // v125.0.0 — Galerie paginée carrousel
+  galleryMode: "carousel", // "carousel" | "grid"
+  galleryPage: 0,
+  galleryPhotos: [],
+  gallerySwipeStartX: 0,
+  gallerySwipeStartY: 0,
+  galleryLongPressTimer: null,
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "124"; // choix de rôle au démarrage : doit matcher le HTML
+const APP_VERSION = "125"; // choix de rôle au démarrage : doit matcher le HTML
 telemetry.startupMark("jsReady");
 if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => telemetry.startupMark("firstPaint"));
 const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé tant que l'organisateur ne l'active pas.
@@ -6394,8 +6401,16 @@ async function grabRemoteFrame() {
 }
 
 async function renderGallery() {
+  const carouselView = $("gallery-carousel-view");
+  const gridView = $("gallery-grid-view");
   const grid = $("gallery-grid");
-  grid.innerHTML = '<div class="mb-loading-block"><div class="mb-spinner large" role="status" aria-label="Chargement de la galerie"></div>Chargement…</div>';
+
+  if (state.galleryMode === "carousel" && carouselView) {
+    carouselView.innerHTML = '<div class="mb-loading-block"><div class="mb-spinner large" role="status" aria-label="Chargement de la galerie"></div>Chargement…</div>';
+  } else if (grid) {
+    grid.innerHTML = '<div class="mb-loading-block"><div class="mb-spinner large" role="status" aria-label="Chargement de la galerie"></div>Chargement…</div>';
+  }
+
   const photos = await loadLocal();
   let serverPhotos = [];
   try {
@@ -6405,28 +6420,54 @@ async function renderGallery() {
     const response = await fetch("/api/photos", { cache: "no-store", headers });
     if (response.ok) serverPhotos = (await response.json()).photos ?? [];
   } catch { /* serveur optionnel */ }
-  grid.innerHTML = "";
+
   const serverById = new Map(serverPhotos.map((p) => [p.id, p]));
   const unique = new Map();
-  // L'entrée locale garde le blob immédiatement disponible ; serverId permet
-  // de la fusionner avec son équivalent serveur sans créer un doublon.
   photos.forEach((p) => unique.set(p.serverId || p.id, p));
   serverPhotos.forEach((p) => { if (!unique.has(p.id)) unique.set(p.id, p); });
   const all = [...unique.values()].sort((a, b) => (b.date ?? b.createdAt ?? 0) - (a.date ?? a.createdAt ?? 0));
   $("gallery-count").textContent = `${all.length} photo${all.length > 1 ? "s" : ""}`;
+
   // Mode sélection multiple : on purge les entrées qui n'existent plus.
   if (_gallerySelection.size) {
     const alive = new Set(all.map((p) => p.serverId || p.id));
     for (const entry of [..._gallerySelection]) if (!alive.has(entry.key)) _gallerySelection.delete(entry);
   }
   updateGallerySelectionBar();
+
+  if (!all.length) {
+    const emptyMsg = '<div class="gallery-carousel-placeholder">Aucune photo — touchez l'écran pour commencer !</div>';
+    if (state.galleryMode === "carousel" && carouselView) {
+      carouselView.innerHTML = emptyMsg;
+    } else if (grid) {
+      grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l'écran pour commencer !</p>';
+    }
+    $("gallery-counter").textContent = "0 / 0";
+    $("gallery-prev").hidden = true;
+    $("gallery-next").hidden = true;
+    return;
+  }
+
+  state.galleryPhotos = all;
+  if (state.galleryMode === "carousel") {
+    state.galleryPage = Math.min(state.galleryPage, all.length - 1);
+    if (state.galleryPage < 0) state.galleryPage = 0;
+  }
   if (!all.length) {
     grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l\'écran pour commencer !</p>';
     return;
   }
-  all.forEach((photo) => {
+  // --- Helpers carrousel ---
+  function buildPhotoCard(photo, index) {
+    const selectKey = photo.serverId || photo.id;
+    const selectEntry = { key: selectKey, localId: photo.id, serverId: photo.serverId || null, deleteToken: photo.deleteToken || "", isServer: Boolean(photo.serverId || serverById.has(photo.id)) };
+    const canDeleteServer = Boolean((state.guestToken && state.guestHostKey) || photo.deleteToken);
+    const isSelected = () => [..._gallerySelection].some((entry) => entry.key === selectKey);
+
     const wrap = document.createElement("div");
-    wrap.className = "gallery-cell";
+    wrap.className = "gallery-carousel-slide";
+    wrap.dataset.index = String(index);
+
     const img = document.createElement("img");
     img.src = photo.blob ? URL.createObjectURL(photo.blob) : (serverById.get(photo.id)?.url ?? "");
     if (photo.blob) {
@@ -6434,24 +6475,12 @@ async function renderGallery() {
       img.addEventListener("load", () => setTimeout(() => URL.revokeObjectURL(galleryUrl), 1000), { once: true });
     }
     img.className = photo.mediaType === "gif" ? "gallery-gif" : "";
-    img.loading = "lazy";
-    const selectKey = photo.serverId || photo.id;     const selectEntry = { key: selectKey, localId: photo.id, serverId: photo.serverId || null, deleteToken: photo.deleteToken || "", isServer: Boolean(photo.serverId || serverById.has(photo.id)) };
-     const canDeleteServer = Boolean((state.guestToken && state.guestHostKey) || photo.deleteToken);
-    const isSelected = () => [..._gallerySelection].some((entry) => entry.key === selectKey);
+    img.alt = photo.comment ? `Photo ${index + 1}: ${photo.comment}` : `Photo ${index + 1}`;
+    img.draggable = false;
+
+    // Click : ouvrir le détail de cette photo
     img.addEventListener("click", async () => {
-      // Mode sélection multiple : un appui coche/décoche au lieu d'ouvrir.
-      if (_gallerySelecting) {
-         if (selectEntry.isServer && !canDeleteServer) {
-           toast("Jeton de suppression indisponible pour cette ancienne photo");
-           return;
-         }
-         const existing = [..._gallerySelection].find((entry) => entry.key === selectKey);
-        if (existing) _gallerySelection.delete(existing);
-        else _gallerySelection.add(selectEntry);
-        wrap.classList.toggle("selected", isSelected());
-        updateGallerySelectionBar();
-        return;
-      }
+      if (state.galleryMode === "grid") return; // la grille a son propre handler
       let blob = photo.blob;
       if (!blob && serverById.get(photo.id)?.url) {
         try {
@@ -6483,7 +6512,7 @@ async function renderGallery() {
       screens.result.classList.add("active");
       $("result-grid").innerHTML = "";
       $("result-grid").classList.remove("multi");
-        const rwrap = document.createElement("div");
+      const rwrap = document.createElement("div");
       rwrap.className = "result-item";
       const rimg = document.createElement("img");
       const resultUrl = URL.createObjectURL(blob);
@@ -6498,17 +6527,41 @@ async function renderGallery() {
       const savedComment = photos.find((p) => p.id === photo.id)?.comment;
       $("photo-comment").value = savedComment || "";
     });
+
+    // Appui long → mode sélection multiple
+    let longTimer = null;
+    const onPointerDown = (e) => {
+      if (state.galleryMode === "grid") return;
+      longTimer = setTimeout(() => {
+        longTimer = null;
+        beginGallerySelectDelete();
+        // Coche cette photo directement
+        const existing = [..._gallerySelection].find((entry) => entry.key === selectKey);
+        if (existing) _gallerySelection.delete(existing);
+        else _gallerySelection.add(selectEntry);
+        updateGallerySelectionBar();
+        renderCarouselPage();
+      }, 500);
+    };
+    const onPointerUp = () => { if (longTimer) { clearTimeout(longTimer); longTimer = null; } };
+    const onPointerLeave = () => { if (longTimer) { clearTimeout(longTimer); longTimer = null; } };
+    const onPointerCancel = () => { if (longTimer) { clearTimeout(longTimer); longTimer = null; } };
+    img.addEventListener("pointerdown", onPointerDown);
+    img.addEventListener("pointerup", onPointerUp);
+    img.addEventListener("pointerleave", onPointerLeave);
+    img.addEventListener("pointercancel", onPointerCancel);
+    img.addEventListener("contextmenu", (e) => e.preventDefault());
+
     wrap.appendChild(img);
-    // Heure de la photo (date stockée en IndexedDB / serveur)
+
+    // Badges
     const ts = photo.date ?? photo.createdAt ?? null;
     if (ts) {
       const timeBadge = document.createElement("span");
       timeBadge.className = "gallery-time";
-      const d = new Date(ts);
-      timeBadge.textContent = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+      timeBadge.textContent = new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
       wrap.appendChild(timeBadge);
     }
-    // Badge commentaire
     if (photo.comment) {
       const badge = document.createElement("span");
       badge.className = "gallery-comment";
@@ -6516,7 +6569,6 @@ async function renderGallery() {
       badge.title = photo.comment;
       wrap.appendChild(badge);
     }
-    // Bouton suppression individuelle (si activé) — masqué en mode sélection.
     if (state.deleteEnabled && !_gallerySelecting && (!selectEntry.isServer || canDeleteServer)) {
       const delBtn = document.createElement("button");
       delBtn.className = "gallery-delete";
@@ -6529,7 +6581,6 @@ async function renderGallery() {
       });
       wrap.appendChild(delBtn);
     }
-    // Coche de sélection (mode organisateur 🗑️)
     if (_gallerySelecting) {
       wrap.classList.toggle("selected", isSelected());
       const check = document.createElement("span");
@@ -6537,8 +6588,138 @@ async function renderGallery() {
       check.textContent = isSelected() ? "✓" : "";
       wrap.appendChild(check);
     }
-    grid.appendChild(wrap);
-  });
+    return wrap;
+  }
+
+  function renderCarouselPage() {
+    if (!carouselView) return;
+    const idx = state.galleryPage;
+    const photo = all[idx];
+    if (!photo) return;
+    state.galleryPage = idx;
+    $("gallery-counter").textContent = `${idx + 1} / ${all.length}`;
+    $("gallery-prev").hidden = idx <= 0;
+    $("gallery-next").hidden = idx >= all.length - 1;
+    carouselView.innerHTML = "";
+    const slide = buildPhotoCard(photo, idx);
+    carouselView.appendChild(slide);
+  }
+
+  function goToGalleryPage(delta) {
+    const idx = Math.max(0, Math.min(all.length - 1, state.galleryPage + delta));
+    state.galleryPage = idx;
+    renderCarouselPage();
+  }
+
+  function goToGalleryPageIndex(i) {
+    state.galleryPage = Math.max(0, Math.min(all.length - 1, i));
+    renderCarouselPage();
+  }
+
+  if (state.galleryMode === "carousel") {
+    renderCarouselPage();
+  } else {
+    grid.innerHTML = "";
+    all.forEach((photo, i) => {
+      const wrap = document.createElement("div");
+      wrap.className = "gallery-cell";
+      const img = document.createElement("img");
+      img.src = photo.blob ? URL.createObjectURL(photo.blob) : (serverById.get(photo.id)?.url ?? "");
+      if (photo.blob) {
+        const galleryUrl = img.src;
+        img.addEventListener("load", () => setTimeout(() => URL.revokeObjectURL(galleryUrl), 1000), { once: true });
+      }
+      img.className = photo.mediaType === "gif" ? "gallery-gif" : "";
+      img.loading = "lazy";
+      img.alt = `Photo ${i + 1}`;
+      const selectKey = photo.serverId || photo.id;
+      const selectEntry = { key: selectKey, localId: photo.id, serverId: photo.serverId || null, deleteToken: photo.deleteToken || "", isServer: Boolean(photo.serverId || serverById.has(photo.id)) };
+      const canDeleteServer = Boolean((state.guestToken && state.guestHostKey) || photo.deleteToken);
+      const isSelected = () => [..._gallerySelection].some((entry) => entry.key === selectKey);
+      img.addEventListener("click", async () => {
+        if (_gallerySelecting) {
+          if (selectEntry.isServer && !canDeleteServer) { toast("Jeton de suppression indisponible pour cette ancienne photo"); return; }
+          const existing = [..._gallerySelection].find((entry) => entry.key === selectKey);
+          if (existing) _gallerySelection.delete(existing);
+          else _gallerySelection.add(selectEntry);
+          wrap.classList.toggle("selected", isSelected());
+          updateGallerySelectionBar();
+          return;
+        }
+        let blob = photo.blob;
+        if (!blob && serverById.get(photo.id)?.url) {
+          try {
+            const response = await fetch(serverById.get(photo.id).url, { cache: "no-store" });
+            if (!response.ok) throw new Error("photo introuvable");
+            blob = await response.blob();
+          } catch { toast("Photo indisponible"); return; }
+        }
+        if (!blob) return;
+        const isGif = photo.mediaType === "gif" || blob.type === "image/gif";
+        if (isGif) { state.latestGif = blob; state.latestPhoto = null; state.selectedResultKind = "gif"; }
+        else { state.latestPhoto = blob; state.latestGif = null; state.selectedResultKind = "photo"; }
+        state.latestRaw = blob;
+        state.lastLocalId = photo.blob ? photo.id : null;
+        state.resultPersistencePromise = null;
+        clearResultResources();
+        pauseLiveProcessing();
+        screens.gallery.classList.remove("active");
+        screens.result.classList.add("active");
+        $("result-grid").innerHTML = "";
+        $("result-grid").classList.remove("multi");
+        const rwrap = document.createElement("div");
+        rwrap.className = "result-item";
+        const rimg = document.createElement("img");
+        const resultUrl = URL.createObjectURL(blob);
+        state.resultObjectUrls.push(resultUrl);
+        rimg.src = resultUrl;
+        rimg.className = photo.mediaType === "gif" || blob.type === "image/gif" ? "result-image gif playing" : "result-image";
+        rwrap.appendChild(rimg);
+        $("result-grid").appendChild(rwrap);
+        $("share-box").style.display = "block";
+        $("share-status").textContent = "Photo de la galerie — prête à partager";
+        $("share-qr-box").classList.add("hidden");
+        const savedComment = photos.find((p) => p.id === photo.id)?.comment;
+        $("photo-comment").value = savedComment || "";
+      });
+      wrap.appendChild(img);
+      const ts = photo.date ?? photo.createdAt ?? null;
+      if (ts) {
+        const timeBadge = document.createElement("span");
+        timeBadge.className = "gallery-time";
+        timeBadge.textContent = new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+        wrap.appendChild(timeBadge);
+      }
+      if (photo.comment) {
+        const badge = document.createElement("span");
+        badge.className = "gallery-comment";
+        badge.textContent = "💬";
+        badge.title = photo.comment;
+        wrap.appendChild(badge);
+      }
+      if (state.deleteEnabled && !_gallerySelecting && (!selectEntry.isServer || canDeleteServer)) {
+        const delBtn = document.createElement("button");
+        delBtn.className = "gallery-delete";
+        delBtn.textContent = "✕";
+        delBtn.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          if (!confirm("Supprimer cette photo ?")) return;
+          await deletePhoto(photo.id, photo.serverId || photo.id, Boolean(photo.serverId || serverById.has(photo.id)), photo.deleteToken || "");
+          renderGallery();
+        });
+        wrap.appendChild(delBtn);
+      }
+      if (_gallerySelecting) {
+        wrap.classList.toggle("selected", isSelected());
+        const check = document.createElement("span");
+        check.className = "gallery-select-check";
+        check.textContent = isSelected() ? "✓" : "";
+        wrap.appendChild(check);
+      }
+      grid.appendChild(wrap);
+    });
+  }
+}
 }
 
 async function deletePhoto(localId, serverId = null, isServer = false, deleteToken = "") {
@@ -7415,6 +7596,52 @@ document.addEventListener("keydown", (event) => {
     focusables[nextIndex].focus();
   }
 });
+
+// v125.0.0 — Navigation carrousel galerie : clavier et tactile
+document.addEventListener("keydown", (event) => {
+  const gallery = screens.gallery;
+  if (!gallery?.classList.contains("active")) return;
+  if (state.galleryMode !== "carousel") return;
+  if (event.key === "ArrowLeft") { event.preventDefault(); goToGalleryPage(-1); }
+  if (event.key === "ArrowRight") { event.preventDefault(); goToGalleryPage(1); }
+});
+
+function initGalleryCarouselTouch() {
+  const stage = document.querySelector(".gallery-carousel-stage");
+  if (!stage) return;
+  stage.addEventListener("touchstart", (e) => {
+    if (state.galleryMode !== "carousel") return;
+    if (e.touches.length === 1) {
+      state.gallerySwipeStartX = e.touches[0].clientX;
+      state.gallerySwipeStartY = e.touches[0].clientY;
+    }
+  }, { passive: true });
+  stage.addEventListener("touchend", (e) => {
+    if (state.galleryMode !== "carousel") return;
+    const dx = (e.changedTouches[0]?.clientX || 0) - state.gallerySwipeStartX;
+    const dy = (e.changedTouches[0]?.clientY || 0) - state.gallerySwipeStartY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      goToGalleryPage(dx < 0 ? 1 : -1);
+    }
+  });
+}
+
+function initGalleryControls() {
+  on("gallery-prev", "click", () => goToGalleryPage(-1));
+  on("gallery-next", "click", () => goToGalleryPage(1));
+  on("gallery-toggle-view", "click", () => {
+    state.galleryMode = state.galleryMode === "carousel" ? "grid" : "carousel";
+    const carouselView = $("gallery-carousel");
+    const gridView = $("gallery-grid-view");
+    if (carouselView) carouselView.hidden = state.galleryMode !== "carousel";
+    if (gridView) gridView.hidden = state.galleryMode !== "grid";
+    const toggle = $("gallery-toggle-view");
+    if (toggle) toggle.textContent = state.galleryMode === "carousel" ? "⊞" : "⇆";
+    if (state.galleryMode === "carousel") state.galleryPage = 0;
+    renderGallery();
+  });
+  initGalleryCarouselTouch();
+}
 
 function openSheet(id) {
   const target = sheetMap[id];
