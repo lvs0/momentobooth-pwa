@@ -6042,7 +6042,7 @@ async function refreshCameraList(onCameraTap, generation = _cameraDiscoveryGener
       // synchronisée même lorsque sa feuille est momentanément fermée.
       if (box.id === "role-camera-list" && !gateOpen) continue;
       if (!cameras.length) {
-        box.innerHTML = '<div class="cam-empty">Aucune caméra détectée — lancez le mode Caméra sur l\'iPhone</div>';
+        box.innerHTML = '<div class="cam-empty">Aucune caméra détectée — lancez le mode Caméra sur l\u2019iPhone</div>';
         continue;
       }
       box.innerHTML = cameras.map((cam) => `<button type="button" class="cam-item" data-cam="${escapeHtml(cam.id)}" data-name="${escapeHtml(cam.name)}">📷 <span class="cam-name">${escapeHtml(cam.name)}</span><span class="cam-connect">Connecter</span></button>`).join("");
@@ -6450,11 +6450,11 @@ async function renderGallery() {
   updateGallerySelectionBar();
 
   if (!all.length) {
-    const emptyMsg = '<div class="gallery-carousel-placeholder">Aucune photo — touchez l'écran pour commencer !</div>';
+    const emptyMsg = '<div class="gallery-carousel-placeholder">Aucune photo — touchez l\u2019écran pour commencer !</div>';
     if (state.galleryMode === "carousel" && carouselView) {
       carouselView.innerHTML = emptyMsg;
     } else if (grid) {
-      grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l'écran pour commencer !</p>';
+      grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 20px;font-size:18px;font-weight:700">Aucune photo — touchez l\u2019écran pour commencer !</p>';
     }
     $("gallery-counter").textContent = "0 / 0";
     $("gallery-prev").hidden = true;
@@ -6733,7 +6733,6 @@ async function renderGallery() {
       grid.appendChild(wrap);
     });
   }
-}
 }
 
 async function deletePhoto(localId, serverId = null, isServer = false, deleteToken = "") {
