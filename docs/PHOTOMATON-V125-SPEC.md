@@ -117,3 +117,63 @@ Tablette (interface)
 - `server/camera-store.js` (nouveau) : cache dernière frame + distribution SSE
 - `docs/PROTOCOL.md` (nouveau) : spec du protocole de contrôle
 - `docs/PHOTOMATON-MODE.md` (nouveau) : guide d'install borne
+
+
+## Best practices carrousel (référence 2026)
+
+D'après [setproduct.com](https://www.setproduct.com/blog/carousel-ui-design) :
+
+**À FAIRE** :
+- Images haute qualité, optimisées par device
+- Navigation controls reconnaissables et facilement cliquables
+- Support clavier en plus des flèches/souris
+- Texte caption lisible et contrasté
+- Background/overlay complémentaire, pas dominant
+- Tester sur différents devices et tailles
+- Animations subtiles
+- Accessible (ARIA roles, focus visible, screen readers)
+
+**À NE PAS FAIRE** :
+- Images basse qualité
+- Surcharger le container
+- Contrôles trop petits ou durs à cliquer
+- Cacher les contrôles de navigation
+- Textes trop longs dans le caption
+- Overlays qui overpower le contenu
+- Animations qui distraient
+- Performance issues (images non optimisées, pas mobile-first)
+
+
+## Limites techniques connues (research 2026)
+
+D'après [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia) et [webrtc-developers.com](https://www.webrtc-developers.com/getusermedia-constraints-explained/) :
+
+### getUserMedia
+- **Secure context** obligatoire (HTTPS ou localhost)
+- `navigator.mediaDevices.getUserMedia` (PAS `navigator.getUserMedia` qui est deprecated)
+- Erreurs : `NotAllowedError` (permission refusée), `NotFoundError` (pas de caméra), `OverconstrainedError` (contraintes impossibles), `NotReadableError` (caméra utilisée par autre app)
+
+### MediaRecorder
+- Supporté : Chrome 49+, Edge 79+, Firefox 29+, Opera 36+, Samsung Internet 5+, Safari 14.1+ macOS / 14.5+ iOS
+- **PAS** supporté : Internet Explorer, Android Browser legacy
+- **iPhone 11** (iOS 14+) : ✅ OK
+
+### WebRTC
+- 169 mentions dans app.js → stack principale
+- Simulcast non supporté sur Safari
+- DataChannel moins fiable sur iOS que sur Chrome Android
+- **Recommandation** : WebRTC OK pour chat mais pas pour transferts lourds de frames → fallback polling HTTP
+
+### iOS Safari
+- Messages WebSocket limités à ~64KB (pas documenté officiellement, observé)
+- `getUserMedia` permission perdue à chaque navigation
+- Background : getUserMedia coupé après 30s
+- `pointsOfInterest` (focus tap) non supporté
+- `exposureCompensation` ajouté à Safari 16+ (iOS 16+)
+
+### Android Chrome (Huawei, Samsung, etc.)
+- `exposureCompensation` et `pointsOfInterest` supportés
+- `navigator.mediaDevices.getUserMedia` (pas `navigator.getUserMedia`)
+- Wake Lock API : Chrome 84+
+- Background : getUserMedia coupé après quelques minutes
+- `getInstalledRelatedApps` pour PWA install (Chrome 85+)
