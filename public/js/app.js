@@ -4434,6 +4434,11 @@ function refreshGalleryQR() {
   const url = `${location.origin}/api/gallery`;
   if (img) img.src = `/api/qr?url=${encodeURIComponent(url)}`;
 }
+function refreshGalleryQR() {
+  const img = $("gallery-qr-image");
+  const url = `${location.origin}/api/gallery`;
+  if (img) img.src = `/api/qr?url=${encodeURIComponent(url)}`;
+}
 function guestQrUrl(url) {
   return `/api/qr?url=${encodeURIComponent(url)}`;
 }
@@ -7767,7 +7772,7 @@ function initGalleryControls() {
       lightboxImg.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
       lightbox.setAttribute("aria-hidden", "true");
     });
-    on("lightbox-share", "click", async () => {
+    on("lightbox-download", "click", async () => {
       const src = lightboxImg.src;
       if (!src || src.includes("data:image/gif")) return;
       try {
@@ -7780,6 +7785,24 @@ function initGalleryControls() {
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         toast("Téléchargée ✓");
       } catch { toast("Téléchargement impossible"); }
+    });
+    on("lightbox-share", "click", async () => {
+      const src = lightboxImg.src;
+      if (!src || src.includes("data:image/gif")) return;
+      try {
+        const r = await fetch(src);
+        const blob = await r.blob();
+        const text = "Ma photo MomentoBooth";
+        if (navigator.canShare && navigator.canShare({ files: [new File([blob], "photo.jpg", { type: blob.type })] })) {
+          const file = new File([blob], "photo.jpg", { type: blob.type });
+          await navigator.share({ title: "MomentoBooth", text, files: [file] });
+        } else if (navigator.share) {
+          await navigator.share({ title: "MomentoBooth", text });
+        } else {
+          await navigator.clipboard.writeText(text);
+          toast("Lien copié ✓");
+        }
+      } catch { /* canceled */ }
     });
     on("lightbox-save", "click", async () => {
       const src = lightboxImg.src;
