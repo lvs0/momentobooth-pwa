@@ -169,8 +169,8 @@ const _gallerySelection = new Set();
   eventHost2: "",     // identité événement : prénom hôte 2 ("" = défaut "Lilou")
   eventWelcome: "",   // identité événement : message d'accueil veille personnalisé
 
-  // v125.0.0 — Galerie paginée carrousel
-  galleryMode: "carousel", // "carousel" | "grid"
+  // v125.0.0 — Galerie grille 4 colonnes par défaut
+  galleryMode: "grid", // "carousel" | "grid"
   galleryPage: 0,
   galleryPhotos: [],
   gallerySwipeStartX: 0,

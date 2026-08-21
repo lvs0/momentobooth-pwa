@@ -644,7 +644,7 @@ window.__mbBootStartedAt = performance.now();
   </div>
   <!-- v124.0.11 — QR compact à gauche, galerie scrollable à droite (sur tablette).
        Sur mobile, le QR reste au-dessus et la grille en dessous. -->
-  <div id="gallery-grid-view" class="gallery-grid-view" hidden>
+  <div id="gallery-grid-view" class="gallery-grid-view">
     <div class="gallery-layout">
       <!-- QR code compact, ne bouffe plus toute la galerie -->
       <div class="gallery-qr-hero" id="gallery-qr-hero">
@@ -656,6 +656,15 @@ window.__mbBootStartedAt = performance.now();
       </div>
       <!-- Grille photos scrollable -->
       <div id="gallery-grid" class="gallery-grid"></div>
+    </div>
+  </div>
+  <!-- v125.0.0 — Lightbox overlay pour grille galerie -->
+  <div id="gallery-lightbox" class="gallery-lightbox" aria-hidden="true">
+    <button id="lightbox-close" class="lightbox-close" type="button" aria-label="Fermer">✕</button>
+    <img id="lightbox-img" src="" alt="Photo agrandie">
+    <div class="lightbox-actions">
+      <button id="lightbox-share" class="mini-btn" type="button">Partager</button>
+      <button id="lightbox-save" class="mini-btn primary" type="button">Sauvegarder</button>
     </div>
   </div>
   <!-- Accès invités volontairement discret : appui long sur « Galerie » -->

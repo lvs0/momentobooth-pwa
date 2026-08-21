@@ -1098,7 +1098,7 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   padding: 8px;
   min-height: 0;
@@ -1119,8 +1119,9 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
     height: 110px;
   }
   .gallery-grid {
-    flex: 1 1 auto;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    padding: 12px;
   }
 }
 /* v124.0.7 — QR code hero centré style Snapchat (ancien bloc, supprimé v124.0.11 — remplacé par le layout 2 colonnes) */
@@ -1182,7 +1183,8 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
 .gallery-grid {
   flex: 1 1 auto; min-height: 0; min-width: 0;
   overflow-y: auto; overflow-x: hidden; display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
   /* padding-bottom avec safe-area : la home bar ne coupe pas la dernière rangée */
   padding: 4px 12px calc(20px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
@@ -1383,6 +1385,30 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
   min-height: 0;
   overscroll-behavior: contain;
 }
+/* Lightbox overlay pour grille galerie */
+.gallery-lightbox {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.92);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px; padding: 20px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.gallery-lightbox[aria-hidden="true"] { display: none; }
+.lightbox-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+  color: #fff; font-size: 20px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 201;
+}
+#lightbox-img {
+  max-width: 100%; max-height: 70vh;
+  object-fit: contain; border-radius: 14px;
+  background: rgba(0,0,0,.2);
+}
+.lightbox-actions { display: flex; gap: 10px; }
 /* Selection bar (mode organisateur) */
 #screen-gallery > .gallery-select-bar {
   display: flex;
