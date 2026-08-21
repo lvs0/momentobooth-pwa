@@ -6624,6 +6624,25 @@ async function renderGallery() {
     return wrap;
   }
 
+  function renderGalleryPills() {
+    const container = $("gallery-pills");
+    if (!container || !all.length) { if (container) container.innerHTML = ""; return; }
+    const maxPills = 40;
+    const step = all.length > maxPills ? Math.ceil(all.length / maxPills) : 1;
+    let html = "";
+    for (let i = 0; i < all.length; i += step) {
+      const active = i === state.galleryPage;
+      html += `<button type="button" class="gallery-pill${active ? " active" : ""}" data-gallery-index="${i}" aria-label="Photo ${i + 1}" aria-current="${active ? "true" : "false"}">${i + 1}</button>`;
+    }
+    container.innerHTML = html;
+    container.querySelectorAll(".gallery-pill").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = Number(btn.dataset.galleryIndex);
+        if (!isNaN(i)) goToGalleryPageIndex(i);
+      });
+    });
+  }
+
   function renderCarouselPage() {
     if (!carouselView) return;
     const idx = state.galleryPage;
@@ -6636,6 +6655,7 @@ async function renderGallery() {
     carouselView.innerHTML = "";
     const slide = buildPhotoCard(photo, idx);
     carouselView.appendChild(slide);
+    renderGalleryPills();
   }
 
   function goToGalleryPage(delta) {

@@ -1252,6 +1252,35 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
   text-align: center;
   padding: 40px 20px;
 }
+/* P1.5 — pills de pagination carrousel */
+.gallery-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  padding: 10px 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.gallery-pill {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: calc(12px * var(--ui-text-scale, 1));
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s ease, transform .2s ease;
+}
+.gallery-pill.active {
+  background: var(--accent, #7dd3fc);
+  color: #0a1633;
+  border-color: transparent;
+  font-weight: 900;
+}
 .gallery-counter {
   position: absolute;
   top: 0;
