@@ -1264,7 +1264,11 @@ async function startCamera() {
       hideSplash();
       const textEl = $("camera-error")?.querySelector(".camera-error-text");
       if (textEl) textEl.textContent = "La caméra s'est interrompue. Touchez Réessayer pour la relancer.";
-      $("camera-error")?.classList.remove("hidden");
+      const errEl = $("camera-error");
+      if (errEl) {
+        errEl.classList.remove("hidden");
+        exitIdle();  // v124.0.12 — ne pas laisser l'idle-overlay bloquer "Réessayer"
+      }
       setRemoteConnectionStatus("error", "Caméra interrompue — touchez Réessayer");
     }, { once: true });
     // ⚠️ Watchdog : si la vidéo reste NOIRE (aucune dimension après 2,5 s),
@@ -1314,7 +1318,10 @@ async function startCamera() {
     if (state.deviceRole === "camera") setRemoteConnectionStatus("error", "Caméra indisponible — autorisez l'accès puis réessayez");
     console.error("[MomentoBooth] getUserMedia échec:", error?.name, error?.message);
     showCamDiag(`erreur ${error?.name || "inconnue"}: ${error?.message || ""}`);
-    if (errorEl) errorEl.classList.remove("hidden");
+    if (errorEl) {
+      errorEl.classList.remove("hidden");
+      exitIdle();  // v124.0.12 — ne pas laisser l'idle-overlay bloquer "Réessayer"
+    }
     const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
     const textEl = errorEl?.querySelector(".camera-error-text");
     if (textEl) {
@@ -1343,6 +1350,7 @@ async function showCameraWaiting() {
   if (text) text.textContent = "La permission caméra tarde à répondre. Autorisez-la dans Safari, puis réessayez si nécessaire.";
   if (button) button.textContent = "🔄 Réessayer";
   errorEl.classList.remove("hidden");
+  exitIdle();  // v124.0.12 — empêche l'idle-overlay de bloquer le bouton "Réessayer"
   hideSplash();
 }
 
@@ -8721,6 +8729,7 @@ void init().catch((error) => {
     showCamDiag(`démarrage impossible: ${error?.message || "erreur inconnue"}`);
     const cameraError = $("camera-error");
     cameraError?.classList.remove("hidden");
+    exitIdle();  // v124.0.12 — empêche l'idle-overlay de bloquer le bouton
     const text = cameraError?.querySelector(".camera-error-text");
     if (text) text.textContent = "MomentoBooth n'a pas pu démarrer complètement. Rechargez la page puis réessayez.";
   } catch { /* même le diagnostic doit rester sans danger */ }
