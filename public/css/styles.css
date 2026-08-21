@@ -1467,6 +1467,13 @@ body.idle #auto-status { opacity: 0; pointer-events: none; transition: opacity .
 /* Les photos de veille restent visibles : on allège le voile sombre. */
 body.idle-photos .idle-overlay { background: linear-gradient(180deg, rgba(4,6,14,.18), rgba(4,6,14,.55)); }
 .idle-overlay.show { opacity: 1; pointer-events: auto; }
+/* v124.0.12 — Par défaut (idle caché), tous les enfants interceptent les pointer events
+   même si l'overlay parent a pointer-events:none. C'est un bug : sur iPhone, ça bloque
+   le click sur "Activer la caméra" dans la modale camera-error. On force donc
+   pointer-events:none sur tous les enfants quand l'overlay est caché. */
+.idle-overlay:not(.show) > *,
+.idle-overlay:not(.show) * { pointer-events: none !important; }
+.idle-overlay:not(.show) { pointer-events: none; }
 .idle-card {
   position: relative; z-index: 2;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
