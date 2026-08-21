@@ -2407,8 +2407,10 @@ body.idle-photos .idle-scenes { min-height: 340px; }
   .filter-rail-list { width: 64px; gap: 14px; }
   .filter-rail-card { width: 58px; height: 58px; }
 
-  /* Écran résultat : grille plus grande */
-  .result-grid { max-width: 600px; }
+  /* Écran résultat : grille plus grande (pas en paysage tablette ≥1024px) */
+  @media not all and (min-width: 1024px) {
+    .result-grid { max-width: 600px; }
+  }
   .result-image { max-height: 50vh; }
   .share-chip { padding: 12px 16px; font-size: calc(14px * var(--ui-text-scale, 1)); }
 
@@ -2904,6 +2906,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
     border: 0;
   }
   .result-meta-card small { display: none; } /* texte redondant caché sur tablette */
+  /* v124.0.8+ — utiliser sélecteur plus spécifique pour battre le bloc 768px */
+  #screen-result .result-grid,
   #result-grid {
     grid-column: 1 / 2;
     grid-row: 3 / 4;
@@ -2916,6 +2920,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
     max-width: none;  /* v124.0.8 — fix grid 448px au lieu de 60% sur tablette */
     width: 100%;
     overflow-y: auto;
+    flex: none;  /* annule flex: 1 1 60% du bloc 768px */
   }
   #result-grid img { width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 16px; }
   #screen-result { grid-template-rows: auto auto 1fr auto; }  /* v124.0.8 — force la row du grid à s'étendre */
