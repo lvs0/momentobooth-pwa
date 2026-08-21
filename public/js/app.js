@@ -1606,6 +1606,26 @@ function buildPhotoFilterRail() {
   });
   list.addEventListener("pointerup", () => { dragging = false; });
   list.addEventListener("pointercancel", () => { dragging = false; });
+  // P1.3 — rotation molette avec inertie + snap
+  let _wheelVelocity = 0, _wheelTimer = null, _wheelTick = null;
+  const _wheelStep = () => {
+    const abs = Math.abs(_wheelVelocity);
+    if (abs < 0.02) { clearInterval(_wheelTick); _wheelTick = null; _wheelVelocity = 0; applyWheelSelection(selected); return; }
+    const dir = _wheelVelocity > 0 ? 1 : -1;
+    selected = Math.max(0, Math.min(PHOTO_FILTERS.length - 1, selected + dir));
+    applyWheelSelection(selected);
+    _wheelVelocity *= 0.85;
+    if (Math.abs(_wheelVelocity) < 0.02) { clearInterval(_wheelTick); _wheelTick = null; _wheelVelocity = 0; applyWheelSelection(selected); }
+  };
+  list.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    _wheelVelocity += event.deltaY * 0.012;
+    _wheelVelocity = Math.max(-8, Math.min(8, _wheelVelocity));
+    clearTimeout(_wheelTimer);
+    clearInterval(_wheelTick);
+    _wheelTick = setInterval(_wheelStep, 80);
+    _wheelTimer = setTimeout(() => { clearInterval(_wheelTick); _wheelTick = null; _wheelVelocity = 0; applyWheelSelection(selected); }, 600);
+  }, { passive: false });
   const wheelVideo = $("filter-wheel-live");
   if (wheelVideo && state.stream) { wheelVideo.srcObject = state.stream; wheelVideo.play?.().catch(() => {}); }
   applyWheelSelection(selected, false);
