@@ -4429,6 +4429,11 @@ function guestShareStatus(message) {
   const el = $("guest-share-status");
   if (el) el.textContent = message;
 }
+function refreshGalleryQR() {
+  const img = $("gallery-qr-image");
+  const url = `${location.origin}/api/gallery`;
+  if (img) img.src = `/api/qr?url=${encodeURIComponent(url)}`;
+}
 function guestQrUrl(url) {
   return `/api/qr?url=${encodeURIComponent(url)}`;
 }

@@ -1125,6 +1125,14 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
   }
 }
 /* v124.0.7 — QR code hero centré style Snapchat (ancien bloc, supprimé v124.0.11 — remplacé par le layout 2 colonnes) */
+#screen-gallery > .gallery-qr-compact { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(0,0,0,.3); border-radius: 14px; border: 1px solid rgba(255,255,255,.08); max-width: 360px; flex-shrink: 0; }
+#screen-gallery > .gallery-qr-compact img { width: 48px; height: 48px; border-radius: 8px; background: #fff; padding: 3px; }
+#screen-gallery > .gallery-qr-compact .gallery-qr-label { font-size: 13px; font-weight: 600; color: var(--text, #fff); }
+#screen-gallery > .gallery-qr-compact .gallery-qr-hint { font-size: 11px; color: var(--muted, rgba(255,255,255,.65)); line-height: 1.3; }
+@media (min-width: 768px) {
+  #screen-gallery > .gallery-qr-compact { position: sticky; top: 8px; }
+  #screen-gallery > .gallery-qr-compact img { width: 56px; height: 56px; }
+}
 #screen-gallery > .guest-share-panel { max-height: min(42dvh, 360px); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
 .guest-share-panel {
   display: none; margin: 0 18px 12px; padding: 16px; border-radius: 22px;
