@@ -1481,9 +1481,7 @@ function persistRemoteCamSession(session) {
     lastFrameSessionId: session.lastFrameSessionId || "",
     lastCommandId: session.lastCommandId || 0, commands: session.commands || [],
   };
-  const tmp = `${remoteMetaPath(session.token)}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(safe));
-  fs.renameSync(tmp, remoteMetaPath(session.token));
+  writeJsonAtomic(remoteMetaPath(session.token), safe);
 }
 function hydrateRemoteCamSession(identifier) {
   const key = String(identifier || "").trim();

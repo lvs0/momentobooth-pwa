@@ -50,6 +50,7 @@ const _gallerySelection = new Set();
   animationEngine: null,
   flashMode: "auto",     // on | auto | off — auto protège le preview et éclaire seulement si sombre
   qualityMax: false,    // mode économe par défaut; 4K activable dans Réglages
+  cameraFraming: false, // P1.2 — centrer la caméra entre les boutons du bas
   trackEnabled: false,  // MediaPipe et cadres visage désactivés par défaut
   latestPhoto: null,
   latestGif: null,
@@ -288,7 +289,7 @@ const PERF = {
 };
 function perfConfig() { return PERF[state.performanceMode] || PERF.eco; }    const PREFERENCE_FIELDS = [
       "qualityMax", "trackEnabled", "idleEnabled", "idleFaceWake", "prerollEnabled",
-      "filmBubbleEnabled", "emojiFacesEnabled", "lightFrameEnabled", "portraitMode", "burstMode", "timerSeconds", "captureCount", "logoEnabled", "flashMode", "performanceMode", "autoDelay", "deviceRole", "roleRemember", "deleteEnabled",
+      "filmBubbleEnabled", "emojiFacesEnabled", "lightFrameEnabled", "portraitMode", "burstMode", "timerSeconds", "captureCount", "logoEnabled", "flashMode", "performanceMode", "autoDelay", "deviceRole", "roleRemember", "deleteEnabled", "cameraFraming",
     ];
 function loadPreferences() {
   try {
@@ -555,11 +556,14 @@ function syncPreferenceControls() {
     "set-light-frame": state.lightFrameEnabled,
     "set-portrait": state.portraitMode,
     "set-burst": state.burstMode,
+    "set-camera-framing": state.cameraFraming,
   };
   for (const [id, checked] of Object.entries(checks)) {
     const control = $(id);
     if (control) control.checked = Boolean(checked);
   }
+  // P1.2 — sync body attribute for camera framing
+  document.body.setAttribute("data-camera-framing", state.cameraFraming ? "centered" : "fill");
   const perfControl = $("set-performance");
   if (perfControl) perfControl.value = PERF[state.performanceMode] ? state.performanceMode : "eco";
   const roleLabel = { camera: "Caméra", interface: "Interface", mixed: "Mixte" }[state.deviceRole] || "Mixte";
@@ -7199,6 +7203,12 @@ function bindSettings() {
     state.qualityMax = e.target.checked;
     savePreferences();
     toast(state.qualityMax ? "Qualité maximale (4K)" : "Qualité standard");
+  });
+  on("set-camera-framing", "change", (e) => {
+    state.cameraFraming = e.target.checked;
+    document.body.setAttribute("data-camera-framing", state.cameraFraming ? "centered" : "fill");
+    savePreferences();
+    toast(state.cameraFraming ? "Caméra centrée entre les boutons" : "Caméra plein écran");
   });
   on("set-performance", "change", async (e) => {
     state.performanceMode = PERF[e.target.value] ? e.target.value : "eco";
