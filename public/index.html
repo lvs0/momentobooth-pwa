@@ -590,10 +590,6 @@ window.__mbBootStartedAt = performance.now();
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/></svg>
           <span>Email</span>
         </button>
-        <button class="share-drawer-item" data-method="native" aria-label="Menu système">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-          <span>Plus</span>
-        </button>
         <button class="share-drawer-item" data-method="qrcode" aria-label="QR code">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="14" y1="20" x2="17" y2="20"/><line x1="17" y1="14" x2="17" y2="17"/><line x1="20" y1="14" x2="20" y2="17"/><line x1="20" y1="20" x2="20" y2="20"/><line x1="14" y1="20" x2="20" y2="20"/></svg>
           <span>QR</span>
@@ -642,23 +638,9 @@ window.__mbBootStartedAt = performance.now();
     <!-- P1.5 — pills de pagination carrousel (où je suis) -->
     <div id="gallery-pills" class="gallery-pills" aria-label="Pages de la galerie"></div>
   </div>
-  <!-- v124.0.11 — QR compact à gauche, galerie scrollable à droite (sur tablette).
-       Sur mobile, le QR reste au-dessus et la grille en dessous. -->
-  <div id="gallery-grid-view" class="gallery-grid-view">
-    <div class="gallery-layout">
-      <!-- QR code compact, ne bouffe plus toute la galerie -->
-      <div class="gallery-qr-hero" id="gallery-qr-hero">
-        <img id="gallery-qr-image" class="gallery-qr-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="QR code de la galerie">
-        <div class="gallery-qr-text">
-          <div class="gallery-qr-label">Scannez vos photos</div>
-          <div class="gallery-qr-hint">Ouvrez l'appareil photo depuis votre téléphone</div>
-        </div>
-      </div>
-      <!-- Grille photos scrollable -->
-      <div id="gallery-grid" class="gallery-grid"></div>
-    </div>
-  </div>
-  <!-- v125.0.0 — Lightbox overlay pour grille galerie -->
+  <!-- v124.0.11 — Grille photos scrollable (QR retiré P2.G) -->
+  <div id="gallery-grid" class="gallery-grid"></div>
+  <!-- v125.0.0 — Lightbox overlay pour clic photo en mode grille -->
   <div id="gallery-lightbox" class="gallery-lightbox" aria-hidden="true">
     <button id="lightbox-close" class="lightbox-close" type="button" aria-label="Fermer">✕</button>
     <img id="lightbox-img" src="" alt="Photo agrandie">

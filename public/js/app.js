@@ -4150,31 +4150,6 @@ async function shareMethod(method) {
     } else if (method === "email") {
       window.open(`mailto:?subject=${encodeURIComponent("Ma photo MomentoBooth")}&body=${encodeURIComponent(text + " " + publicUrl)}`, "_blank");
       status.textContent = "Email ouvert ✓";
-    } else if (method === "native") {
-      if (navigator.share) {
-        const files = [];
-        // Le média touché devient prioritaire ; au premier affichage, les
-        // deux formats sont proposés ensemble.
-        const selectedOnly = state.selectedResultKind === "gif" ? state.latestGif : state.selectedResultKind === "photo" ? state.latestPhoto : null;
-        if (selectedOnly) {
-          const isGif = selectedOnly.type === "image/gif";
-          files.push(new File([selectedOnly], `momentobooth-${Date.now()}.${isGif ? "gif" : "jpg"}`, { type: selectedOnly.type || (isGif ? "image/gif" : "image/jpeg") }));
-        } else {
-          if (state.latestPhoto) files.push(new File([state.latestPhoto], `momentobooth-${Date.now()}.jpg`, { type: state.latestPhoto.type || "image/jpeg" }));
-          if (state.latestGif) files.push(new File([state.latestGif], `momentobooth-${Date.now()}.gif`, { type: state.latestGif.type || "image/gif" }));
-        }
-        const payload = files.length && navigator.canShare?.({ files })
-          ? { title: "MomentoBooth", text, files }
-          : { title: "MomentoBooth", text, url: publicUrl };
-        await navigator.share(payload);
-        status.textContent = "Partagé ✓";
-      } else {
-        status.textContent = "Partage natif indisponible";
-      }
-    } else if (method === "qrcode") {
-      $("share-qr-box").classList.remove("hidden");
-      $("share-qr").src = `/api/qr?url=${encodeURIComponent(publicUrl)}`;
-      status.textContent = "QR affiché — scannez pour la photo";
     } else if (method === "download") {
       if (!state.latestPhoto) { status.textContent = "Pas de photo"; return; }
       const url = URL.createObjectURL(state.latestPhoto);
@@ -4184,6 +4159,10 @@ async function shareMethod(method) {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       status.textContent = "Téléchargé ✓";
+    } else if (method === "qrcode") {
+      $("share-qr-box").classList.remove("hidden");
+      $("share-qr").src = `/api/qr?url=${encodeURIComponent(publicUrl)}`;
+      status.textContent = "QR affiché — scannez pour la photo";
     } else if (method === "download-gif") {
       if (state.latestGif) {
         const url = URL.createObjectURL(state.latestGif);
@@ -6708,6 +6687,16 @@ async function renderGallery() {
           } catch { toast("Photo indisponible"); return; }
         }
         if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const lb = $("gallery-lightbox");
+        const lbImg = $("lightbox-img");
+        if (lb && lbImg) {
+          _lightboxUrl = url;
+          lbImg.src = url;
+          lb.setAttribute("aria-hidden", "false");
+          return;
+        }
+        _lightboxUrl = url;
         const isGif = photo.mediaType === "gif" || blob.type === "image/gif";
         if (isGif) { state.latestGif = blob; state.latestPhoto = null; state.selectedResultKind = "gif"; }
         else { state.latestPhoto = blob; state.latestGif = null; state.selectedResultKind = "photo"; }
@@ -7724,6 +7713,41 @@ function initGalleryControls() {
     renderGallery();
   });
   initGalleryCarouselTouch();
+
+  /* Lightbox pour clic photo en mode grille */
+  let _lightboxUrl = null;
+  const lightbox = $("gallery-lightbox");
+  const lightboxImg = $("lightbox-img");
+  if (lightbox && lightboxImg) {
+    on("lightbox-close", "click", () => {
+      if (_lightboxUrl) { URL.revokeObjectURL(_lightboxUrl); _lightboxUrl = null; }
+      lightboxImg.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+      lightbox.setAttribute("aria-hidden", "true");
+    });
+    on("lightbox-share", "click", async () => {
+      const src = lightboxImg.src;
+      if (!src || src.includes("data:image/gif")) return;
+      try {
+        const r = await fetch(src);
+        const blob = await r.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `momentobooth-${Date.now()}.jpg`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        toast("Téléchargée ✓");
+      } catch { toast("Téléchargement impossible"); }
+    });
+    on("lightbox-save", "click", async () => {
+      const src = lightboxImg.src;
+      if (!src || src.includes("data:image/gif")) return;
+      try {
+        const r = await fetch(src);
+        const blob = await r.blob();
+        await saveToPhotos(blob);
+      } catch { toast("Sauvegarde impossible"); }
+    });
+  }
 }
 
 function openSheet(id) {

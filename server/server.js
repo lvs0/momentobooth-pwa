@@ -2187,11 +2187,9 @@ function loadCaptures() {
 }
 function saveCaptures() {
   try {
-    const temp = `${CAPTURES_FILE}.${process.pid}.tmp`;
     const obj = {};
     for (const [cid, meta] of captures) obj[cid] = meta;
-    fs.writeFileSync(temp, JSON.stringify(obj, null, 2), { mode: 0o600 });
-    fs.renameSync(temp, CAPTURES_FILE);
+    writeJsonAtomic(CAPTURES_FILE, obj, { pretty: true });
   } catch (error) {
     console.error("[MomentoBooth] captures save", error);
   }
