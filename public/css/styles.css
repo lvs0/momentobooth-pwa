@@ -710,13 +710,17 @@ body.focusing #sticker-canvas { opacity: .96; }
 
 /* --- Barre bas (simplifiée) --- */
 .bottom-bar {
-  position: absolute; left: calc(var(--safe-left, 0px) + 10px); right: calc(var(--safe-right, 0px) + 10px); bottom: calc(10px + var(--safe-bottom)); z-index: 30;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 6px;
-  gap: 4px;
-  background: rgba(17,25,44,.72);
+  /* P0-A : Barre outils droite, centrée verticalement, avec fond glass + safe-area */
+  position: absolute; right: calc(var(--safe-right, 0px) + 14px); top: 50%; bottom: auto;
+  transform: translateY(-50%); z-index: 30;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px;
+  padding: 14px 8px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  padding-right: calc(8px + env(safe-area-inset-right, 0px));
+  background: rgba(10, 18, 38, 0.72);
   border: 1px solid var(--stroke);
-  border-radius: 36px;
+  border-radius: 24px;
   backdrop-filter: blur(14px) saturate(125%); -webkit-backdrop-filter: blur(14px) saturate(125%);
   box-shadow: 0 12px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.18);
   overflow: visible;
@@ -736,9 +740,9 @@ body.focusing #sticker-canvas { opacity: .96; }
   transition: transform .15s ease, background .15s ease;
 }
 
-/* Nouveau bouton déclencheur */
+/* P0-A : Shutter normalisé à 80px (ratio 1.4x vs 56px des outils) */
 .shutter-btn {
-  flex: 0 0 auto; width: 72px; height: 72px; border-radius: 50%;
+  flex: 0 0 auto; width: 80px; height: 80px; border-radius: 50%;
   background: rgba(255,255,255,0.2); border: 4px solid var(--text);
   display: flex; align-items: center; justify-content: center;
   padding: 4px; /* Espace entre la bordure et l'intérieur */
@@ -763,13 +767,9 @@ body.focusing #sticker-canvas { opacity: .96; }
   background: #ff3b30;
 }
 /* v124.0.7 — GIF incitatif sous le bouton shutter. Caché après la 1ère capture. */
-.shutter-hint-gif {
-  position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
-  width: 72px; height: 72px; object-fit: contain; opacity: .9;
-  pointer-events: none; z-index: 5;
-  filter: drop-shadow(0 4px 8px rgba(0,0,0,.4));
-}
+/* P0-A : Supprimé — icône parasite qui superposait le centre de l'écran. */
 .shutter-hint-gif.hidden { display: none; }
+.shutter-hint-gif { display: none; }
 body.ui-hidden .shutter-hint-gif { opacity: 0; transition: opacity .2s; }
 body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
 @media (max-width: 360px) {
@@ -853,7 +853,8 @@ body.idle .shutter-hint-gif { opacity: 0; pointer-events: none; }
   .window-stack { right: 4px; width: 48px; }
   .filter-rail-list { width: 46px; }
   .filter-rail-card { flex-basis: 42px; width: 42px; height: 42px; }
-  .bottom-bar { left: 6px; right: 6px; }
+  /* P0-A : sur très petits écrans, la barre reste sur le côté droit centrée */
+  .bottom-bar { left: auto; right: calc(var(--safe-right, 0px) + 4px); top: 50%; bottom: auto; transform: translateY(-50%); }
 }
 .tool-btn svg { width: 26px; height: 26px; }
 .tool-btn:active { transform: scale(.85); background: rgba(255,255,255,.2); }
@@ -2491,12 +2492,12 @@ body.idle-photos .idle-scenes { min-height: 340px; }
     --camera-width: 100vw;
     --camera-height: 100dvh;
   }
-  /* La bottom bar s'élargit sur tablette — boutons plus grands */
+  /* P0-A : La bottom bar est une toolbar droite verticalement centrée */
   .bottom-bar {
-    left: 50%; transform: translateX(-50%);
-    width: min(560px, 90vw);
-    padding: 14px 12px; gap: 8px;
-    border-radius: 44px;
+    left: auto; right: calc(var(--safe-right, 0px) + 14px);
+    top: 50%; bottom: auto; transform: translateY(-50%);
+    width: auto; max-width: none;
+    padding: 14px 8px; gap: 8px; border-radius: 24px;
   }
   .tool-btn { width: 72px; height: 72px; }
   .tool-btn svg { width: 32px; height: 32px; }
@@ -2622,9 +2623,10 @@ body.idle-photos .idle-scenes { min-height: 340px; }
   .filter-rail-card { width: 60px; height: 60px; flex-basis: 60px; }
   .filter-rail-preview { width: 42px; height: 42px; font-size: calc(16px * var(--ui-text-scale, 1)); }
   .bottom-bar {
-    left: auto; right: 18px; bottom: calc(18px + var(--safe-bottom));
-    width: 82px; padding: 12px 9px; gap: 9px; flex-direction: column;
-    border-radius: 42px; transform: none;
+    left: auto; right: calc(var(--safe-right, 0px) + 14px);
+    top: 50%; bottom: auto; transform: translateY(-50%);
+    width: auto; padding: 14px 8px; gap: 8px; border-radius: 24px;
+    flex-direction: column;
   }
   .tool-btn { width: 62px; height: 62px; }
   .tool-btn svg { width: 30px; height: 30px; }
@@ -2887,7 +2889,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
 
 @media (max-width: 767px) {
   .capture-header { padding-inline: max(10px, var(--safe-left, 0px)) max(10px, var(--safe-right, 0px)); }
-  .bottom-bar { left: calc(var(--safe-left, 0px) + 8px); right: calc(var(--safe-right, 0px) + 8px); }
+  /* P0-A : toolbar reste sur le côté droit sur mobile */
+  .bottom-bar { left: auto; right: calc(var(--safe-right, 0px) + 14px); top: 50%; bottom: auto; transform: translateY(-50%); }
   .tool-btn { width: 54px; height: 54px; }
   .shutter-btn { width: 70px; height: 70px; }
   .sheet { left: 8px; right: 8px; }
@@ -2898,6 +2901,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
   .tool-btn { width: 48px; height: 48px; font-size: calc(23px * var(--ui-text-scale, 1)); }
   .tool-btn svg { width: 23px; height: 23px; }
   .shutter-btn { width: 64px; height: 64px; }
+}
+/* P0-A : sur très petits écrans, toolbar reste sur le droit */
+@media (max-width: 340px) {
+  .bottom-bar { left: auto; right: calc(var(--safe-right, 0px) + 12px); top: 50%; bottom: auto; transform: translateY(-50%); }
 }
 
 @media (min-width: 768px) {
