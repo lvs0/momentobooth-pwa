@@ -6714,15 +6714,18 @@ async function renderGallery() {
           return;
         }
         let blob = photo.blob;
-        if (!blob && serverById.get(photo.id)?.url) {
+        let url = img.src || "";
+        if (!blob && !url) {
           try {
-            const response = await fetch(serverById.get(photo.id).url, { cache: "no-store" });
+            const response = await fetch(serverById.get(photo.id)?.url, { cache: "no-store" });
             if (!response.ok) throw new Error("photo introuvable");
             blob = await response.blob();
+            url = URL.createObjectURL(blob);
           } catch { toast("Photo indisponible"); return; }
+        } else if (blob && !url) {
+          url = URL.createObjectURL(blob);
         }
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
+        if (!url) return;
         const lb = $("gallery-lightbox");
         const lbImg = $("lightbox-img");
         if (lb && lbImg) {
