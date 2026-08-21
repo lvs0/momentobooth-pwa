@@ -2794,6 +2794,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
    v122 — iPhone portrait (compact)
    ============================================================ */
 @media (max-width: 480px) {
+  .organizer-link { display: none; }  /* v124.0.12 — caché sur mobile pour ne pas chevaucher Galerie */
   .share-row { --touch-target: 56px; gap: 6px; }
   .share-chip.icon-only { min-width: 56px; min-height: 56px; padding: 6px 4px; border-radius: 12px; }
   .share-chip.icon-only svg { width: 22px; height: 22px; }
