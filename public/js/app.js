@@ -563,7 +563,10 @@ function syncPreferenceControls() {
   };
   for (const [id, checked] of Object.entries(checks)) {
     const control = $(id);
-    if (control) control.checked = Boolean(checked);
+    if (control) {
+      control.checked = Boolean(checked);
+      control.setAttribute('data-setting', id);
+    }
   }
   // P1.2 — sync body attribute for camera framing
   document.body.setAttribute("data-camera-framing", state.cameraFraming ? "centered" : "fill");
@@ -7290,17 +7293,35 @@ function bindSettings() {
     savePreferences();
     toast(state.cameraFraming ? "Caméra centrée entre les boutons" : "Caméra plein écran");
   });
+  function broadcastSettings(changedId) {
+    try {
+      const payload = {};
+      document.querySelectorAll('#sheet-settings [data-setting]').forEach((el) => {
+        const key = el.getAttribute('data-setting');
+        if (!key) return;
+        if (el.type === 'checkbox') payload[key] = el.checked;
+        else if (el.tagName === 'SELECT') payload[key] = el.value;
+        else payload[key] = el.value;
+      });
+      if (changedId) payload.changed = changedId;
+      localStorage.setItem('momentobooth-last-settings-broadcast', JSON.stringify({ ts: Date.now(), payload }));
+    } catch { /* storage blocked */ }
+  }
+
   on("set-glass", "change", (e) => {
     state.glassEnabled = e.target.checked;
     savePreferences();
+    broadcastSettings('set-glass');
   });
   on("set-countdown-fixed", "change", (e) => {
     state.countdownFixed = e.target.checked;
     savePreferences();
+    broadcastSettings('set-countdown-fixed');
   });
   on("set-capture-disabled", "change", (e) => {
     state.captureDisabled = e.target.checked;
     savePreferences();
+    broadcastSettings('set-capture-disabled');
   });
   on("set-performance", "change", async (e) => {
     state.performanceMode = PERF[e.target.value] ? e.target.value : "eco";
