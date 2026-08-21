@@ -351,7 +351,7 @@ body.guest-qr-ready .tablet-qr-access { display: block; }
 body.idle .tablet-qr-access,
 body.ui-hidden .tablet-qr-access,
 body[data-device-role="camera"] .tablet-qr-access { display: none !important; }
-.tablet-qr-access button { display: grid; grid-template-columns: 56px 92px; gap: 8px; align-items: center; padding: 6px; color: #fff; background: rgba(9,17,36,.66); border: 1px solid rgba(255,255,255,.22); border-radius: 12px; text-align: left; font-size: calc(11px * var(--ui-text-scale, 1)); font-weight: 850; }
+.tablet-qr-access button { display: grid; grid-template-columns: 56px 92px; gap: 8px; align-items: center; padding: 6px; color: #fff; background: rgba(9,17,36,.66); border: 1px solid rgba(255,255,255,.22); border-radius: 12px; text-align: left; font-size: calc(11px * var(--ui-text-scale, 1)); font-weight: 850; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tablet-qr-access img { width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 7px; }
 
 /* Editeur organisateur : aperçu isolé + réglages grands sur tablette. */
@@ -2813,10 +2813,14 @@ body.idle-photos .idle-scenes { min-height: 340px; }
     left: 8px;
   }
   .tablet-qr-access button {
-    grid-template-columns: 44px minmax(0, 96px);
+    grid-template-columns: 44px minmax(0, 110px);
     gap: 7px;
     padding: 5px;
     font-size: calc(10px * var(--ui-text-scale, 1));
+    /* P0-E : texte sur une seule ligne, évite le wrap en 2 lignes */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .tablet-qr-access img { width: 44px; height: 44px; }
   /* Garde une marge de sécurité pour le nom temporaire du filtre. */
