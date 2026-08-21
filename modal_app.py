@@ -45,6 +45,9 @@ app = modal.App(APP_NAME)
     # partagé par fichiers ; un seul conteneur évite les lectures stale entre
     # réplicas Modal tout en gardant quatre requêtes HTTP concurrentes.
     max_containers=1,
+    secrets=[
+        modal.Secret.from_name("momento-organizer-pin"),
+    ],
 )
 # Plusieurs téléphones peuvent déclencher un pack (rendu) en même temps :
 # laisser 4 requêtes concurrentes par conteneur au lieu de 1 (sérialisées).

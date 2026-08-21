@@ -1063,13 +1063,7 @@ function loadGuestSessions() {
           try { fs.rmSync(path.join(PHOTOS_DIR, id), { force: true }); } catch {}
         }
       }
-      const temp = `${SESSIONS_FILE}.${process.pid}.load.tmp`;
-      try {
-        fs.writeFileSync(temp, JSON.stringify(retained), { mode: 0o600 });
-        fs.renameSync(temp, SESSIONS_FILE);
-      } finally {
-        try { fs.rmSync(temp, { force: true }); } catch {}
-      }
+      writeJsonAtomic(SESSIONS_FILE, retained);
     }
   } catch (error) {
     console.error("[MomentoBooth] chargement des sessions :", error);
