@@ -217,10 +217,11 @@ window.__mbBootStartedAt = performance.now();
     <div class="rail-caption">PHOTO</div>
     <video id="filter-wheel-live" class="filter-wheel-live" autoplay playsinline muted aria-hidden="true"></video>
     <div id="photo-filter-rail-list" class="filter-rail-list"></div>
-    <div class="filter-rail-meta" aria-live="polite">
-      <div id="filter-rail-label" class="filter-rail-label">Filtre : —</div>
-      <div class="filter-rail-hint">Glissez autour de l'anneau</div>
-    </div>
+  </div>
+  <!-- P0-C : meta en dehors de l'anneau pour éviter le chevauchement -->
+  <div class="filter-rail-meta" aria-live="polite">
+    <div id="filter-rail-label" class="filter-rail-label">Filtre : —</div>
+    <div class="filter-rail-hint">Glissez autour de l'anneau</div>
   </div>
 
   <!-- Indicateur mode AUTO -->

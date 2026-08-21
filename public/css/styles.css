@@ -238,7 +238,10 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
    container).
    v124.0.7 — demi-roue à GAUCHE (centrée sur le bord gauche, s'ouvre vers la droite). */
 #photo-filter-rail {
-  top: 50%; left: -100px; width: 280px; height: 280px; max-height: none; padding: 0;
+  /* P0-D : centre visible — décalage réduit pour que l'anneau ne soit pas
+     complètement coupé sur le bord gauche. On garde un effet "demi-lens"
+     subtil mais l'anneau reste visible dans le viewport. */
+  top: 50%; left: 16px; width: 280px; height: 280px; max-height: none; padding: 0;
   transform: translateY(-50%); border: 0; border-radius: 50%; background: transparent;
   box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; overflow: visible;
 }
@@ -255,22 +258,28 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
 #photo-filter-rail .rail-caption { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 2; color: rgba(255,255,255,.78); font-size: calc(10px * var(--ui-text-scale, 1)); letter-spacing: .22em; text-align: center; }
 #photo-filter-rail .filter-wheel-live { position: absolute; left: 50%; top: 50%; width: 168px; height: 168px; transform: translate(-30%, -50%); border-radius: 50%; object-fit: cover; opacity: .92; border: 3px solid rgba(255,255,255,.82); box-shadow: 0 0 32px rgba(125,211,252,.45); filter: var(--mb-live-filter, brightness(1)); z-index: 1; pointer-events: none; }
 /* Lévy 2026-08-21 : texte "Filtre : X" sort de la roulette pour ne plus chevaucher */
-#photo-filter-rail .filter-rail-meta {
-  position: absolute;
-  /* Ancré à droite de la roulette, plus centré dedans */
-  left: calc(50% + 100px);
-  right: auto;
-  bottom: 50%;
-  transform: translateY(50%);
+/* P0-C : filter-rail-meta déplacé à l'extérieur de #photo-filter-rail pour éviter le chevauchement */
+.filter-rail-meta {
+  position: fixed;
+  right: 24px; top: 50%;
+  transform: translateY(-50%);
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   pointer-events: none; z-index: 5; text-align: left;
   color: #fff; max-width: 220px;
   background: rgba(10, 18, 36, 0.55);
-  padding: 8px 14px;
+  padding: 12px 16px;
   border-radius: 12px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.12);
+}
+@media (max-width: 500px) {
+  .filter-rail-meta {
+    /* P0-C : sur mobile, place le tooltip à droite de l'anneau pour éviter le chevauchement */
+    left: calc(296px + 12px) !important; right: auto !important;
+    max-width: 70px;
+    padding: 8px 10px;
+  }
 }
 #photo-filter-rail .filter-rail-label {
   font-size: calc(15px * var(--ui-text-scale, 1));
@@ -302,7 +311,8 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
 
 /* Tablette paysage : encore plus grand, demi-roue gauche plus large, centre calé sur le bord */
 @media (min-width: 768px) {
-  #photo-filter-rail { width: 340px; height: 340px; left: -130px; }
+  /* P0-D : demi-roue plus large mais entièrement visible */
+  #photo-filter-rail { width: 340px; height: 340px; left: 16px; }
   #photo-filter-rail .filter-wheel-live { width: 200px; height: 200px; transform: translate(-30%, -50%); }
   #photo-filter-rail .filter-rail-card { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-128px) rotate(calc(var(--wheel-angle, 0deg) * -1)); }
   #photo-filter-rail .filter-rail-card.active { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-136px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.22); }
@@ -310,7 +320,7 @@ body[data-device-role="interface"] #camera { visibility: hidden !important; }
 }
 /* iPhone compact : un peu plus petit pour respirer, demi-roue gauche + petit */
 @media (max-width: 380px) {
-  #photo-filter-rail { width: 220px; height: 220px; left: -80px; }
+  #photo-filter-rail { width: 220px; height: 220px; left: 16px; }
   #photo-filter-rail .filter-wheel-live { width: 124px; height: 124px; transform: translate(-30%, -50%); }
   #photo-filter-rail .filter-rail-card { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-78px) rotate(calc(var(--wheel-angle, 0deg) * -1)); }
   #photo-filter-rail .filter-rail-card.active { transform: translate(-50%, -50%) rotate(var(--wheel-angle, 0deg)) translateY(-82px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.18); }
@@ -2479,8 +2489,8 @@ body.idle-photos .idle-scenes { min-height: 340px; }
     .customize-quick-btn { right: 172px; width: 56px; min-height: 56px; font-size: calc(26px * var(--ui-text-scale, 1)); }
     .tablet-qr-access { display: block; }
     .fx-top-btn { min-height: 58px; font-size: calc(19px * var(--ui-text-scale, 1)); padding: 12px 20px; }
-    /* v124.0.7 — demi-roue à GAUCHE : scotchée au bord gauche. */
-    #photo-filter-rail { right: auto; left: -46px; width: 224px; height: 224px; }
+    /* P0-D : demi-roue à GAUCHE — mais entièrement visible désormais (left: 16px au lieu de -46px) */
+    #photo-filter-rail { right: auto; left: 16px; width: 224px; height: 224px; }
     #photo-filter-rail .filter-rail-card { width: 60px; height: 60px; transform-origin: 112px 50%; }
     #photo-filter-rail .filter-rail-card.active { transform: translateY(-50%) rotate(var(--wheel-angle, 0deg)) translateX(5px) rotate(calc(var(--wheel-angle, 0deg) * -1)) scale(1.2); }
     #photo-filter-rail .filter-rail-preview { width: 45px; height: 45px; }
