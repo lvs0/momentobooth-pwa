@@ -1,0 +1,37 @@
+{
+  "date": "2026-08-21",
+  "branch": "fix/levy-2026-08-21-p0",
+  "head": "003854a",
+  "axes": {
+    "axe4": {
+      "status": "DONE",
+      "bugs": [
+        { "id": "BUG-4.1", "title": "QR code in gallery", "status": "DONE", "commit": "6ce6cfc" },
+        { "id": "BUG-4.2", "title": "Click photo latency", "status": "DONE", "commit": "9328b12" },
+        { "id": "BUG-4.3", "title": "Lightbox options restored", "status": "DONE", "commit": "25382be" }
+      ]
+    },
+    "axe5": {
+      "status": "DONE",
+      "bugs": [
+        { "id": "BUG-5.1", "title": "Missing settings added", "status": "DONE", "commit": "fd27faf" },
+        { "id": "BUG-5.2", "title": "Text behind Effects button hidden", "status": "DONE", "commit": "fd27faf" },
+        { "id": "BUG-5.3", "title": "Swiper/idle GIF size reduced", "status": "DONE", "commit": "fd27faf" },
+        { "id": "BUG-5.4", "title": "Idle click GIF positioning improved", "status": "DONE", "commit": "fd27faf" },
+        { "id": "BUG-5.5", "title": "Investigate 'mari' mark", "status": "DONE", "note": "Only occurrence is third-party docs/code (acorn license, SPEC). No UI artifact in app." },
+        { "id": "BUG-5.6", "title": "Responsive design safeguards", "status": "DONE", "commit": "fd27faf" }
+      ]
+    },
+    "axe6": {
+      "status": "DONE",
+      "bugs": [
+        { "id": "AXE-6", "title": "Remote control settings groundwork", "status": "DONE", "commit": "003854a", "note": "Added data-setting to controls and broadcastSettings() wrapper preparing future WebSocket control." }
+      ]
+    }
+  },
+  "summary": {
+    "total_bugs_target": 11,
+    "commits_on_branch": 7,
+    "status": "DONE"
+  }
+}

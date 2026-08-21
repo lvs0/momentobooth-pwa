@@ -4440,11 +4440,6 @@ function refreshGalleryQR() {
   const url = `${location.origin}/api/gallery`;
   if (img) img.src = `/api/qr?url=${encodeURIComponent(url)}`;
 }
-function refreshGalleryQR() {
-  const img = $("gallery-qr-image");
-  const url = `${location.origin}/api/gallery`;
-  if (img) img.src = `/api/qr?url=${encodeURIComponent(url)}`;
-}
 function guestQrUrl(url) {
   return `/api/qr?url=${encodeURIComponent(url)}`;
 }
