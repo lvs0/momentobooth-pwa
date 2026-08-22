@@ -607,8 +607,9 @@ window.__mbBootStartedAt = performance.now();
     <button id="gallery-toggle-view" class="gallery-toggle-view" title="Basculer vue grille / carrousel" aria-label="Basculer vue grille / carrousel">⊞</button>
     <span id="gallery-count" class="gallery-count">0</span>
   </div>
-  <!-- v125.0.0 — Carrousel photomaton : une photo à la fois, navigation par flèches -->
-  <div id="gallery-carousel" class="gallery-carousel">
+  <!-- v125.0.0 — Carrousel photomaton : une photo à la fois, navigation par flèches.
+       P0-fix : hidden par défaut (state.galleryMode = "grid" au chargement). -->
+  <div id="gallery-carousel" class="gallery-carousel" hidden>
     <span id="gallery-counter" class="gallery-counter" aria-live="polite">0 / 0</span>
     <div class="gallery-carousel-stage">
       <button id="gallery-prev" class="gallery-arrow gallery-arrow-left" aria-label="Photo précédente" hidden>‹</button>

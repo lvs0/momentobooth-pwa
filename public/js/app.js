@@ -6487,7 +6487,6 @@ async function grabRemoteFrame() {
 
 async function renderGallery() {
   const carouselView = $("gallery-carousel-view");
-  const gridView = $("gallery-grid-view");
   const grid = $("gallery-grid");
 
   if (state.galleryMode === "carousel" && carouselView) {
@@ -7861,10 +7860,10 @@ function initGalleryControls() {
   on("gallery-next", "click", () => goToGalleryPage(1));
   on("gallery-toggle-view", "click", () => {
     state.galleryMode = state.galleryMode === "carousel" ? "grid" : "carousel";
-    const carouselView = $("gallery-carousel");
-    const gridView = $("gallery-grid-view");
-    if (carouselView) carouselView.hidden = state.galleryMode !== "carousel";
-    if (gridView) gridView.hidden = state.galleryMode !== "grid";
+    const carouselEl = $("gallery-carousel");
+    const gridEl = $("gallery-grid");
+    if (carouselEl) carouselEl.hidden = state.galleryMode !== "carousel";
+    if (gridEl) gridEl.hidden = state.galleryMode !== "grid";
     const toggle = $("gallery-toggle-view");
     if (toggle) toggle.textContent = state.galleryMode === "carousel" ? "⊞" : "⇆";
     if (state.galleryMode === "carousel") state.galleryPage = 0;
