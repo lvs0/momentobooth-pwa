@@ -80,8 +80,49 @@ body::before { animation: drift 18s ease-in-out infinite alternate; }
 body::after { animation: drift 22s ease-in-out infinite alternate-reverse; }
 
 
-.screen { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .3s ease, transform .3s ease; height: 100%; min-height: var(--app-height); }
-.screen.active { opacity: 1; pointer-events: auto; transform: none; }
+/* Lévy 2026-08-21 — Transitions Aceternity-style : cubic-bezier spring + stagger + scale/blur */
+.screen {
+  position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transform: translateY(14px) scale(.985);
+  filter: blur(4px);
+  transition:
+    opacity .45s cubic-bezier(.22, 1, .36, 1),
+    transform .55s cubic-bezier(.22, 1, .36, 1),
+    filter .35s cubic-bezier(.22, 1, .36, 1);
+  height: 100%; min-height: var(--app-height);
+  will-change: opacity, transform, filter;
+}
+.screen.active {
+  opacity: 1; pointer-events: auto;
+  transform: none;
+  filter: blur(0);
+  transition:
+    opacity .42s cubic-bezier(.22, 1, .36, 1),
+    transform .5s cubic-bezier(.22, 1, .36, 1),
+    filter .32s cubic-bezier(.22, 1, .36, 1);
+}
+/* Stagger les enfants directs à l'entrée pour un effet cascade */
+.screen.active > * {
+  animation: screenChildIn .5s cubic-bezier(.22, 1, .36, 1) backwards;
+}
+.screen.active > *:nth-child(1) { animation-delay: 0ms; }
+.screen.active > *:nth-child(2) { animation-delay: 50ms; }
+.screen.active > *:nth-child(3) { animation-delay: 100ms; }
+.screen.active > *:nth-child(4) { animation-delay: 150ms; }
+.screen.active > *:nth-child(5) { animation-delay: 200ms; }
+.screen.active > *:nth-child(6) { animation-delay: 250ms; }
+.screen.active > *:nth-child(7) { animation-delay: 300ms; }
+.screen.active > *:nth-child(8) { animation-delay: 350ms; }
+@keyframes screenChildIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .screen, .screen.active { transition: opacity .15s ease; transform: none; filter: none; }
+  .screen.active > * { animation: none; }
+}
 .hidden { display: none !important; }
 
 /* ⚠️ CRITIQUE : masque l'interface pendant le compte à rebours (classe ajoutée en JS) */
@@ -1725,7 +1766,8 @@ body.fx-blur #camera { filter: var(--mb-live-filter, brightness(1)) saturate(1.0
 /* ============ VEILLE (idle) : caméra douce, plusieurs écrans ============ */
 /* Ne jamais flouter le parent : sinon texte, orbite et animations deviennent flous.
    Seule l'image caméra est ralentie/assombrie. */
-#screen-capture { transition: background-color 1.2s ease; }
+/* Lévy 2026-08-21 — hérite des transitions Aceternity-style de .screen mais préserve la transition bg */
+#screen-capture { transition: background-color 1.2s ease, opacity .42s cubic-bezier(.22, 1, .36, 1), transform .5s cubic-bezier(.22, 1, .36, 1), filter .32s cubic-bezier(.22, 1, .36, 1); }
 body.idle #camera { filter: blur(16px) brightness(.72) saturate(.82) !important; transition: filter 3s ease; }
 body.idle #sticker-canvas { opacity: .42; transition: opacity 1.2s ease; }
 body.idle .window-stack,
