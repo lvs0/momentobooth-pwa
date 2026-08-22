@@ -8819,7 +8819,11 @@ function stopIdleMode() {
 }
 
 function initIdleMode() {
-  if (_idleTimer || !state.idleEnabled) return;
+  // Nettoie d'abord toute instance précédente pour éviter l'accumulation de
+  // listeners (_idlePoke sur document, overlay pointer/click) si
+  // initIdleMode est rappelée (toggle settings, setting distant, relance).
+  stopIdleMode();
+  if (!state.idleEnabled) return;
   const overlay = $("idle-overlay");
   // Important : le compteur démarre maintenant, jamais à zéro au chargement.
   _idleTriggeredAt = performance.now();
