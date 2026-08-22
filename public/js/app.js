@@ -8648,6 +8648,9 @@ async function init() {
   on("btn-gallery-select-delete", "click", beginGallerySelectDelete);
   on("gallery-select-cancel", "click", cancelGallerySelectDelete);
   on("gallery-select-confirm", "click", confirmGalleryDelete);
+  // Bug 13/14 : initGalleryControls n'était jamais appelée → le toggle
+  // grille/carrousel et la lightbox ne marchaient pas.
+  try { initGalleryControls(); } catch (e) { console.error("initGalleryControls failed:", e); }
   // Le rôle Caméra publie automatiquement une session distante seulement
   // après le montage des contrôles (le token/QR peut alors être affiché).
   if (state.deviceRole === "camera" && state.stream) {
