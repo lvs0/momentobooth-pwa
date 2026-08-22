@@ -3,11 +3,11 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=125";
-import { drawMask } from "./masks.js?v=125";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=125";
-import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=125";
-import { telemetry } from "./telemetry.js?v=125";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=126";
+import { drawMask } from "./masks.js?v=126";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=126";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=126";
+import { telemetry } from "./telemetry.js?v=126";
 
 /* ---------- Sélection multiple de la galerie (organisateur, code vérifié côté serveur) ---------- */
 let _gallerySelecting = false;
