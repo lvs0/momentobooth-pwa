@@ -7838,21 +7838,28 @@ document.addEventListener("keydown", (event) => {
 function initGalleryCarouselTouch() {
   const stage = document.querySelector(".gallery-carousel-stage");
   if (!stage) return;
-  stage.addEventListener("touchstart", (e) => {
+  // Guard idempotent : retire les handlers précédents avant de ré-attcacher
+  // pour éviter l'accumulation de touchstart/touchend si la fonction est
+  // relancée (ex: relance de la galerie ou HMR).
+  stage.removeEventListener("touchstart", _onStageTouchStart);
+  stage.removeEventListener("touchend", _onStageTouchEnd);
+  _onStageTouchStart = (e) => {
     if (state.galleryMode !== "carousel") return;
     if (e.touches.length === 1) {
       state.gallerySwipeStartX = e.touches[0].clientX;
       state.gallerySwipeStartY = e.touches[0].clientY;
     }
-  }, { passive: true });
-  stage.addEventListener("touchend", (e) => {
+  };
+  _onStageTouchEnd = (e) => {
     if (state.galleryMode !== "carousel") return;
     const dx = (e.changedTouches[0]?.clientX || 0) - state.gallerySwipeStartX;
     const dy = (e.changedTouches[0]?.clientY || 0) - state.gallerySwipeStartY;
     if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
       goToGalleryPage(dx < 0 ? 1 : -1);
     }
-  });
+  };
+  stage.addEventListener("touchstart", _onStageTouchStart, { passive: true });
+  stage.addEventListener("touchend", _onStageTouchEnd, { passive: true });
 }
 
 function initGalleryControls() {
@@ -8758,6 +8765,8 @@ let _idleOverlayClickHandler = null;
 let _idleTransitionTimer = null;
 let _idleSceneTimer = null;
 let _idleSceneIndex = 0;
+let _onStageTouchStart = null;
+let _onStageTouchEnd = null;
 const IDLE_DELAY = 30000; // 30 s sans visage ni interaction (réglable)
 const IDLE_SCENE_DELAY = 6500; // chaque écran reste lisible avant le suivant
 const IDLE_PHOTOS_DELAY = 6500; // même cadence pour les photos personnalisées
