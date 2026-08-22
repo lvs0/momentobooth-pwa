@@ -108,34 +108,11 @@ window.__mbBootStartedAt = performance.now();
     }
   };
   /* iOS peut conserver un ancien contrôleur SW même après un nouveau Modal deploy.
-     On purge une seule fois puis recharge l'URL réseau avec un cache-bust. v124 :
-     on limite à 2 reloads max pour éviter une boucle de clignotement si la purge
-     échoue silencieusement (Safari iOS + cache API capricieux). */
-  try {
-    var recoveryCountKey = recoveryKey + "-count";
-    var recoveryCount = parseInt(sessionStorage.getItem(recoveryCountKey) || "0", 10);
-    if ("serviceWorker" in navigator && recoveryCount < 2) {
-      sessionStorage.setItem(recoveryCountKey, String(recoveryCount + 1));
-      sessionStorage.setItem(recoveryKey, "1");
-      Promise.all([
-        navigator.serviceWorker.getRegistrations().then(function (regs) { return Promise.all(regs.map(function (r) { return r.unregister(); })); }),
-        "caches" in window ? caches.keys().then(function (keys) { return Promise.all(keys.map(function (key) { return caches.delete(key); })); }) : Promise.resolve()
-      ]).then(function () {
-        var u = new URL(location.href);
-        u.searchParams.set("mb-recover", "126");
-        location.replace(u.toString());
-      }).catch(function () {
-        try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
-        splashFallback();
-      });
-    } else if (recoveryCount >= 2) {
-      // On a déjà essayé 2 fois, on abandonne pour éviter la boucle.
-      try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
-    }
-  } catch (e) {
-    try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
-    splashFallback();
-  }
+     v126 (Lévy 2026-08-22) — on NE FORCE PLUS le reload mb-recover si le JS a une
+     error boundary (ajoutée dans app.js). Sinon l'app crash silencieusement et on
+     boucle. Si l'user a encore des problèmes de cache, il reload manuellement. */
+  try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
+  splashFallback();
   /* Même si un module est bloqué, le contenu ne doit jamais rester sous un rideau. */
   window.setTimeout(splashFallback, 4500);
   window.addEventListener("error", splashFallback, { once: true });

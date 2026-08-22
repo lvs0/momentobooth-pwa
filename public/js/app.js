@@ -187,6 +187,33 @@ telemetry.startupMark("jsReady");
 if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => telemetry.startupMark("firstPaint"));
 const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé tant que l'organisateur ne l'active pas.
 
+/* ---------- Error boundary globale (Lévy 2026-08-22 — v126) ----------
+   Avant : tout crash JS runtime tombait dans la boucle mb-recover
+   silencieuse (page Modal "problème récurrent"). Maintenant on attrape
+   l'erreur, on l'affiche dans #camera-error, et on remonte la stack
+   pour que Lévy puisse diagnostiquer sans DevTools iOS. */
+function showRuntimeError(label, err) {
+  try {
+    const errorEl = document.getElementById("camera-error");
+    if (errorEl) {
+      const title = errorEl.querySelector(".camera-error-title");
+      const text = errorEl.querySelector(".camera-error-text");
+      if (title) title.textContent = "Erreur d'application";
+      if (text) text.textContent = label + " : " + (err && err.message ? err.message : String(err)).slice(0, 200);
+      errorEl.classList.remove("hidden");
+      errorEl.setAttribute("aria-hidden", "false");
+    }
+    // Log aussi dans la console pour devtools iOS
+    console.error("[mb-runtime-error]", label, err);
+  } catch (_) { /* no-op */ }
+}
+window.addEventListener("error", (event) => {
+  showRuntimeError("Erreur JS", event.error || event.message);
+}, { capture: true });
+window.addEventListener("unhandledrejection", (event) => {
+  showRuntimeError("Promesse rejetée", event.reason);
+}, { capture: true });
+
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
 const screens = { capture: $("screen-capture"), result: $("screen-result"), gallery: $("screen-gallery"), guest: $("screen-guest"), discover: $("screen-discover") };
