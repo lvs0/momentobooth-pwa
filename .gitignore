@@ -19,3 +19,7 @@ photos/
 Thumbs.db
 *.swp
 scripts/
+
+# Tooling local
+.serena/
+server/test-results/
