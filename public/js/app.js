@@ -9212,4 +9212,126 @@ void init().catch((error) => {
 // Préchauffe le ping serveur dès l'ouverture (en arrière-plan, non bloquant) :
 // au moment de la première capture, on sait déjà si le serveur (local ou Modal)
 // est joignable — plus aucune attente de 5 s pendant la photo.
+
+// ── Phase 6 IMPL-B : Anime.js transitions ──
+// Monkey-patch screen switching + countdown with anime.js when available.
+// Loaded as a classic <script> before core.js; window.anime is global.
+(function hookAnimeTransitions() {
+  const HAS_ANIME = typeof anime !== 'undefined';
+
+  if (!HAS_ANIME) return; // no-op, CSS fallback stays
+
+  // Wait for app.js to define showResult / showCapture / showGuest / startCountdown
+  const install = () => {
+    if (typeof showResult !== 'function') return setTimeout(install, 100);
+
+    const _showResult = showResult;
+    const _showCapture = showCapture;
+    const _startCountdown = startCountdown;
+
+    // ── Animate screen transitions ──
+    const animScreenEnter = (screen) => {
+      if (!screen) return;
+      const children = Array.from(screen.children).filter(c => c.nodeType === 1);
+      if (!children.length) return;
+      children.forEach(c => { c.style.opacity = '0'; c.style.transform = 'translateY(12px) scale(0.97)'; });
+      anime({ targets: children, opacity: [0, 1], translateY: [12, 0], scale: [0.97, 1],
+        delay: anime.stagger(55, { start: 0 }), duration: 420, easing: 'easeOutCubic',
+        complete: () => children.forEach(c => { c.style.opacity = ''; c.style.transform = ''; }) });
+    };
+
+    showResult = function() {
+      _showResult.apply(this, arguments);
+      animScreenEnter(screens.result);
+    };
+    showCapture = function() {
+      _showCapture.apply(this, arguments);
+      animScreenEnter(screens.capture);
+    };
+    // Also hook guest screen
+    if (typeof initGuestMode === 'function') {
+      const _initGuestMode = initGuestMode;
+      initGuestMode = async function() {
+        const result = await _initGuestMode.apply(this, arguments);
+        if (result && screens.guest) animScreenEnter(screens.guest);
+        return result;
+      };
+    }
+
+    // ── Animate countdown 3-2-1 ──
+    startCountdown = async function() {
+      if (state.counting) return;
+      state.counting = true;
+      state._countdownCancelled = false;
+      const countdownToken = {};
+      state._countdownToken = countdownToken;
+      const countdownIsCurrent = () => state.counting && state._countdownToken === countdownToken && !state._countdownCancelled;
+      state.countingPaused = false;
+      const pauseBadge = $("countdown-pause");
+      if (pauseBadge) pauseBadge.classList.add("hidden");
+      countdownEl.classList.remove("paused");
+      document.body.classList.add("ui-hidden");
+      document.body.classList.add("counting-mode");
+      requestWakeLock();
+      countdownEl.classList.remove("hidden");
+      let remaining = state.timerSeconds;
+      countdownNumber.textContent = String(remaining);
+
+      // Initial ring pulse
+      const ringEl = countdownEl.querySelector('.countdown-ring');
+      if (ringEl) {
+        anime({ targets: ringEl, scale: [0.85, 1], duration: 500, easing: 'easeOutCubic',
+          complete: () => { ringEl.style.transform = ''; } });
+      }
+
+      // Animate the first number
+      anime({ targets: countdownNumber, scale: [0.3, 1.15, 1], opacity: [0, 1], translateY: [20, 0],
+        duration: 600, easing: 'easeOutElastic(1, .5)' });
+
+      const tick = async () => {
+        if (state.countingPaused) {
+          await new Promise((resolve) => { state._resumeCountdown = resolve; });
+        }
+        if (!countdownIsCurrent()) return null;
+        sfxTick();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (!countdownIsCurrent()) return null;
+        remaining -= 1;
+        if (remaining > 0) {
+          countdownNumber.textContent = String(remaining);
+          // Bounce each countdown step
+          anime({ targets: countdownNumber, scale: [0.4, 1.2, 1], opacity: [0, 1], translateY: [16, 0],
+            duration: 550, easing: 'easeOutElastic(1, .45)' });
+          // Ring pulse
+          if (ringEl) {
+            anime({ targets: ringEl, scale: [0.9, 1], duration: 400, easing: 'easeOutCubic',
+              complete: () => { ringEl.style.transform = ''; } });
+          }
+          return tick();
+        }
+        sfxFinal();
+        countdownEl.classList.add("hidden");
+        if (countdownIsCurrent()) await capture();
+        return null;
+      };
+      try {
+        await tick();
+      } finally {
+        if (state._countdownToken !== countdownToken) return;
+        countdownEl.classList.add("hidden");
+        countdownEl.classList.remove("paused");
+        document.body.classList.remove("ui-hidden", "counting-mode");
+        releaseWakeLock();
+        state.counting = false;
+        state.countingPaused = false;
+        state._countdownToken = null;
+        state._resumeCountdown = null;
+        state._countdownCancelled = false;
+      }
+    };
+
+    console.log('[MomentoBooth] Anime.js transitions + countdown installed ✓');
+  };
+  install();
+})();
 setTimeout(() => { void serverProcessUp().catch(() => {}); }, 1500);
