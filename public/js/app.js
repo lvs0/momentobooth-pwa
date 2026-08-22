@@ -3,11 +3,11 @@
    Tap = minuteur · swipe = filtre en direct · masques visage
    · mode AUTO · portrait (flou) · GIF animé · flash · paramètres
    ========================================================= */
-import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=127";
-import { drawMask } from "./masks.js?v=127";
-import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=127";
-import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=127";
-import { telemetry } from "./telemetry.js?v=127";
+import { FILTERS, filterById, applyPixelFilter, MASK_ICONS } from "./filters.js?v=129";
+import { drawMask } from "./masks.js?v=129";
+import { FRAMES, drawFrame, framePreview, FRAME_TEXTS } from "./frames.js?v=129";
+import { ANIMATIONS, animationById, startAnimation, stopAnimation } from "./animations.js?v=129";
+import { telemetry } from "./telemetry.js?v=129";
 
 /* ---------- Sélection multiple de la galerie (organisateur, code vérifié côté serveur) ---------- */
 let _gallerySelecting = false;
@@ -8955,7 +8955,7 @@ function enterIdle() {
   // démarrage (significatif sur tablette Huawei / iPhone).
   if (!window.__mbIdleWallReady) {
     window.__mbIdleWallReady = true;
-    import(`./modules/idle-wall.js?v=${window.APP_VERSION || 127}`)
+    import(`./modules/idle-wall.js?v=${window.APP_VERSION || 129}`)
       .then((mod) => mod.populateIdleWallScene())
       .catch(() => {});
   } else if (typeof window.mbPopulateIdleWall === "function") {
