@@ -5017,6 +5017,10 @@ const WEBRTC_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "s
 let _webrtcInitGeneration = 0; // borne toute tentative obsolète
 let _webrtcOfferRetryTimer = null;
 let _webrtcOfferRetries = 0;
+// rAF du drawFrame WebRTC interface — cancellé quand la peer connection ferme
+// pour éviter une boucle de rendu orpheline entre la déconnexion et le prochain
+// check de génération.
+let _remoteVideoRafId = null;
 
 function buildWebRtcSocket(auth) {
   // `io` est la globale posée par /socket.io/socket.io.js chargé dans index.html.
@@ -5055,6 +5059,7 @@ function closeWebrtcPeer(reason) {
   state.webrtcActive = false;
   state.webrtcPeerLeft = false;
   state.webrtcSignalingFailed = false;
+  if (_remoteVideoRafId != null) { cancelAnimationFrame(_remoteVideoRafId); _remoteVideoRafId = null; }
   if (reason) console.debug("[MomentoBooth][webrtc] peer closed:", reason);
 }
 
@@ -6413,7 +6418,11 @@ async function initInterfaceWebrtc(generation) {
     document.body.appendChild(video);
     video.play().catch(() => {});
     const drawFrame = () => {
-      if (myGen !== _webrtcInitGeneration || !state.webrtcActive) { video.remove(); return; }
+      if (myGen !== _webrtcInitGeneration || !state.webrtcActive) {
+        if (_remoteVideoRafId != null) { cancelAnimationFrame(_remoteVideoRafId); _remoteVideoRafId = null; }
+        video.remove();
+        return;
+      }
       if (video.videoWidth && _remotePreviewCanvas) {
         if (_remotePreviewCanvas.width !== video.videoWidth) _remotePreviewCanvas.width = video.videoWidth;
         if (_remotePreviewCanvas.height !== video.videoHeight) _remotePreviewCanvas.height = video.videoHeight;
@@ -6423,9 +6432,9 @@ async function initInterfaceWebrtc(generation) {
         state.remoteLastFrameReceivedAt = Date.now();
         feedCustomizerRemotePreview();
       }
-      requestAnimationFrame(drawFrame);
+      _remoteVideoRafId = requestAnimationFrame(drawFrame);
     };
-    requestAnimationFrame(drawFrame);
+    _remoteVideoRafId = requestAnimationFrame(drawFrame);
   };
   pc.oniceconnectionstatechange = () => {
     if (myGen !== _webrtcInitGeneration || !state.webrtcPC) return;
