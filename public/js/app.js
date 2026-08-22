@@ -182,7 +182,7 @@ const _gallerySelection = new Set();
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "125"; // choix de rôle au démarrage : doit matcher le HTML
+const APP_VERSION = "126"; // Lévy 2026-08-22 — aligné avec core.js pour éviter mb-recover=124 en boucle (app v125 + features TikTok)
 telemetry.startupMark("jsReady");
 if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => telemetry.startupMark("firstPaint"));
 const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé tant que l'organisateur ne l'active pas.

@@ -121,7 +121,7 @@ window.__mbBootStartedAt = performance.now();
         "caches" in window ? caches.keys().then(function (keys) { return Promise.all(keys.map(function (key) { return caches.delete(key); })); }) : Promise.resolve()
       ]).then(function () {
         var u = new URL(location.href);
-        u.searchParams.set("mb-recover", "124");
+        u.searchParams.set("mb-recover", "126");
         location.replace(u.toString());
       }).catch(function () {
         try { sessionStorage.removeItem(recoveryKey); sessionStorage.removeItem(recoveryCountKey); } catch (_) {}
