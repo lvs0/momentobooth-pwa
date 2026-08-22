@@ -8746,6 +8746,7 @@ let _idleTimer = null;
 let _idleTriggeredAt = 0;
 let _idlePoke = null;
 let _idleOverlayHandler = null;
+let _idleOverlayClickHandler = null;
 let _idleTransitionTimer = null;
 let _idleSceneTimer = null;
 let _idleSceneIndex = 0;
@@ -8803,7 +8804,9 @@ function stopIdleMode() {
   }
   const overlay = $("idle-overlay");
   if (overlay && _idleOverlayHandler) overlay.removeEventListener("pointerdown", _idleOverlayHandler);
+  if (overlay && _idleOverlayClickHandler) overlay.removeEventListener("click", _idleOverlayClickHandler, { capture: true });
   _idleOverlayHandler = null;
+  _idleOverlayClickHandler = null;
   clearTimeout(_idleTransitionTimer);
 }
 
@@ -8834,7 +8837,18 @@ function initIdleMode() {
     clearTimeout(_idleTransitionTimer);
     _idleTransitionTimer = null;
   };
+  // Bug 7 : pointerdown peut ne pas fire sur certains appareils tactiles si
+  // un autre élément le capture en premier. Ajoute click en fallback.
+  _idleOverlayClickHandler = (e) => {
+    if (!document.body.classList.contains("idle")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    exitIdle();
+    clearTimeout(_idleTransitionTimer);
+    _idleTransitionTimer = null;
+  };
   overlay?.addEventListener("pointerdown", _idleOverlayHandler);
+  overlay?.addEventListener("click", _idleOverlayClickHandler, { capture: true });
 }
 
 
