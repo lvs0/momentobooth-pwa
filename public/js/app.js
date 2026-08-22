@@ -182,7 +182,7 @@ const _gallerySelection = new Set();
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "127"; // Lévy 2026-08-22 — P0 audit fixes: gallery toggle, idle tap, settings overlap
+const APP_VERSION = "128"; // Lévy 2026-08-22 — Impeccable polish: 6 bounce-easing → ease-out-expo, layout transition → transform, lightbox placeholder
 telemetry.startupMark("jsReady");
 if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => telemetry.startupMark("firstPaint"));
 const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé tant que l'organisateur ne l'active pas.
