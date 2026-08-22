@@ -1635,17 +1635,18 @@ function buildPhotoFilterRail() {
   // Clavier : ↑/↓ (ou ←/→ selon l'orientation de la roue) déplace ET
   // sélectionne immédiatement, comme le toucher — pas de bouton Appliquer.
   list.tabIndex = 0;
-  list.addEventListener("keydown", (event) => {
+  _onFilterRailKeyDown = (event) => {
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
     const dir = (event.key === "ArrowUp" || event.key === "ArrowLeft") ? -1 : 1;
     selected = Math.max(0, Math.min(PHOTO_FILTERS.length - 1, selected + dir));
     applyWheelSelection(selected);
     sfxOpen();
-  });
+  };
+  list.addEventListener("keydown", _onFilterRailKeyDown);
   let startY = 0, lastY = 0, dragging = false;
-  list.addEventListener("pointerdown", (event) => { dragging = true; startY = lastY = event.clientY; list.setPointerCapture?.(event.pointerId); event.preventDefault(); });
-  list.addEventListener("pointermove", (event) => {
+  _onFilterRailPointerDown = (event) => { dragging = true; startY = lastY = event.clientY; list.setPointerCapture?.(event.pointerId); event.preventDefault(); };
+  _onFilterRailPointerMove = (event) => {
     if (!dragging) return;
     if (Math.abs(event.clientY - startY) > 18) {
       selected = Math.max(0, Math.min(PHOTO_FILTERS.length - 1, selected + (event.clientY < lastY ? 1 : -1)));
@@ -1653,9 +1654,13 @@ function buildPhotoFilterRail() {
       applyWheelSelection(selected);
     }
     event.preventDefault();
-  });
-  list.addEventListener("pointerup", () => { dragging = false; });
-  list.addEventListener("pointercancel", () => { dragging = false; });
+  };
+  _onFilterRailPointerUp = () => { dragging = false; };
+  _onFilterRailPointerCancel = () => { dragging = false; };
+  list.addEventListener("pointerdown", _onFilterRailPointerDown, { passive: true });
+  list.addEventListener("pointermove", _onFilterRailPointerMove, { passive: false });
+  list.addEventListener("pointerup", _onFilterRailPointerUp, { passive: true });
+  list.addEventListener("pointercancel", _onFilterRailPointerCancel, { passive: true });
   // P1.3 — rotation molette avec inertie + snap
   // Guard idempotent : si buildPhotoFilterRail est rappelée (reload de la
   // liste des filtres, restart galerie, HMR), le wheel handler s'empile
@@ -1682,8 +1687,8 @@ function buildPhotoFilterRail() {
     _wheelTick = setInterval(_wheelStep, 80);
     _wheelTimer = setTimeout(() => { clearInterval(_wheelTick); _wheelTick = null; _wheelVelocity = 0; applyWheelSelection(selected); }, 600);
   };
-  list._filterWheelHandler = _filterWheelHandler;
-  list.addEventListener("wheel", _filterWheelHandler, { passive: false });
+  _onFilterRailWheel = _filterWheelHandler;
+  list.addEventListener("wheel", _onFilterRailWheel, { passive: false });
   const wheelVideo = $("filter-wheel-live");
   if (wheelVideo && state.stream) { wheelVideo.srcObject = state.stream; wheelVideo.play?.().catch(() => {}); }
   applyWheelSelection(selected, false);
