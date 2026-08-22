@@ -17,7 +17,7 @@
    sont importés qu'à la demande par app.js lui-même (voir
    public/js/modules/*).
    ========================================================= */
-const APP_VERSION = "128"; // Lévy 2026-08-22 — Impeccable polish: 6 bounce-easing → ease-out-expo, layout transition → transform, lightbox placeholder
+const APP_VERSION = "129"; // Lévy 2026-08-22 — Safari-killers phase 2: 4 atomic fixes (focus-trap, initIdleMode dedupe, gallery touch idempotent, webrtc rAF cancel) + filter wheel idempotent
 const FALLBACK_SPLASH_MS = 2500;
 
 // Diagnostic précoce : posé avant même que app.js ne soit parsé.

@@ -182,7 +182,7 @@ const _gallerySelection = new Set();
 };
 
 /* ---------- Version (anti-cache) ---------- */
-const APP_VERSION = "128"; // Lévy 2026-08-22 — Impeccable polish: 6 bounce-easing → ease-out-expo, layout transition → transform, lightbox placeholder
+const APP_VERSION = "129"; // Lévy 2026-08-22 — Safari-killers phase 2: 4 atomic fixes (focus-trap, initIdleMode dedupe, gallery touch idempotent, webrtc rAF cancel) + filter wheel idempotent
 telemetry.startupMark("jsReady");
 if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => telemetry.startupMark("firstPaint"));
 const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé tant que l'organisateur ne l'active pas.
@@ -1561,6 +1561,14 @@ function applyWheelSelection(index, announce = true) {
    basse (≈1,4 im/s) : la miniature n'a besoin d'être qu'à jour, pas fluide. */
 let _railThumbTimer = null;
 let _railThumbUrl = null;
+// Handlers nommés pour la filter rail — référence conservée pour removeEventListener
+// idempotent dans buildPhotoFilterRail().
+let _onFilterRailKeyDown = null;
+let _onFilterRailPointerDown = null;
+let _onFilterRailPointerMove = null;
+let _onFilterRailPointerUp = null;
+let _onFilterRailPointerCancel = null;
+let _onFilterRailWheel = null;
 function refreshFilterRailThumbnails() {
   const rail = $("photo-filter-rail");
   const video = $("filter-wheel-live");
@@ -1590,6 +1598,15 @@ function refreshFilterRailThumbnails() {
 function buildPhotoFilterRail() {
   const list = $("photo-filter-rail-list");
   if (!list) return;
+  // Idempotent guards : retire les handlers précédents attachés à `list`
+  // lui-même (keydown/pointer*/wheel) avant de ré-attcacher pour éviter
+  // l'accumulation si buildPhotoFilterRail est relancé (thème/performance).
+  list.removeEventListener("keydown", _onFilterRailKeyDown);
+  list.removeEventListener("pointerdown", _onFilterRailPointerDown);
+  list.removeEventListener("pointermove", _onFilterRailPointerMove);
+  list.removeEventListener("pointerup", _onFilterRailPointerUp);
+  list.removeEventListener("pointercancel", _onFilterRailPointerCancel);
+  list.removeEventListener("wheel", _onFilterRailWheel);
   list.innerHTML = "";
   let selected = Math.max(0, PHOTO_FILTERS.findIndex((item) => item.id === state.photoFilterId));
   PHOTO_FILTERS.forEach((item, index) => {
@@ -1640,7 +1657,13 @@ function buildPhotoFilterRail() {
   list.addEventListener("pointerup", () => { dragging = false; });
   list.addEventListener("pointercancel", () => { dragging = false; });
   // P1.3 — rotation molette avec inertie + snap
+  // Guard idempotent : si buildPhotoFilterRail est rappelée (reload de la
+  // liste des filtres, restart galerie, HMR), le wheel handler s'empile
+  // sinon. On stocke la référence du handler et on retire avant ré-attache.
   let _wheelVelocity = 0, _wheelTimer = null, _wheelTick = null;
+  if (list._filterWheelHandler) {
+    try { list.removeEventListener("wheel", list._filterWheelHandler); } catch {}
+  }
   const _wheelStep = () => {
     const abs = Math.abs(_wheelVelocity);
     if (abs < 0.02) { clearInterval(_wheelTick); _wheelTick = null; _wheelVelocity = 0; applyWheelSelection(selected); return; }
@@ -1650,7 +1673,7 @@ function buildPhotoFilterRail() {
     _wheelVelocity *= 0.85;
     if (Math.abs(_wheelVelocity) < 0.02) { clearInterval(_wheelTick); _wheelTick = null; _wheelVelocity = 0; applyWheelSelection(selected); }
   };
-  list.addEventListener("wheel", (event) => {
+  const _filterWheelHandler = (event) => {
     event.preventDefault();
     _wheelVelocity += event.deltaY * 0.012;
     _wheelVelocity = Math.max(-8, Math.min(8, _wheelVelocity));
@@ -1658,7 +1681,9 @@ function buildPhotoFilterRail() {
     clearInterval(_wheelTick);
     _wheelTick = setInterval(_wheelStep, 80);
     _wheelTimer = setTimeout(() => { clearInterval(_wheelTick); _wheelTick = null; _wheelVelocity = 0; applyWheelSelection(selected); }, 600);
-  }, { passive: false });
+  };
+  list._filterWheelHandler = _filterWheelHandler;
+  list.addEventListener("wheel", _filterWheelHandler, { passive: false });
   const wheelVideo = $("filter-wheel-live");
   if (wheelVideo && state.stream) { wheelVideo.srcObject = state.stream; wheelVideo.play?.().catch(() => {}); }
   applyWheelSelection(selected, false);
