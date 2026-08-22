@@ -7962,7 +7962,9 @@ function openSheet(id) {
    pour fermer, retour de focus au déclencheur). */
 function bindDialogFocusTrap(panelId, onEscape) {
   let returnFocus = null;
-  document.addEventListener("keydown", (event) => {
+  // Garde une référence au handler pour pouvoir le retirer avant de ré-attacher
+  // (évite l'accumulation de listeners keydown sur document en cas de relance).
+  const onKeydown = (event) => {
     const el = $(panelId);
     if (!el || !el.classList.contains("open")) return;
     if (event.key === "Escape") { event.preventDefault(); onEscape(); return; }
@@ -7977,7 +7979,10 @@ function bindDialogFocusTrap(panelId, onEscape) {
       event.preventDefault();
       focusables[nextIndex].focus();
     }
-  });
+  };
+  // Idempotent : retire le handler précédent (même closure) avant de ré-attacher.
+  document.removeEventListener("keydown", onKeydown);
+  document.addEventListener("keydown", onKeydown);
   return {
     onOpen() {
       returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
