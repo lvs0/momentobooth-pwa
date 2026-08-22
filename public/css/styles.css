@@ -3602,3 +3602,44 @@ a, .card, .panel, .overlay, .modal, [data-transition] {
 @media (prefers-reduced-motion: reduce) {
   .discover-cards { scroll-behavior: auto; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   FEAT-B — Easter egg "Inspiration TikTok" dans le customizer
+   ═══════════════════════════════════════════════════════════ */
+.customizer-easter-egg summary {
+  font-weight: 700; color: var(--color-accent, #7dd3fc);
+  letter-spacing: .02em;
+}
+.tiktok-inspo-intro {
+  font-size: .82rem; color: rgba(255,255,255,0.5); margin: 8px 0 16px;
+  line-height: 1.45;
+}
+.tiktok-inspo-group { margin-bottom: 18px; }
+.tiktok-inspo-group-title {
+  font-size: .78rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .08em; color: rgba(255,255,255,0.4); margin: 0 0 10px;
+}
+.tiktok-inspo-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.tiktok-inspo-card {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  text-decoration: none; cursor: pointer;
+  transition: background .15s ease, transform .15s ease, border-color .15s ease;
+}
+.tiktok-inspo-card:hover {
+  background: rgba(125,211,252,0.08); border-color: rgba(125,211,252,0.25);
+  transform: translateY(-2px);
+}
+.tiktok-inspo-num {
+  font-size: .68rem; font-weight: 800; color: var(--color-accent, #7dd3fc);
+}
+.tiktok-inspo-name {
+  font-size: .92rem; font-weight: 700; color: var(--color-fg, #fff);
+}
+.tiktok-inspo-url {
+  font-size: .72rem; color: rgba(255,255,255,0.4); font-family: ui-monospace, monospace;
+}
