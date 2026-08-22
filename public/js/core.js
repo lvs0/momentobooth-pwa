@@ -17,7 +17,7 @@
    sont importés qu'à la demande par app.js lui-même (voir
    public/js/modules/*).
    ========================================================= */
-const APP_VERSION = "126"; // Lévy 2026-08-22 — bump pour forcer SW à purger le cache v124 qui crash en boucle (mb-recover=124)
+const APP_VERSION = "127"; // Lévy 2026-08-22 — P0 audit fixes: gallery toggle, idle tap, settings overlap
 const FALLBACK_SPLASH_MS = 2500;
 
 // Diagnostic précoce : posé avant même que app.js ne soit parsé.
