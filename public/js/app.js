@@ -189,7 +189,7 @@ const LOGO_PREF_VERSION = "photo-logo-opt-in-v1"; // le logo reste désactivé t
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
-const screens = { capture: $("screen-capture"), result: $("screen-result"), gallery: $("screen-gallery"), guest: $("screen-guest") };
+const screens = { capture: $("screen-capture"), result: $("screen-result"), gallery: $("screen-gallery"), guest: $("screen-guest"), discover: $("screen-discover") };
 const camera = $("camera");
 const cameraZone = $("camera-zone");
 /* Le secours inline peut obtenir un flux pendant une ancienne session PWA.
@@ -7550,6 +7550,58 @@ $("fx-carousel")?.addEventListener("scroll", () => {
 	  if (qrImg) qrImg.src = `/api/qr?url=${encodeURIComponent(galleryUrl)}`;
 	  void renderGallery();
 	}
+/* ---------- FEAT-A: Écran de découverte cards swipeable ---------- */
+function openDiscover() {
+  pauseLiveProcessing();
+  screens.capture.classList.remove("active");
+  screens.result.classList.remove("active");
+  screens.gallery.classList.remove("active");
+  screens.discover.classList.add("active");
+  // Reset scroll position
+  const cardsEl = $("discover-cards");
+  if (cardsEl) cardsEl.scrollTop = 0;
+  updateDiscoverDots();
+}
+function closeDiscover() {
+  screens.discover.classList.remove("active");
+  screens.capture.classList.add("active");
+  resumeLiveProcessing();
+}
+function updateDiscoverDots() {
+  const cardsEl = $("discover-cards");
+  const dots = document.querySelectorAll("#discover-dots .dot");
+  if (!cardsEl || !dots.length) return;
+  const idx = Math.round(cardsEl.scrollTop / cardsEl.clientHeight);
+  dots.forEach((d, i) => d.classList.toggle("active", i === idx));
+}
+// Scroll event for dots
+{
+  const cardsEl = $("discover-cards");
+  if (cardsEl) {
+    cardsEl.addEventListener("scroll", updateDiscoverDots, { passive: true });
+  }
+}
+// "Voir en action" buttons
+document.querySelectorAll(".discover-card-btn").forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    const card = e.target.closest(".discover-card");
+    if (!card) return;
+    const action = card.dataset.action;
+    closeDiscover();
+    switch (action) {
+      case "gallery": openGallery(); break;
+      case "countdown": state.countdownEnabled = true; void takePhoto(); break;
+      case "filters": $("photo-filter-rail")?.classList.add("open"); break;
+      case "pairing": $("btn-camera-mode")?.click(); break;
+      case "customizer": openCustomizer(); break;
+    }
+  });
+});
+// Back button
+on("btn-discover-back", "click", closeDiscover);
+// Header button
+on("btn-discover-top", "click", openDiscover);
+
 on("guest-share-close", "click", closeGuestSharePanel);
 on("btn-trash-access", "click", openTrashPanel);
 on("trash-close", "click", closeTrashPanel);

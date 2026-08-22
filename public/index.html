@@ -210,6 +210,11 @@ window.__mbBootStartedAt = performance.now();
       <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
       <span>Galerie</span>
     </button>
+
+    <button id="btn-discover-top" class="discover-top-btn" type="button" aria-label="Découvrir les features MomentoBooth">
+      <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      <span>Découvrir</span>
+    </button>
   </header>
 
   <!-- Anneau radial des filtres photo : uniquement les filtres d'image -->
@@ -684,6 +689,49 @@ window.__mbBootStartedAt = performance.now();
       <button id="trash-close" class="sheet-close" type="button" aria-label="Fermer">✕</button>
     </div>
     <div id="trash-grid" class="trash-grid"></div>
+  </div>
+</section>
+
+<!-- Écran de découverte : 5 features MomentoBooth en cards swipeable style TikTok -->
+<section id="screen-discover" class="screen discover-screen">
+  <header class="discover-header">
+    <button id="btn-discover-back" class="sheet-close discover-back" type="button" aria-label="Retour à la caméra">✕</button>
+    <div class="discover-title">5 features<br><strong>MomentoBooth</strong></div>
+  </header>
+  <div id="discover-cards" class="discover-cards">
+    <div class="discover-card" data-action="gallery">
+      <div class="discover-card-num">N°1</div>
+      <h3 class="discover-card-title">Galerie en direct</h3>
+      <p class="discover-card-desc">Toutes les photos en temps réel, accessibles d'un tap</p>
+      <button class="discover-card-btn" type="button">Voir en action</button>
+    </div>
+    <div class="discover-card" data-action="countdown">
+      <div class="discover-card-num">N°2</div>
+      <h3 class="discover-card-title">Compte à rebours</h3>
+      <p class="discover-card-desc">3, 2, 1… Souriez ! Déclenchez un compte à rebours</p>
+      <button class="discover-card-btn" type="button">Voir en action</button>
+    </div>
+    <div class="discover-card" data-action="filters">
+      <div class="discover-card-num">N°3</div>
+      <h3 class="discover-card-title">Filtres 3D</h3>
+      <p class="discover-card-desc">Lentilles Snapchat-like pour des photos fun</p>
+      <button class="discover-card-btn" type="button">Voir en action</button>
+    </div>
+    <div class="discover-card" data-action="pairing">
+      <div class="discover-card-num">N°4</div>
+      <h3 class="discover-card-title">Mode multi-appareils</h3>
+      <p class="discover-card-desc">iPhone caméra + Tablette interface, sans fil</p>
+      <button class="discover-card-btn" type="button">Voir en action</button>
+    </div>
+    <div class="discover-card" data-action="customizer">
+      <div class="discover-card-num">N°5</div>
+      <h3 class="discover-card-title">Personnalisation</h3>
+      <p class="discover-card-desc">Thème, cadres, photos de veille — tout se règle</p>
+      <button class="discover-card-btn" type="button">Voir en action</button>
+    </div>
+  </div>
+  <div class="discover-dots" id="discover-dots">
+    <span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
   </div>
 </section>
 
